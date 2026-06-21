@@ -1,0 +1,53 @@
+{
+  "nav": {
+    "menu": "القائمة",
+    "dashboard": "لوحة التحكم",
+    "exams": "الاختبارات",
+    "items": "بنك الأسئلة",
+    "itemReview": "مراجعة الأسئلة",
+    "monitor": "المراقبة المباشرة",
+    "students": "الطلاب",
+    "teachers": "المعلمون",
+    "analytics": "التحليلات",
+    "results": "النتائج",
+    "myExams": "اختباراتي",
+    "settings": "الإعدادات",
+    "institutions": "المؤسسات",
+    "users": "المستخدمون",
+    "signOut": "تسجيل الخروج"
+  },
+  "headings": {
+    "welcome": "مرحباً بعودتك",
+    "dashboard": "لوحة التحكم",
+    "exams": "الاختبارات",
+    "createExam": "إنشاء اختبار",
+    "itemBank": "بنك الأسئلة",
+    "itemReview": "مراجعة الأسئلة",
+    "students": "الطلاب",
+    "teachers": "المعلمون",
+    "analytics": "التحليلات",
+    "results": "النتائج",
+    "myExams": "اختباراتي",
+    "monitor": "المراقبة المباشرة",
+    "settings": "الإعدادات",
+    "login": "تسجيل الدخول",
+    "register": "إنشاء حساب مؤسسة",
+    "adminDashboard": "لوحة تحكم المسؤول",
+    "studentDashboard": "اختباراتي",
+    "newItem": "سؤال جديد"
+  },
+  "actions": {
+    "createExam": "إنشاء اختبار",
+    "createItem": "إنشاء سؤال",
+    "generateAI": "توليد بالذكاء الاصطناعي",
+    "inviteStudents": "دعوة الطلاب",
+    "inviteTeacher": "دعوة معلم",
+    "startExam": "بدء الاختبار",
+    "import": "استيراد",
+    "exportPdf": "تصدير PDF",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "submit": "إرسال",
+    "start": "بدء الاختبار"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "nav": {
+    "menu": "Menu",
+    "dashboard": "Dashboard",
+    "exams": "Exams",
+    "items": "Item Bank",
+    "itemReview": "Item Review",
+    "monitor": "Live Monitor",
+    "students": "Students",
+    "teachers": "Teachers",
+    "analytics": "Analytics",
+    "results": "Results",
+    "myExams": "My Exams",
+    "settings": "Settings",
+    "institutions": "Institutions",
+    "users": "Users",
+    "signOut": "Sign Out"
+  },
+  "headings": {
+    "welcome": "Welcome back",
+    "dashboard": "Dashboard",
+    "exams": "Exams",
+    "createExam": "Create Exam",
+    "itemBank": "Item Bank",
+    "itemReview": "Item Review",
+    "students": "Students",
+    "teachers": "Teachers",
+    "analytics": "Analytics",
+    "results": "Results",
+    "myExams": "My Exams",
+    "monitor": "Live Monitor",
+    "settings": "Settings",
+    "login": "Sign In",
+    "register": "Create Institution Account",
+    "adminDashboard": "Admin Dashboard",
+    "studentDashboard": "My Exams",
+    "newItem": "New Item"
+  },
+  "actions": {
+    "createExam": "Create Exam",
+    "createItem": "Create Item",
+    "generateAI": "Generate AI Items",
+    "inviteStudents": "Invite Students",
+    "inviteTeacher": "Invite Teacher",
+    "startExam": "Start Exam",
+    "import": "Import",
+    "exportPdf": "Export PDF",
+    "save": "Save",
+    "cancel": "Cancel",
+    "submit": "Submit",
+    "start": "Start Exam"
+  }
+}
