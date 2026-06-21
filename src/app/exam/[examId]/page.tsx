@@ -8,6 +8,7 @@ import { useProctoringStore } from '@/store/proctoringStore';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useExamTimer } from '@/hooks/useExamTimer';
 import { ProctoringOverlay } from '@/components/proctoring/ProctoringOverlay';
+import { DesktopGuard } from '@/components/shared/DesktopGuard';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -139,6 +140,7 @@ export default function ExamPage() {
   const progress = Math.round((answeredCount / questions.length) * 100);
 
   return (
+    <DesktopGuard>
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <ProctoringOverlay examId={examId} attemptId={attemptId || 'attempt-loading'} />
 
@@ -410,6 +412,7 @@ export default function ExamPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </DesktopGuard>
   );
 }
 

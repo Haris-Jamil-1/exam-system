@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { useProctoringStore } from '@/store/proctoringStore';
+import { DesktopGuard } from '@/components/shared/DesktopGuard';
 
 export default function ExamCompletePage() {
   const params = useSearchParams();
@@ -18,6 +19,7 @@ export default function ExamCompletePage() {
   const scoreColor = pct >= 70 ? 'text-green-600' : pct >= 50 ? 'text-yellow-600' : 'text-red-600';
 
   return (
+    <DesktopGuard>
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="max-w-md w-full space-y-6">
         {/* Hero */}
@@ -106,5 +108,6 @@ export default function ExamCompletePage() {
         </div>
       </div>
     </div>
+    </DesktopGuard>
   );
 }
