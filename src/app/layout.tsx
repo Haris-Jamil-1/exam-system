@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Plus_Jakarta_Sans, Cairo } from 'next/font/google';
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
+import { DesktopGuard } from '@/components/shared/DesktopGuard';
 import './globals.css';
 
 const plusJakarta = Plus_Jakarta_Sans({
@@ -28,7 +29,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang={locale} dir={dir}>
       <body className={`${plusJakarta.variable} ${cairo.variable} font-sans antialiased`}>
         <NextIntlClientProvider messages={messages}>
-          {children}
+          <DesktopGuard>
+            {children}
+          </DesktopGuard>
         </NextIntlClientProvider>
       </body>
     </html>

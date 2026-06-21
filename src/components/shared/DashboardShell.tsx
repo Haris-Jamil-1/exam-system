@@ -22,6 +22,7 @@ export interface DashboardUser {
   role: string;
   initials: string;
   avatarColor: string;
+  avatarUrl?: string;
 }
 
 export interface NotificationItem {
@@ -66,6 +67,21 @@ function defaultNotifications(role: string): NotificationItem[] {
   ];
 }
 
+// Read avatar from localStorage (updated by settings pages)
+function useStoredAvatar() {
+  const [url, setUrl] = useState<string | null>(() =>
+    typeof window !== 'undefined' ? localStorage.getItem('exam_avatar') : null
+  );
+  useEffect(() => {
+    function onStorage(e: StorageEvent) {
+      if (e.key === 'exam_avatar') setUrl(e.newValue);
+    }
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+  return url;
+}
+
 export function DashboardShell({
   navItems,
   user,
@@ -73,6 +89,7 @@ export function DashboardShell({
   searchPlaceholder = 'Search…',
   children,
 }: DashboardShellProps) {
+  const storedAvatar = useStoredAvatar();
   const pathname = usePathname();
   const router   = useRouter();
   const t        = useTranslations('nav');
@@ -175,9 +192,14 @@ export function DashboardShell({
         {/* User card */}
         <div className="border-t border-[#E8ECF4] p-3">
           <div className="flex items-center gap-3 rounded-xl px-3 py-2.5">
-            <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-[13px] font-bold text-white" style={{ backgroundColor: user.avatarColor }}>
-              {user.initials}
-            </span>
+            {storedAvatar ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={storedAvatar} alt={user.name} className="flex h-9 w-9 flex-shrink-0 rounded-lg object-cover" />
+            ) : (
+              <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-[13px] font-bold text-white" style={{ backgroundColor: user.avatarColor }}>
+                {user.initials}
+              </span>
+            )}
             <div className="min-w-0 flex-1">
               <p className="truncate text-[13px] font-semibold text-[#1A1D23]">{user.name}</p>
               <p className="truncate text-[11px] text-[#9CA3AF]">{user.role}</p>
@@ -289,9 +311,14 @@ export function DashboardShell({
 
             {/* User chip */}
             <div className="flex items-center gap-2.5 rounded-xl border border-[#E8ECF4] bg-white py-1.5 pe-2.5 ps-1.5">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg text-[13px] font-bold text-white" style={{ backgroundColor: user.avatarColor }}>
-                {user.initials}
-              </span>
+              {storedAvatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={storedAvatar} alt={user.name} className="h-8 w-8 rounded-lg object-cover" />
+              ) : (
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg text-[13px] font-bold text-white" style={{ backgroundColor: user.avatarColor }}>
+                  {user.initials}
+                </span>
+              )}
               <span className="hidden text-start sm:block">
                 <span className="block text-[13px] font-semibold leading-tight text-[#1A1D23]">{user.name}</span>
                 <span className="block text-[11px] leading-tight text-[#9CA3AF]">{user.role}</span>

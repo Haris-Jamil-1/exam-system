@@ -4,6 +4,7 @@ import { getAnalyticsKpis, getScoreDistribution, getTrustTrend, getQuestionDiffi
 import type { StatValue } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TrendingUp, TrendingDown } from 'lucide-react';
+import { PageHeader } from '@/components/shared/PageHeader';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, CartesianGrid,
@@ -31,10 +32,7 @@ export default function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-[22px] font-extrabold tracking-[-0.01em] text-[#1A1D23]">Analytics</h1>
-        <p className="mt-1 text-[13px] text-[#6B7280]">Performance insights across your exams and students</p>
-      </div>
+      <PageHeader en="Analytics" ar="التحليلات" subEn="Performance insights across your exams and students" subAr="رؤى الأداء عبر اختباراتك وطلابك" />
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">

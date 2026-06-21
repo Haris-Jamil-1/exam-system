@@ -5,6 +5,7 @@ import {
   UserPlus, Copy, Check, X, Mail, MoreHorizontal,
   GraduationCap, FileText, Users, ExternalLink,
 } from 'lucide-react';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 const DEPT_COLOR: Record<string, string> = {
   'Computer Science': '#1E88E5',
@@ -62,20 +63,21 @@ export default function AdminTeachersPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-[22px] font-extrabold tracking-[-0.01em] text-[#1A1D23]">Teachers</h1>
-          <p className="mt-1 text-[13px] text-[#6B7280]">{INSTITUTION_NAME} · {teachers.length} teachers</p>
-        </div>
-        <button
-          onClick={() => setShowInvite(true)}
-          className="inline-flex items-center gap-2 rounded-xl bg-[#7C3AED] px-4 py-2.5 text-[14px] font-semibold text-white shadow-md shadow-purple-200 transition-all hover:-translate-y-px hover:bg-[#6D28D9]"
-        >
-          <UserPlus className="h-4 w-4" />
-          Invite Teacher
-        </button>
-      </div>
+      <PageHeader
+        en="Teachers"
+        ar="المعلمون"
+        subEn={`${INSTITUTION_NAME} · ${teachers.length} teachers`}
+        subAr="إدارة المعلمين ودعواتهم"
+        action={
+          <button
+            onClick={() => setShowInvite(true)}
+            className="inline-flex items-center gap-2 rounded-xl bg-[#7C3AED] px-4 py-2.5 text-[14px] font-semibold text-white shadow-md shadow-purple-200 transition-all hover:-translate-y-px hover:bg-[#6D28D9]"
+          >
+            <UserPlus className="h-4 w-4" />
+            Invite Teacher
+          </button>
+        }
+      />
 
       {/* Invite modal */}
       {showInvite && (

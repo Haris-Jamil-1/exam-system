@@ -5,6 +5,7 @@ import {
   FileText, CheckCircle2, XCircle, Clock,
   ClipboardCheck, Users, Timer,
 } from 'lucide-react';
+import { PageHeader } from '@/components/shared/PageHeader';
 import type { PendingExam } from '@/lib/mock-data/admin';
 
 type ApprovedExam = { id: string; title: string; subject: string; teacher: string; status: 'live' | 'scheduled' | 'completed'; date: string; students: number };
@@ -39,19 +40,31 @@ export default function AdminExamsPage() {
     });
   }, []);
 
-  function approve(id: string) { setApprovedIds(prev => new Set([...prev, id])); }
-  function reject(id: string)  { setRejectedIds(prev => new Set([...prev, id])); }
+  async function approve(id: string) {
+    // Persist to backend (Phase 2: updates DB; Phase 1: updates in-memory mock)
+    await fetch(`/api/exams/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'scheduled' }),
+    });
+    setApprovedIds(prev => new Set([...prev, id]));
+  }
+
+  async function reject(id: string) {
+    await fetch(`/api/exams/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'draft' }),
+    });
+    setRejectedIds(prev => new Set([...prev, id]));
+  }
 
   const visiblePending  = pending.filter(e => !approvedIds.has(e.id) && !rejectedIds.has(e.id));
   const justApproved    = pending.filter(e => approvedIds.has(e.id));
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-[22px] font-extrabold tracking-[-0.01em] text-[#1A1D23]">Exam Management</h1>
-        <p className="mt-1 text-[13px] text-[#6B7280]">Review and approve exam submissions from your teachers</p>
-      </div>
+      <PageHeader en="Exam Management" ar="إدارة الاختبارات" subEn="Review and approve exam submissions from your teachers" subAr="مراجعة وموافقة على اختبارات المعلمين" />
 
       {/* Tabs */}
       <div className="flex gap-2">

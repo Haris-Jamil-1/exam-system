@@ -71,12 +71,12 @@ export const recentAlertsData = [
   { id: 'a4', student: 'Nour Ibrahim', event: 'Audio noise detected', time: '9m ago', severity: 'low' as const },
 ];
 
-// Student exam list
+// IDs match mockExams + mockQuestions so /exam/[examId] loads real questions
 export const studentExamsData = [
-  { id: 'se1', title: 'Mathematics Final', course: 'MATH 301', status: 'available' as const, schedule: 'Today, 2:00 PM', durationMins: 90, questions: 40 },
-  { id: 'se2', title: 'Organic Chemistry Midterm', course: 'CHEM 210', status: 'upcoming' as const, schedule: 'Jun 22, 10:00 AM', durationMins: 75, questions: 35 },
-  { id: 'se3', title: 'Linear Algebra Test', course: 'MATH 204', status: 'upcoming' as const, schedule: 'Jun 24, 1:00 PM', durationMins: 60, questions: 25 },
-  { id: 'se4', title: 'World History Essay', course: 'HIST 105', status: 'completed' as const, schedule: 'Jun 14', durationMins: 120, questions: 5, score: 88, trust: 96 },
-  { id: 'se5', title: 'Intro to Psychology Final', course: 'PSY 101', status: 'completed' as const, schedule: 'Jun 10', durationMins: 90, questions: 50, score: 79, trust: 99 },
-  { id: 'se6', title: 'Physics Mechanics Midterm', course: 'PHYS 211', status: 'completed' as const, schedule: 'Jun 8', durationMins: 80, questions: 30, score: 91, trust: 94 },
+  { id: 'exam-1', title: 'Midterm: Data Structures & Algorithms', course: 'CS 301', status: 'available' as const, schedule: 'Today, 2:00 PM', durationMins: 120, questions: 10 },
+  { id: 'exam-3', title: 'Intro to Programming Quiz', course: 'CS 101', status: 'available' as const, schedule: 'Today, 4:00 PM', durationMins: 45, questions: 6 },
+  { id: 'exam-2', title: 'Final Exam: Calculus II', course: 'MATH 301', status: 'upcoming' as const, schedule: 'Jun 24, 10:00 AM', durationMins: 90, questions: 4 },
+  { id: 'exam-6', title: 'Network Security Final', course: 'CS 410', status: 'upcoming' as const, schedule: 'Jun 26, 1:00 PM', durationMins: 80, questions: 4 },
+  { id: 'exam-4', title: 'Organic Chemistry Midterm', course: 'CHEM 210', status: 'completed' as const, schedule: 'Jun 14', durationMins: 90, questions: 3, score: 88, trust: 96 },
+  { id: 'exam-7', title: 'Business Analytics Final', course: 'BUS 305', status: 'completed' as const, schedule: 'Jun 10', durationMins: 90, questions: 3, score: 79, trust: 99 },
 ];

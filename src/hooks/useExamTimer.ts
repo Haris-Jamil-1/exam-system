@@ -8,10 +8,12 @@ interface UseExamTimerReturn {
 }
 
 export function useExamTimer(
-  durationMinutes: number,
+  initialSeconds: number,
   onTimeUp: () => void
 ): UseExamTimerReturn {
-  const [secondsLeft, setSecondsLeft] = useState(durationMinutes * 60);
+  // initialSeconds is stable by the time this hook is first called:
+  // the exam page gates on initialSeconds === 0 so we never start with 0.
+  const [secondsLeft, setSecondsLeft] = useState(initialSeconds);
   const onTimeUpRef = useRef(onTimeUp);
 
   useEffect(() => {

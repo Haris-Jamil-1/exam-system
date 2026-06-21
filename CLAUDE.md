@@ -1,8 +1,39 @@
 # ExamPro — AI-Proctored E-Testing Platform
 
+## Session Log
+
+### 2026-06-21 — Phase 1 Complete ✅
+**What was done:**
+- Full QA pass across all 3 dashboards (admin / teacher / student) — every page reviewed and polished
+- Fixed double padding on all admin pages (shell already provides padding)
+- Added loading skeletons to 4 pages (admin exams, admin analytics, student exams, student results)
+- Added page headers (`h1` + subtitle) to every page that was missing them
+- Added breadcrumb nav to exam/item create and edit pages
+- Fixed live exam badge color: green → red + animate-pulse dot (system-wide convention)
+- Rewrote teacher settings to use `useCurrentUser()` instead of hardcoded name
+- Full React Compiler lint compliance: fixed all `purity`, `immutability`, `set-state-in-effect`, `refs`, `incompatible-library` violations
+- Fixed all TypeScript unused import/variable warnings across entire codebase
+- Added `argsIgnorePattern: '^_'` to `eslint.config.mjs` so underscore-prefixed params are ignored
+- `npm run build` → **PASSES (0 errors)**
+- `npm run lint` → **PASSES (0 errors, 0 warnings)**
+- Created `CLAUDE.md` (this file) with full route map, file structure, data flow, fix log, Phase 2+3 plans, and deployment checklist
+- Created `vercel.json` for Vercel deployment
+
+**What is NOT done yet (pending user action):**
+- GitHub repo not created — user needs to run `gh auth login` + `gh repo create`
+- Vercel not connected — user needs to run `vercel login` + `vercel link` + `vercel --prod`
+- No real backend — everything is Phase 1 mock data (in-memory, resets on refresh)
+
+**Next session should start with:**
+- Confirm GitHub + Vercel are connected (user does setup steps from CLAUDE.md Deployment section)
+- Then start Phase 2: Supabase + Prisma swap
+
+---
+
 ## Build Status
 - `npm run build` → **PASSES** (0 errors)
 - `npm run lint` → **PASSES** (0 errors, 0 warnings)
+- Last verified: 2026-06-21
 
 ---
 

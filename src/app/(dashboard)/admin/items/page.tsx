@@ -9,6 +9,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Check, X, ChevronDown, ChevronUp, Search, ClipboardCheck, Package } from 'lucide-react';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 const TYPE_LABELS: Record<QuestionType, string> = {
   mcq: 'MCQ', mrq: 'MRQ', true_false: 'T/F', short_answer: 'Short',
@@ -177,11 +178,7 @@ export default function AdminItemsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-[22px] font-extrabold tracking-[-0.01em] text-[#1A1D23]">Item Review</h1>
-        <p className="mt-1 text-[13px] text-[#6B7280]">Review and approve question items submitted by teachers</p>
-      </div>
+      <PageHeader en="Item Review" ar="مراجعة الأسئلة" subEn="Review and approve question items submitted by teachers" subAr="مراجعة وموافقة على أسئلة المعلمين" />
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">

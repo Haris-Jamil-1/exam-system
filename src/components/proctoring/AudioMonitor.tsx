@@ -17,33 +17,35 @@ export function AudioMonitor({ examId, attemptId, studentId, threshold = 0.05 }:
   useEffect(() => {
     let stream: MediaStream | null = null;
     let ctx: AudioContext | null = null;
-    let analyser: AnalyserNode | null = null;
     let raf: number;
+    let cancelled = false; // Guard against unmount before getUserMedia resolves
 
     async function init() {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        if (cancelled) {
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
         ctx = new AudioContext();
-        analyser = ctx.createAnalyser();
+        const analyser = ctx.createAnalyser();
         analyser.fftSize = 256;
         const source = ctx.createMediaStreamSource(stream);
         source.connect(analyser);
         const data = new Uint8Array(analyser.frequencyBinCount);
 
         function check() {
-          analyser!.getByteFrequencyData(data);
+          if (cancelled) return;
+          analyser.getByteFrequencyData(data);
           const avg = data.reduce((a, b) => a + b, 0) / data.length / 255;
           if (avg > threshold) {
             const now = Date.now();
-            if (now - lastLogTime.current > 10000) { // throttle to once per 10s
+            if (now - lastLogTime.current > 10000) {
               lastLogTime.current = now;
               addViolation({ type: 'audio_detected', timestamp: new Date().toISOString(), description: 'Audio detected' });
               logViolation({
-                attemptId,
-                studentId,
-                examId,
-                type: 'audio_detected',
-                severity: 'medium',
+                attemptId, studentId, examId,
+                type: 'audio_detected', severity: 'medium',
                 timestamp: new Date().toISOString(),
                 description: 'Sustained audio above threshold detected',
               });
@@ -53,13 +55,14 @@ export function AudioMonitor({ examId, attemptId, studentId, threshold = 0.05 }:
         }
         check();
       } catch {
-        // Microphone denied — no action needed in Phase 1
+        // Microphone denied — not a blocking error
       }
     }
 
-    init();
+    void init();
 
     return () => {
+      cancelled = true;
       cancelAnimationFrame(raf);
       ctx?.close();
       stream?.getTracks().forEach(t => t.stop());

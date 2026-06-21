@@ -34,7 +34,9 @@
     "register": "إنشاء حساب مؤسسة",
     "adminDashboard": "لوحة تحكم المسؤول",
     "studentDashboard": "اختباراتي",
-    "newItem": "سؤال جديد"
+    "newItem": "سؤال جديد",
+    "teacherSubtitle": "إليك ما يحدث عبر اختباراتك اليوم.",
+    "studentSubtitle": "إليك جدول اختباراتك وتقدمك."
   },
   "actions": {
     "createExam": "إنشاء اختبار",

@@ -2,10 +2,12 @@
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useAvatarUpload } from '@/hooks/useAvatarUpload';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Check, User, Lock, Bell, FileText, GraduationCap, ShieldCheck } from 'lucide-react';
+import { PageHeader } from '@/components/shared/PageHeader';
+import { Check, User, Lock, Bell, FileText, GraduationCap, ShieldCheck, Camera } from 'lucide-react';
 
 export default function TeacherSettingsPage() {
   const currentUser = useCurrentUser();
@@ -45,14 +47,12 @@ export default function TeacherSettingsPage() {
     { key: 'weeklyReport',    label: 'Weekly analytics report', desc: 'Summary of exam performance sent every Monday' },
   ];
 
+  const { avatarUrl, openPicker, onFileChange, inputRef, removeAvatar } = useAvatarUpload();
   const initials = currentUser?.name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() ?? 'T';
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-[22px] font-extrabold tracking-[-0.01em] text-[#1A1D23]">Settings</h1>
-        <p className="mt-1 text-[13px] text-[#6B7280]">Manage your profile, preferences and security</p>
-      </div>
+      <PageHeader en="Settings" ar="الإعدادات" subEn="Manage your profile, preferences and security" subAr="إدارة ملفك الشخصي وتفضيلاتك" />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* ── Left column (2/3) ── */}
@@ -132,10 +132,24 @@ export default function TeacherSettingsPage() {
           <div className="rounded-2xl border border-[#EBF0F8] bg-white shadow-[0_2px_8px_rgba(0,0,0,0.05)] overflow-hidden">
             <div className="h-20" style={{ background: 'linear-gradient(135deg, #1E88E5 0%, #1565C0 100%)' }} />
             <div className="px-5 pb-5">
-              <div className="-mt-8 mb-3">
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl border-4 border-white bg-[#1E88E5] text-[20px] font-extrabold text-white shadow-md">
-                  {initials}
+              <div className="-mt-8 mb-3 flex items-end gap-2">
+                <div className="relative">
+                  {avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={avatarUrl} alt="Avatar" className="h-16 w-16 rounded-2xl border-4 border-white object-cover shadow-md" />
+                  ) : (
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl border-4 border-white bg-[#1E88E5] text-[20px] font-extrabold text-white shadow-md">
+                      {initials}
+                    </div>
+                  )}
+                  <button onClick={openPicker} className="absolute -bottom-1 -end-1 flex h-6 w-6 items-center justify-center rounded-full bg-white border border-[#E8ECF4] shadow-sm hover:bg-gray-50">
+                    <Camera className="h-3.5 w-3.5 text-[#6B7280]" />
+                  </button>
+                  <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={onFileChange} />
                 </div>
+                {avatarUrl && (
+                  <button onClick={removeAvatar} className="text-[11px] text-red-400 hover:text-red-600 mb-1">Remove</button>
+                )}
               </div>
               <p className="text-[16px] font-bold text-[#1A1D23]">{currentUser?.name ?? 'Teacher'}</p>
               <p className="text-[13px] text-[#9CA3AF]">{currentUser?.email ?? ''}</p>

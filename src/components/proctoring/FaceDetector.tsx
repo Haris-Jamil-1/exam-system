@@ -17,46 +17,48 @@ export function FaceDetector({ examId, attemptId, studentId }: FaceDetectorProps
 
   useEffect(() => {
     let stream: MediaStream | null = null;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false; // Guard against unmount before getUserMedia resolves
 
     async function init() {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        if (cancelled) {
+          // Component unmounted before camera started — stop immediately
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
-        // Phase 3: replace this with real face-api.js detection
-        // For now: simulate face detected
         setFaceDetected(true);
 
-        // Simulate random no-face events for demo
-        const id = setInterval(() => {
-          const shouldFlag = Math.random() < 0.02; // 2% chance
+        // Phase 3: replace with real face-api.js detection
+        intervalId = setInterval(() => {
+          if (cancelled) return;
+          const shouldFlag = Math.random() < 0.02;
           if (shouldFlag) {
             setFaceDetected(false);
             addViolation({ type: 'no_face', timestamp: new Date().toISOString(), description: 'No face detected' });
             logViolation({
-              attemptId,
-              studentId,
-              examId,
-              type: 'no_face',
-              severity: 'high',
+              attemptId, studentId, examId,
+              type: 'no_face', severity: 'high',
               timestamp: new Date().toISOString(),
               description: 'No face detected in camera feed',
             });
-            setTimeout(() => setFaceDetected(true), 3000);
+            setTimeout(() => { if (!cancelled) setFaceDetected(true); }, 3000);
           }
         }, 5000);
-
-        return () => clearInterval(id);
       } catch {
-        setCameraError(true);
+        if (!cancelled) setCameraError(true);
       }
     }
 
-    const cleanup = init();
+    void init();
 
     return () => {
-      cleanup.then(fn => fn?.());
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
       stream?.getTracks().forEach(t => t.stop());
     };
   }, [examId, attemptId, studentId, addViolation]);
@@ -64,13 +66,7 @@ export function FaceDetector({ examId, attemptId, studentId }: FaceDetectorProps
   return (
     <div className="fixed bottom-4 end-4 z-50">
       <div className="relative rounded-xl overflow-hidden border-2 border-white shadow-lg w-28 h-20 bg-gray-900">
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          className="w-full h-full object-cover"
-        />
+        <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
         {cameraError ? (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
             <p className="text-white text-xs text-center">Camera unavailable</p>

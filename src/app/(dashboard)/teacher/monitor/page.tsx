@@ -1,9 +1,10 @@
 'use client';
 import { useState } from 'react';
 import {
-  Radio, Eye, AlertTriangle, Users, ShieldCheck,
+  Eye, AlertTriangle, Users, ShieldCheck,
   Volume2, Monitor, CameraOff, RefreshCw,
 } from 'lucide-react';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 const MOCK_STUDENTS = [
   { id: 's1', name: 'Ali Hassan',     initials: 'AH', trust: 42, status: 'alert',  alert: 'Tab switch detected',    avatar: '#E53935' },
@@ -40,22 +41,18 @@ export default function LiveMonitorPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-50">
-            <Radio className="h-5 w-5 text-red-500" strokeWidth={2} />
-          </div>
-          <div>
-            <h1 className="text-[22px] font-extrabold tracking-[-0.01em] text-[#1A1D23]">Live Monitor</h1>
-            <p className="text-[13px] text-[#6B7280]">Data Structures Midterm · CS 301</p>
-          </div>
-        </div>
-        <button className="inline-flex items-center gap-2 rounded-xl border border-[#E8ECF4] px-4 py-2 text-[13px] font-semibold text-[#1A1D23] transition-colors hover:bg-[#F4F7FC]">
-          <RefreshCw className="h-4 w-4" />
-          Refresh
-        </button>
-      </div>
+      <PageHeader
+        en="Live Monitor"
+        ar="المراقبة المباشرة"
+        subEn="Data Structures Midterm · CS 301"
+        subAr="اختبار منتصف الفصل · هياكل البيانات"
+        action={
+          <button className="inline-flex items-center gap-2 rounded-xl border border-[#E8ECF4] px-4 py-2 text-[13px] font-semibold text-[#1A1D23] transition-colors hover:bg-[#F4F7FC]">
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </button>
+        }
+      />
 
       {/* Summary strip */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

@@ -170,6 +170,13 @@ export interface GeneratedQuestion {
   marks: number;
 }
 
+// Safe question type sent to students during exams — no answer keys
+export type PublicOption = Omit<Option, 'isCorrect'>;
+
+export type PublicQuestion = Omit<Question, 'correctAnswer' | 'explanation' | 'options'> & {
+  options?: PublicOption[];
+};
+
 export interface Invitation {
   id: string;
   email: string;

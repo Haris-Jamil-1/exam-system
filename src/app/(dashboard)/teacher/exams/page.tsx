@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { getExams } from '@/lib/data';
 import type { Exam, ExamStatus } from '@/types';
@@ -8,7 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Search, Monitor, Edit, BarChart3, Trash2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { PageHeader } from '@/components/shared/PageHeader';
+import { Plus, Search, Monitor, Edit, BarChart3, Trash2, Share2, Copy, Send, Upload, Check, Mail, X } from 'lucide-react';
 
 const STATUS_STYLES: Record<ExamStatus, 'danger' | 'info' | 'secondary' | 'outline'> = {
   live: 'danger',
@@ -43,11 +45,164 @@ function SkeletonRows() {
   );
 }
 
+// ── Share modal ──────────────────────────────────────────────────────────────
+function ShareModal({ exam }: { exam: Exam }) {
+  const examLink = typeof window !== 'undefined'
+    ? `${window.location.origin}/exam/${exam.id}`
+    : `/exam/${exam.id}`;
+
+  const [copied, setCopied]         = useState(false);
+  const [email, setEmail]           = useState('');
+  const [sentEmails, setSentEmails] = useState<string[]>([]);
+  const [csvEmails, setCsvEmails]   = useState<string[]>([]);
+  const [csvSent, setCsvSent]       = useState(false);
+  const [csvName, setCsvName]       = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function copyLink() {
+    void navigator.clipboard.writeText(examLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  function sendIndividual() {
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return;
+    if (!sentEmails.includes(trimmed)) setSentEmails(prev => [...prev, trimmed]);
+    setEmail('');
+  }
+
+  function removeEmail(addr: string) {
+    setSentEmails(prev => prev.filter(e => e !== addr));
+  }
+
+  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCsvName(file.name);
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const text = ev.target?.result as string;
+      // Extract all email-shaped tokens from CSV/Excel text
+      const matches = text.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g) ?? [];
+      const unique = [...new Set(matches.map(m => m.toLowerCase()))];
+      setCsvEmails(unique);
+      setCsvSent(false);
+    };
+    reader.readAsText(file);
+  }
+
+  function sendBulk() {
+    // Phase 2: POST /api/invitations { emails: csvEmails, examId: exam.id, link: examLink }
+    setCsvSent(true);
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* ── Exam link ── */}
+      <div className="space-y-2">
+        <p className="text-[12px] font-semibold text-[#6B7280] uppercase tracking-wide">Exam Link</p>
+        <div className="flex gap-2">
+          <input
+            readOnly
+            value={examLink}
+            className="flex-1 min-w-0 rounded-xl border border-[#E8ECF4] bg-[#F4F7FC] px-3 py-2 text-[13px] font-mono text-[#374151] select-all"
+          />
+          <Button onClick={copyLink} variant="outline" size="sm" className="rounded-xl shrink-0 gap-1.5">
+            {copied ? <><Check className="h-3.5 w-3.5 text-green-500" /> Copied!</> : <><Copy className="h-3.5 w-3.5" /> Copy</>}
+          </Button>
+        </div>
+      </div>
+
+      <hr className="border-[#EBF0F8]" />
+
+      {/* ── Send to individual emails ── */}
+      <div className="space-y-3">
+        <p className="text-[12px] font-semibold text-[#6B7280] uppercase tracking-wide">Send to Students</p>
+        <div className="flex gap-2">
+          <Input
+            type="email"
+            placeholder="student@university.edu"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); sendIndividual(); } }}
+            className="rounded-xl border-[#E8ECF4] text-[13px]"
+          />
+          <Button onClick={sendIndividual} size="sm" className="rounded-xl shrink-0 gap-1.5 bg-[#1E88E5] hover:bg-[#1976D2]">
+            <Send className="h-3.5 w-3.5" /> Add
+          </Button>
+        </div>
+        {sentEmails.length > 0 && (
+          <div className="space-y-1.5">
+            {sentEmails.map(addr => (
+              <div key={addr} className="flex items-center justify-between rounded-lg bg-[#EEF6FF] border border-[#BFDBFE] px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <Mail className="h-3.5 w-3.5 text-[#1E88E5] shrink-0" />
+                  <span className="text-[12px] text-[#1E3A5F]">{addr}</span>
+                </div>
+                <button onClick={() => removeEmail(addr)} className="text-[#9CA3AF] hover:text-red-500">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+            <Button size="sm" className="w-full rounded-xl gap-1.5 bg-[#1E88E5] hover:bg-[#1976D2] mt-1">
+              <Send className="h-3.5 w-3.5" /> Send to {sentEmails.length} student{sentEmails.length !== 1 ? 's' : ''}
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <hr className="border-[#EBF0F8]" />
+
+      {/* ── Bulk CSV/Excel upload ── */}
+      <div className="space-y-3">
+        <p className="text-[12px] font-semibold text-[#6B7280] uppercase tracking-wide">Bulk Upload (CSV / Excel)</p>
+        <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.txt" className="hidden" onChange={onFileChange} />
+        <button
+          onClick={() => fileRef.current?.click()}
+          className="w-full flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#BFDBFE] bg-[#EEF6FF] py-5 text-[#1E88E5] hover:bg-[#DBEAFE] transition-colors"
+        >
+          <Upload className="h-5 w-5" />
+          <span className="text-[12px] font-medium">{csvName || 'Click to upload email list'}</span>
+          <span className="text-[11px] text-[#9CA3AF]">CSV or Excel — one email per row, or any column</span>
+        </button>
+        {csvEmails.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[12px] text-[#6B7280]">Found <strong>{csvEmails.length}</strong> emails in file:</p>
+            <div className="max-h-28 overflow-y-auto rounded-xl border border-[#E8ECF4] bg-[#F4F7FC] p-2 space-y-1">
+              {csvEmails.map(addr => (
+                <div key={addr} className="flex items-center gap-1.5">
+                  <Mail className="h-3 w-3 text-[#1E88E5] shrink-0" />
+                  <span className="text-[11px] text-[#374151]">{addr}</span>
+                </div>
+              ))}
+            </div>
+            {csvSent ? (
+              <div className="flex items-center gap-2 rounded-xl bg-green-50 border border-green-200 px-3 py-2">
+                <Check className="h-4 w-4 text-green-500" />
+                <span className="text-[12px] text-green-700 font-medium">
+                  Invitations sent to {csvEmails.length} students! (Phase 2: real email via SMTP)
+                </span>
+              </div>
+            ) : (
+              <Button onClick={sendBulk} size="sm" className="w-full rounded-xl gap-1.5 bg-[#1E88E5] hover:bg-[#1976D2]">
+                <Send className="h-3.5 w-3.5" /> Send to all {csvEmails.length} emails
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main page ────────────────────────────────────────────────────────────────
 export default function ExamsPage() {
   const [exams, setExams] = useState<Exam[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [sharingExam, setSharingExam] = useState<Exam | null>(null);
 
   useEffect(() => {
     getExams('inst-1').then(data => { setExams(data); setLoading(false); });
@@ -67,19 +222,20 @@ export default function ExamsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-[22px] font-extrabold tracking-[-0.01em] text-[#1A1D23]">My Exams</h1>
-          <p className="mt-1 text-[13px] text-[#6B7280]">Create, manage, and monitor your exams</p>
-        </div>
-        <Link href="/teacher/exams/new">
-          <Button className="gap-2 bg-[#1E88E5] hover:bg-[#1976D2]">
-            <Plus className="h-4 w-4" />
-            Create Exam
-          </Button>
-        </Link>
-      </div>
+      <PageHeader
+        en="My Exams"
+        ar="اختباراتي"
+        subEn="Create, manage and monitor your exams"
+        subAr="إنشاء وإدارة ومراقبة اختباراتك"
+        action={
+          <Link href="/teacher/exams/new">
+            <Button className="gap-2 bg-[#1E88E5] hover:bg-[#1976D2]">
+              <Plus className="h-4 w-4" />
+              Create Exam
+            </Button>
+          </Link>
+        }
+      />
 
       {/* Filters */}
       <div className="flex gap-2 flex-wrap">
@@ -161,6 +317,14 @@ export default function ExamsPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            title="Share exam link"
+                            onClick={() => setSharingExam(exam)}
+                          >
+                            <Share2 className="h-4 w-4 text-[#1E88E5]" />
+                          </Button>
                           {exam.status === 'live' && (
                             <Link href={`/teacher/exams/${exam.id}/monitor`}>
                               <Button size="icon" variant="ghost" title="Monitor live exam">
@@ -198,6 +362,19 @@ export default function ExamsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Share modal */}
+      <Dialog open={!!sharingExam} onOpenChange={open => { if (!open) setSharingExam(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Share2 className="h-4 w-4 text-[#1E88E5]" />
+              Share — {sharingExam?.title}
+            </DialogTitle>
+          </DialogHeader>
+          {sharingExam && <ShareModal exam={sharingExam} />}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

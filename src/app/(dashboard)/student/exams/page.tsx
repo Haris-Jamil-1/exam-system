@@ -6,6 +6,7 @@ import {
   Calendar, Clock, FileText, Play, CheckCircle2,
   Radio, ChevronRight, ShieldCheck, Filter,
 } from 'lucide-react';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 type StudentExam = {
   id: string;
@@ -45,11 +46,7 @@ export default function StudentExamsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-[22px] font-extrabold tracking-[-0.01em] text-[#1A1D23]">My Exams</h1>
-        <p className="mt-1 text-[13px] text-[#6B7280]">Your complete exam schedule and results</p>
-      </div>
+      <PageHeader en="My Exams" ar="اختباراتي" subEn="Your complete exam schedule and results" subAr="جدول اختباراتك ونتائجك الكاملة" />
 
       {/* Quick stats */}
       <div className="grid grid-cols-3 gap-3">

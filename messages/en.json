@@ -34,7 +34,9 @@
     "register": "Create Institution Account",
     "adminDashboard": "Admin Dashboard",
     "studentDashboard": "My Exams",
-    "newItem": "New Item"
+    "newItem": "New Item",
+    "teacherSubtitle": "Here's what's happening across your exams today.",
+    "studentSubtitle": "Here's your exam schedule and progress."
   },
   "actions": {
     "createExam": "Create Exam",

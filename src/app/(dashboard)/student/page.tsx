@@ -56,7 +56,7 @@ export default function StudentDashboard() {
         <h1 className="text-[26px] font-extrabold tracking-[-0.01em] text-[#1A1D23]">
           {h('welcome')}, {firstName}
         </h1>
-        <p className="mt-1 text-[15px] text-[#6B7280]">Here&apos;s your exam schedule and progress.</p>
+        <p className="mt-1 text-[15px] text-[#6B7280]">{h('studentSubtitle')}</p>
       </div>
 
       {/* Stat cards */}

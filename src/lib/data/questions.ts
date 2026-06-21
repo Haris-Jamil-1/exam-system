@@ -1,8 +1,18 @@
 // Phase 2: replace each function body with Supabase/Prisma query.
-import type { Question } from '@/types';
+import type { Question, PublicQuestion } from '@/types';
 import { mockQuestions } from '@/lib/mock-data/questions';
 
 const questionsDb = [...mockQuestions];
+
+// Returns questions stripped of all answer data — safe to send to student browsers.
+// Phase 2: this will be the only function called from client; answer keys stay server-side.
+export async function getQuestionsForStudent(examId: string): Promise<PublicQuestion[]> {
+  const all = await getQuestions(examId);
+  return all.map(({ correctAnswer: _ca, explanation: _ex, options, ...rest }) => ({
+    ...rest,
+    options: options?.map(({ isCorrect: _ic, ...opt }) => opt),
+  }));
+}
 
 export async function getQuestions(examId: string): Promise<Question[]> {
   // Phase 2: return prisma.question.findMany({ where: { examId }, orderBy: { order: 'asc' } })

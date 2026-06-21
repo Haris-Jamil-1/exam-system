@@ -5,6 +5,7 @@ import {
   Trophy, ShieldCheck, Clock, FileText,
   CheckCircle2, XCircle, TrendingUp, BarChart2,
 } from 'lucide-react';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 type StudentExam = {
   id: string;
@@ -37,10 +38,7 @@ export default function StudentResultsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-[22px] font-extrabold tracking-[-0.01em] text-[#1A1D23]">My Results</h1>
-        <p className="mt-1 text-[13px] text-[#6B7280]">{completed.length} exams completed this term</p>
-      </div>
+      <PageHeader en="My Results" ar="نتائجي" subEn={`${completed.length} exams completed this term`} subAr="نتائج اختباراتك لهذا الفصل الدراسي" />
 
       {loading && (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

@@ -10,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Plus, Search, ChevronDown, ChevronUp, Check, Clock, Hourglass } from 'lucide-react';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 const STATUS_STYLES: Record<ItemStatus, 'outline' | 'warning' | 'success'> = {
   draft: 'outline',
@@ -215,19 +216,20 @@ export default function ItemBankPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-[22px] font-extrabold tracking-[-0.01em] text-[#1A1D23]">Item Bank</h1>
-          <p className="mt-1 text-[13px] text-[#6B7280]">Create and manage your question items for exams</p>
-        </div>
-        <Link href="/teacher/items/new">
-          <Button className="gap-2 bg-[#1E88E5] hover:bg-[#1976D2]">
-            <Plus className="h-4 w-4" />
-            Create Item
-          </Button>
-        </Link>
-      </div>
+      <PageHeader
+        en="Item Bank"
+        ar="بنك الأسئلة"
+        subEn="Create and manage your question items for exams"
+        subAr="إنشاء وإدارة أسئلتك للاختبارات"
+        action={
+          <Link href="/teacher/items/new">
+            <Button className="gap-2 bg-[#1E88E5] hover:bg-[#1976D2]">
+              <Plus className="h-4 w-4" />
+              Create Item
+            </Button>
+          </Link>
+        }
+      />
 
       {/* Filters */}
       <div className="flex gap-2 flex-wrap">

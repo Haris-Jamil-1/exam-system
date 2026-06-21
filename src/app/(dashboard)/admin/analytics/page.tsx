@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { getAdminStats, getTeachersList } from '@/lib/data';
 import type { StatValue } from '@/types';
 import { BarChart3, ShieldCheck, TrendingUp, Users, GraduationCap, FileText } from 'lucide-react';
+import { PageHeader } from '@/components/shared/PageHeader';
 
 const STAT_META: Record<string, { label: string; icon: React.ElementType; iconBg: string; iconColor: string }> = {
   pendingApprovals: { label: 'Pending Approvals', icon: FileText,      iconBg: '#FEF3C7', iconColor: '#D97706' },
@@ -44,10 +45,7 @@ export default function AdminAnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-[22px] font-extrabold tracking-[-0.01em] text-[#1A1D23]">Institution Analytics</h1>
-        <p className="mt-1 text-[13px] text-[#6B7280]">University of Technology · Academic Year 2025–2026</p>
-      </div>
+      <PageHeader en="Institution Analytics" ar="تحليلات المؤسسة" subEn="University of Technology · Academic Year 2025–2026" subAr="جامعة التكنولوجيا · العام الأكاديمي 2025–2026" />
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

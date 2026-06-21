@@ -62,7 +62,7 @@ export default function TeacherDashboard() {
             {h('welcome')}, {firstName}
           </h1>
           <p className="mt-1 text-[15px] text-[#6B7280]">
-            Here&apos;s what&apos;s happening across your exams today.
+            {h('teacherSubtitle')}
           </p>
         </div>
         <Link

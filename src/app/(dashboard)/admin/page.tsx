@@ -34,6 +34,7 @@ const DEPT_COLOR: Record<string, string> = {
 
 export default function AdminDashboard() {
   const h = useTranslations('headings');
+  const a = useTranslations('actions');
   const currentUser = useCurrentUser();
 
   const [stats, setStats]     = useState<StatValue[]>([]);
@@ -84,7 +85,7 @@ export default function AdminDashboard() {
           className="inline-flex items-center gap-2 rounded-xl bg-[#7C3AED] px-4 py-2.5 text-[14px] font-semibold text-white shadow-md shadow-purple-200 transition-all hover:-translate-y-px hover:bg-[#6D28D9]"
         >
           <UserPlus className="h-4 w-4" />
-          Invite Teacher
+          {a('inviteTeacher')}
         </Link>
       </div>
 
