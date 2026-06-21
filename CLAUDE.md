@@ -2,6 +2,40 @@
 
 ## Session Log
 
+### 2026-06-21 — Session 2: Bug Fixes, Mobile Support, Live Deployment ✅
+
+**What was done:**
+
+#### 1. Fixed Invite Students Modal (half-open bug)
+- Root cause: `DialogContent` had `overflow-hidden` but no `max-h`, so the modal overflowed the viewport and appeared cut off
+- Fix in `src/components/ui/dialog.tsx`: added `max-h-[90vh]` to base `DialogContent` so all dialogs are capped globally
+- Fix in `src/app/(dashboard)/teacher/students/page.tsx`: restructured `InviteStudentsModal` with `flex flex-col` + `max-h-[90vh]`; header and tab bar use `shrink-0`, tab content uses `flex-1 overflow-y-auto` so it scrolls independently
+
+#### 2. Mobile Support — Desktop Guard Scoped to Exam Pages Only
+- Removed `<DesktopGuard>` from `src/app/layout.tsx` (was blocking all pages on mobile)
+- Added `<DesktopGuard>` only to:
+  - `src/app/exam/[examId]/page.tsx` — the live exam-taking page
+  - `src/app/exam/[examId]/complete/page.tsx` — the post-exam results page
+- Result: all dashboards, login, settings, analytics, etc. are fully accessible on mobile; only the proctored exam flow is desktop-only (webcam + fullscreen enforcement require desktop)
+
+#### 3. GitHub + Vercel — Fully Connected and Deployed
+- GitHub: pushed to `https://github.com/Haris-Jamil-1/exam-system` (master branch)
+- Vercel: live production URL → **https://exam-system-sigma.vercel.app**
+- Both commits deployed successfully; 33 routes, 0 build errors
+
+**Build status after session:**
+- `npm run build` → PASSES (0 errors, 33 routes)
+- GitHub: `Haris-Jamil-1/exam-system` — master branch up to date
+- Vercel: `https://exam-system-sigma.vercel.app` — production live
+
+**What's next (Phase 2):**
+- Start Phase 2: real backend with Supabase + Prisma (see Phase 2 Plan section below)
+- Replace all `src/lib/data/*.ts` function bodies with Prisma queries
+- Set up Supabase project, copy `DATABASE_URL` + `DIRECT_URL` to Vercel env vars
+- Replace mock auth (`localStorage.exam_user`) with Supabase Auth JWT
+
+---
+
 ### 2026-06-21 — Phase 1 Complete ✅
 **What was done:**
 - Full QA pass across all 3 dashboards (admin / teacher / student) — every page reviewed and polished
