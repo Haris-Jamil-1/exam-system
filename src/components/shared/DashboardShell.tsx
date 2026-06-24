@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { LanguageToggle } from './LanguageToggle';
+import { createClient } from '@/lib/supabase/client';
 
 export interface NavItem {
   label: string;
@@ -128,7 +129,9 @@ export function DashboardShell({
     return segments.length === 1 ? pathname === href : pathname.startsWith(href);
   }
 
-  function signOut() {
+  async function signOut() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
     localStorage.removeItem('exam_user');
     document.cookie = 'exam_role=; path=/; max-age=0';
     router.push('/login');

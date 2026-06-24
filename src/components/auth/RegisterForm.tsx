@@ -1,17 +1,14 @@
 'use client';
 import { useForm } from 'react-hook-form';
-
-type NewAdmin = { id: string; name: string; email: string; role: 'admin'; institutionId: string };
-function persistAdminSession(user: NewAdmin) {
-  localStorage.setItem('exam_user', JSON.stringify(user));
-  document.cookie = 'exam_role=admin; path=/; max-age=86400';
-}
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useState } from 'react';
+import type { CurrentUser } from '@/types';
 
 const schema = z
   .object({
@@ -28,27 +25,68 @@ const schema = z
 
 type FormData = z.infer<typeof schema>;
 
+function persistAdminSession(user: CurrentUser) {
+  localStorage.setItem('exam_user', JSON.stringify(user));
+  document.cookie = 'exam_role=admin; path=/; max-age=86400';
+}
+
 export function RegisterForm() {
   const router = useRouter();
+  const [error, setError] = useState('');
   const {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({ resolver: zodResolver(schema) });
 
-  function onSubmit(data: FormData) {
-    persistAdminSession({
-      id: 'admin-new',
-      name: data.adminName,
-      email: data.email,
-      role: 'admin',
-      institutionId: 'inst-new',
+  async function onSubmit(data: FormData) {
+    setError('');
+
+    // Create institution + Supabase user + Prisma user via server API
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        institutionName: data.institutionName,
+        adminName: data.adminName,
+        email: data.email,
+        password: data.password,
+      }),
     });
+
+    if (!res.ok) {
+      const body = (await res.json()) as { error?: string };
+      setError(body.error ?? 'Registration failed. Please try again.');
+      return;
+    }
+
+    const user = (await res.json()) as CurrentUser;
+
+    // Sign in via browser client to establish the session cookie
+    const supabase = createClient();
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: data.email,
+      password: data.password,
+    });
+
+    if (authError) {
+      setError(authError.message);
+      return;
+    }
+
+    persistAdminSession(user);
     router.push('/admin');
+    router.refresh();
   }
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      {error && (
+        <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-600">
+          {error}
+        </div>
+      )}
+
       <div className="space-y-2">
         <Label htmlFor="institutionName">Institution Name</Label>
         <Input

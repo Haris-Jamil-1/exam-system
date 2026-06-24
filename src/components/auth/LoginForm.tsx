@@ -4,10 +4,11 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { CurrentUser, Role } from '@/types';
+import type { CurrentUser } from '@/types';
 
 const schema = z.object({
   email: z.string().email('Invalid email address'),
@@ -16,35 +17,10 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-const demoUsers: Record<string, CurrentUser> = {
-  teacher: {
-    id: 'teacher-1',
-    name: 'Dr. Sarah Mitchell',
-    email: 'sarah.mitchell@university.edu',
-    role: 'teacher',
-    institutionId: 'inst-1',
-  },
-  student: {
-    id: 'student-1',
-    name: 'Alex Thompson',
-    email: 'alex.thompson@student.edu',
-    role: 'student',
-    institutionId: 'inst-1',
-  },
-  admin: {
-    id: 'admin-1',
-    name: 'Dr. Ahmad Hassan',
-    email: 'ahmad.hassan@university.edu',
-    role: 'admin',
-    institutionId: 'inst-1',
-  },
-};
-
-function loginAs(role: Role, router: ReturnType<typeof useRouter>) {
-  const user = demoUsers[role];
+// Defined outside component — React Compiler immutability rule
+function persistSession(user: CurrentUser) {
   localStorage.setItem('exam_user', JSON.stringify(user));
-  document.cookie = `exam_role=${role}; path=/; max-age=86400`;
-  router.push(`/${role}`);
+  document.cookie = `exam_role=${user.role}; path=/; max-age=86400`;
 }
 
 export function LoginForm() {
@@ -53,17 +29,47 @@ export function LoginForm() {
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({ resolver: zodResolver(schema) });
 
-  function onSubmit(data: FormData) {
+  async function onSubmit(data: FormData) {
     setError('');
-    const match = Object.values(demoUsers).find(u => u.email === data.email);
-    if (match && data.password.length >= 6) {
-      loginAs(match.role as Role, router);
-    } else {
-      setError('Invalid credentials. Use the demo buttons below to get started.');
+    const supabase = createClient();
+
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email: data.email,
+      password: data.password,
+    });
+
+    if (authError) {
+      setError(authError.message);
+      return;
     }
+
+    // Fetch Prisma User record to populate localStorage
+    const res = await fetch('/api/users/me');
+    if (!res.ok) {
+      setError('Account not found. Contact your administrator.');
+      await supabase.auth.signOut();
+      return;
+    }
+
+    const user = (await res.json()) as CurrentUser;
+    persistSession(user);
+    router.push(`/${user.role}`);
+    router.refresh();
+  }
+
+  async function loginAsDemo(role: 'admin' | 'teacher' | 'student') {
+    const emails: Record<string, string> = {
+      admin:   'admin@demo.exampro.com',
+      teacher: 'teacher@demo.exampro.com',
+      student: 'student@demo.exampro.com',
+    };
+    setValue('email', emails[role]);
+    setValue('password', 'Demo@1234');
+    await handleSubmit(onSubmit)();
   }
 
   return (
@@ -112,13 +118,13 @@ export function LoginForm() {
       </div>
 
       <div className="grid grid-cols-3 gap-2">
-        <Button variant="outline" size="sm" onClick={() => loginAs('teacher', router)} className="text-xs">
+        <Button variant="outline" size="sm" onClick={() => loginAsDemo('teacher')} className="text-xs">
           Login as Teacher
         </Button>
-        <Button variant="outline" size="sm" onClick={() => loginAs('student', router)} className="text-xs">
+        <Button variant="outline" size="sm" onClick={() => loginAsDemo('student')} className="text-xs">
           Login as Student
         </Button>
-        <Button variant="outline" size="sm" onClick={() => loginAs('admin', router)} className="text-xs">
+        <Button variant="outline" size="sm" onClick={() => loginAsDemo('admin')} className="text-xs">
           Login as Admin
         </Button>
       </div>
