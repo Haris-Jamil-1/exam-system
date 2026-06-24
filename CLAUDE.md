@@ -2,6 +2,53 @@
 
 ## Session Log
 
+### 2026-06-25 — Phase 2 Session A: Prisma + Supabase Foundation ✅
+
+**What was done:**
+- Installed: `@supabase/supabase-js`, `@supabase/ssr`, `@prisma/client`, `prisma`, `@prisma/adapter-pg`, `pg`, `dotenv`, `tsx`
+- Created `prisma/schema.prisma` — 13 models, 12 enums (Institution, User, InviteToken, Exam, ExamEnrollment, Question, Option, Item, ItemOption, ExamAttempt, Answer, Violation, Course, Topic, LearningObjective)
+- Created `prisma.config.ts` — loads `.env.local`, uses `DIRECT_URL` for schema ops
+- Updated `tsconfig.json` — excluded `prisma/` from Next.js typecheck
+- Updated `package.json` — `build` script runs `prisma generate && next build`; added `postinstall`, `db:push`, `db:seed` scripts
+- Ran `prisma db push` — all 13 tables created in Supabase PostgreSQL
+- Ran `prisma generate` — Prisma v7 client generated to `src/generated/prisma/`
+- Created `src/lib/prisma.ts` — singleton PrismaClient using `@prisma/adapter-pg` (PrismaPg adapter)
+- Created `src/lib/supabase/client.ts` — browser client (`createBrowserClient`)
+- Created `src/lib/supabase/server.ts` — server client (`createServerClient` with cookie jar)
+- Created `src/lib/supabase/admin.ts` — service-role client (for invite emails, server-only)
+- Created `prisma/seed.ts` — seeds Institution + 3 demo Supabase auth users + Prisma User records
+- Ran seed → demo accounts created:
+  - `admin@demo.exampro.com` / `Demo@1234`
+  - `teacher@demo.exampro.com` / `Demo@1234`
+  - `student@demo.exampro.com` / `Demo@1234`
+- Added all 6 env vars to Vercel production environment via CLI
+
+**Key Prisma v7 differences vs v5/v6:**
+- `schema.prisma` datasource block has NO `url` or `directUrl` — all in `prisma.config.ts`
+- Generator `provider = "prisma-client"` (not `prisma-client-js`)
+- Output goes to `src/generated/prisma/` (not `node_modules/@prisma/client`)
+- Import from `@/generated/prisma/client` (not `@prisma/client`)
+- PrismaClient constructor takes `{ adapter: new PrismaPg({ connectionString }) }` (adapter pattern)
+- `db push` requires `--url` flag pointing to direct connection (port 5432, not pgBouncer port 6543)
+
+**Build status after session:**
+- `npm run build` → **PASSES (0 errors, 40 routes)**
+- `npm run lint` → **PASSES (0 errors, 0 warnings)**
+- Vercel: 6 env vars added (NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, SUPABASE_SECRET_KEY, NEXT_PUBLIC_APP_URL, DATABASE_URL, DIRECT_URL)
+- GitHub: pending commit/push (see below)
+
+**What's next (Phase 2 Session B):**
+- Rewrite `src/middleware.ts` — verify Supabase JWT, extract role from user_metadata
+- Rewrite `src/hooks/useCurrentUser.ts` — use Supabase browser session
+- Rewrite `src/components/auth/LoginForm.tsx` — `supabase.auth.signInWithPassword()`
+- Rewrite `src/components/auth/RegisterForm.tsx` — `supabase.auth.signUp()` + Prisma Institution+User
+- Write `src/app/auth/callback/route.ts` — OAuth/magic-link callback handler
+- Write `src/app/invite/setup/page.tsx` — name entry after invite acceptance
+- Rewrite `src/app/invite/[token]/page.tsx` — validate InviteToken from DB
+- Write `src/app/api/invites/route.ts` — POST invite + Supabase `inviteUserByEmail`
+
+---
+
 ### 2026-06-24 — Session 3: Phase 1 Feature Expansion (Chunks 1–6) + Audit Fixes ✅
 
 **What was done:**
@@ -134,7 +181,7 @@
 ## Build Status
 - `npm run build` → **PASSES** (0 errors, 40 routes)
 - `npm run lint` → **PASSES** (0 errors, 0 warnings)
-- Last verified: 2026-06-24
+- Last verified: 2026-06-25
 
 ---
 
@@ -150,7 +197,8 @@
 | i18n | next-intl v4 (cookie-based, NOT URL-based) |
 | Charts | recharts |
 | Build | Turbopack |
-| Auth | Mock (`localStorage.exam_user` + cookie `exam_role`) |
+| Auth | Supabase Auth (`@supabase/ssr`) — Phase 2 in progress |
+| Database | Prisma v7 + `@prisma/adapter-pg` → Supabase PostgreSQL |
 
 ---
 

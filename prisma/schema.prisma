@@ -1,0 +1,355 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  admin
+  teacher
+  student
+}
+
+enum ExamStatus {
+  draft
+  scheduled
+  live
+  completed
+}
+
+enum ApprovalStatus {
+  not_submitted
+  pending
+  approved
+  rejected
+}
+
+enum QuestionType {
+  mcq
+  mrq
+  true_false
+  short_answer
+  essay
+  fill_blank
+  matching
+  ordering
+  coding
+  file_upload
+}
+
+enum Difficulty {
+  easy
+  medium
+  hard
+}
+
+enum ItemStatus {
+  draft
+  review
+  approved
+  archived
+}
+
+enum AttemptStatus {
+  in_progress
+  submitted
+  auto_submitted
+}
+
+enum ViolationType {
+  tab_switch
+  window_blur
+  fullscreen_exit
+  no_face
+  multiple_faces
+  audio_detected
+  phone_detected
+}
+
+enum ViolationSeverity {
+  low
+  medium
+  high
+}
+
+enum BloomsLevel {
+  Remember
+  Understand
+  Apply
+  Analyze
+  Evaluate
+  Create
+}
+
+enum LearningDomain {
+  Knowledge
+  Skill
+  Values
+}
+
+// ── Models ───────────────────────────────────────────────────────────────────
+
+model Institution {
+  id        String   @id @default(cuid())
+  name      String
+  domain    String   @unique
+  joinCode  String   @unique @default(cuid())
+  createdAt DateTime @default(now())
+
+  users   User[]
+  exams   Exam[]
+  items   Item[]
+  courses Course[]
+}
+
+model User {
+  id            String   @id @default(cuid())
+  supabaseId    String   @unique
+  name          String
+  email         String   @unique
+  role          Role
+  department    String?
+  avatarUrl     String?
+  institutionId String
+  createdAt     DateTime @default(now())
+
+  institution Institution      @relation(fields: [institutionId], references: [id])
+  exams       Exam[]           @relation("ExamTeacher")
+  items       Item[]           @relation("ItemAuthor")
+  attempts    ExamAttempt[]
+  violations  Violation[]
+  enrollments ExamEnrollment[]
+  invitesSent InviteToken[]    @relation("InvitedBy")
+}
+
+model InviteToken {
+  id            String    @id @default(cuid())
+  token         String    @unique @default(cuid())
+  email         String
+  role          Role
+  institutionId String
+  invitedById   String
+  expiresAt     DateTime
+  acceptedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  invitedBy User @relation("InvitedBy", fields: [invitedById], references: [id])
+}
+
+model Exam {
+  id                 String         @id @default(cuid())
+  title              String
+  subject            String
+  duration           Int
+  totalMarks         Int
+  passingMarks       Int
+  status             ExamStatus     @default(draft)
+  approvalStatus     ApprovalStatus @default(not_submitted)
+  startTime          DateTime
+  endTime            DateTime
+  maxViolations      Int            @default(3)
+  settings           Json
+  resultsPublishedAt DateTime?
+  institutionId      String
+  teacherId          String
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  institution Institution      @relation(fields: [institutionId], references: [id])
+  teacher     User             @relation("ExamTeacher", fields: [teacherId], references: [id])
+  questions   Question[]
+  attempts    ExamAttempt[]
+  enrollments ExamEnrollment[]
+  violations  Violation[]
+}
+
+model ExamEnrollment {
+  id         String   @id @default(cuid())
+  examId     String
+  studentId  String
+  enrolledAt DateTime @default(now())
+
+  exam    Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
+  student User @relation(fields: [studentId], references: [id])
+
+  @@unique([examId, studentId])
+}
+
+model Question {
+  id                  String       @id @default(cuid())
+  examId              String
+  type                QuestionType
+  stem                String
+  marks               Int          @default(1)
+  difficulty          Difficulty   @default(medium)
+  order               Int          @default(0)
+  required            Boolean      @default(false)
+  explanation         String?
+  correctAnswer       Json?
+  learningObjectiveId String?
+  codeLanguage        String?
+  starterCode         String?
+  testCases           Json?
+  allowedFileTypes    String[]
+  maxFileSizeMB       Int?
+  createdAt           DateTime     @default(now())
+
+  exam              Exam               @relation(fields: [examId], references: [id], onDelete: Cascade)
+  learningObjective LearningObjective? @relation(fields: [learningObjectiveId], references: [id])
+  options           Option[]
+  answers           Answer[]
+}
+
+model Option {
+  id         String  @id @default(cuid())
+  questionId String
+  text       String
+  isCorrect  Boolean @default(false)
+  order      Int     @default(0)
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+}
+
+model Item {
+  id                  String       @id @default(cuid())
+  type                QuestionType
+  stem                String
+  marks               Int          @default(1)
+  difficulty          Difficulty   @default(medium)
+  order               Int          @default(0)
+  required            Boolean      @default(false)
+  explanation         String?
+  correctAnswer       Json?
+  status              ItemStatus   @default(draft)
+  usageCount          Int          @default(0)
+  tags                String[]
+  codeLanguage        String?
+  starterCode         String?
+  testCases           Json?
+  allowedFileTypes    String[]
+  maxFileSizeMB       Int?
+  facilityIndex       Float?
+  discriminationIndex Float?
+  version             Int          @default(1)
+  previousVersionId   String?
+  institutionId       String
+  authorId            String
+  learningObjectiveId String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  institution       Institution        @relation(fields: [institutionId], references: [id])
+  author            User               @relation("ItemAuthor", fields: [authorId], references: [id])
+  learningObjective LearningObjective? @relation(fields: [learningObjectiveId], references: [id])
+  options           ItemOption[]
+}
+
+model ItemOption {
+  id        String  @id @default(cuid())
+  itemId    String
+  text      String
+  isCorrect Boolean @default(false)
+  order     Int     @default(0)
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+}
+
+model ExamAttempt {
+  id                String        @id @default(cuid())
+  examId            String
+  studentId         String
+  status            AttemptStatus @default(in_progress)
+  startedAt         DateTime      @default(now())
+  submittedAt       DateTime?
+  score             Int?
+  totalMarks        Int?
+  scorePercentage   Float?
+  trustScore        Int           @default(100)
+  violationCount    Int           @default(0)
+  biometricVerified Boolean       @default(false)
+  createdAt         DateTime      @default(now())
+
+  exam       Exam        @relation(fields: [examId], references: [id])
+  student    User        @relation(fields: [studentId], references: [id])
+  answers    Answer[]
+  violations Violation[]
+
+  @@unique([examId, studentId])
+}
+
+model Answer {
+  id           String    @id @default(cuid())
+  attemptId    String
+  questionId   String
+  response     Json?
+  fileUrl      String?
+  isCorrect    Boolean?
+  marksAwarded Int?
+  gradedAt     DateTime?
+  createdAt    DateTime  @default(now())
+
+  attempt  ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question Question    @relation(fields: [questionId], references: [id])
+
+  @@unique([attemptId, questionId])
+}
+
+model Violation {
+  id            String            @id @default(cuid())
+  attemptId     String
+  studentId     String
+  examId        String
+  type          ViolationType
+  severity      ViolationSeverity @default(low)
+  description   String
+  screenshotUrl String?
+  metadata      Json?
+  timestamp     DateTime          @default(now())
+
+  attempt ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  student User        @relation(fields: [studentId], references: [id])
+  exam    Exam        @relation(fields: [examId], references: [id])
+}
+
+model Course {
+  id            String   @id @default(cuid())
+  code          String
+  title         String
+  institutionId String
+  createdAt     DateTime @default(now())
+
+  institution Institution @relation(fields: [institutionId], references: [id])
+  topics      Topic[]
+
+  @@unique([institutionId, code])
+}
+
+model Topic {
+  id        String   @id @default(cuid())
+  courseId  String
+  title     String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  course             Course              @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  learningObjectives LearningObjective[]
+}
+
+model LearningObjective {
+  id             String         @id @default(cuid())
+  topicId        String
+  code           String?
+  text           String
+  bloomsLevel    BloomsLevel
+  learningDomain LearningDomain
+  createdAt      DateTime       @default(now())
+
+  topic     Topic      @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  questions Question[]
+  items     Item[]
+}
