@@ -2,6 +2,46 @@
 
 ## Session Log
 
+### 2026-06-25 — Phase 2 QA Fixes: Security + Real Results + Mock Cleanup ✅
+
+**What was done:**
+
+#### Security — API Auth Guards
+- `GET/POST /api/exams` — added `getAuthUser()` guard; POST now uses session `institutionId`/`teacherId` (not body values)
+- `GET/PUT/DELETE /api/exams/[examId]` — added auth + ownership check (exam teacher or admin only for PUT/DELETE)
+- `GET/POST /api/violations` — added auth; POST uses `user.id` from JWT as `studentId` (body value ignored)
+- `GET/POST /api/questions` — added auth; students blocked from POST
+
+#### Data Fixes
+- `deleteExam()` — wrapped `prisma.exam.delete()` in try/catch to return `false` on P2025 (not throw), so DELETE route correctly returns 404 on missing exam
+- Added `getStudentResults(examId)` to `students.ts` — joins enrollments + attempts, returns real score/totalMarks/scorePercentage/trustScore/violationCount/submitted per student
+- Added `getMyInstitution()` to `users.ts` — reads institution from DB via session institutionId
+
+#### UI Fixes
+- Teacher results page — replaced `Math.random()` scores with real `getStudentResults()` data; pass/fail calculated from real scorePercentage vs passingMarks ratio; resultsPublished synced from `exam.resultsPublishedAt`
+- Admin teachers page — institution name loaded from `getMyInstitution()`; invite link uses `NEXT_PUBLIC_APP_URL`
+- Admin institutions page — replaced `mockInstitutions` array with real `getMyInstitution()` single-institution row
+- Admin users page — replaced `mockInstitutions.find()` with real institution from `getMyInstitution()`
+- Teacher students BulkTab — wired send button to real `POST /api/invites` loop (was fake `setSent(true)`)
+
+#### Type Cleanup
+- `PendingExam` type moved from `lib/mock-data/admin.ts` to `types/index.ts`
+- Updated imports in `analytics.ts`, `admin/page.tsx`, `admin/exams/page.tsx`
+
+**Build status after session:**
+- `npm run build` → **PASSES (0 errors, 48 routes)**
+- `npm run lint` → **PASSES (0 errors, 0 warnings)**
+- GitHub: pushed to master (commit `19e44f1`)
+- Vercel: deployed to https://exam-system-sigma.vercel.app
+
+**Remaining known limitations (Phase 3):**
+- Teacher monitor: 10s polling instead of Supabase Realtime
+- FaceDetector: Math.random() mock violations (Phase 3: face-api.js)
+- Exam enrollment flow: students join via code/link (not yet implemented)
+- AI essay/coding grading (Phase 3: Claude API)
+
+---
+
 ### 2026-06-25 — Phase 2 Session E: Invite Flow + Setup Page ✅
 
 **What was done:**
@@ -265,9 +305,9 @@
 ---
 
 ## Build Status
-- `npm run build` → **PASSES** (0 errors, 40 routes)
+- `npm run build` → **PASSES** (0 errors, 48 routes)
 - `npm run lint` → **PASSES** (0 errors, 0 warnings)
-- Last verified: 2026-06-25
+- Last verified: 2026-06-25 (commit `19e44f1`)
 
 ---
 
