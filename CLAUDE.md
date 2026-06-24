@@ -2,6 +2,39 @@
 
 ## Session Log
 
+### 2026-06-25 — Phase 2 Session C: Data Layer Swap (lib/data/* → Prisma) ✅
+
+**What was done:**
+- Added `ApprovalStatus` type + `approvalStatus?` + `resultsPublishedAt?` to `Exam` interface in `src/types/index.ts`
+- Rewrote all 8 `src/lib/data/*.ts` files with `'use server'` + Prisma queries (replaced all mock-data imports):
+  - `curriculum.ts` — `getCourses/getCourseById/createCourse/getTopics/getTopicById/createTopic/getCLOs/getCLOById/createCLO/updateCLO/getCLOWithAncestors` — all scoped to institutionId from Supabase session
+  - `violations.ts` — `getViolations/getLiveAlerts/logViolation/getMonitorFeed` — maps `Violation.timestamp: DateTime → string`
+  - `users.ts` — `getCurrentUser` reads from Supabase session + Prisma by `supabaseId`; `getUserById/getAllUsers` scoped by institutionId
+  - `exams.ts` — `getExams/getExamById/createExam/updateExam/deleteExam/getExamStats` — maps Date→string, Json→ExamSettings cast, includes `_count: { questions, enrollments }`
+  - `questions.ts` — `getQuestions/getQuestionById/createQuestion/updateQuestion/deleteQuestion/reorderQuestions/getQuestionsForStudent` — strips `questionId/order` from Option; casts `Json?→correctAnswer/testCases`; `reorderQuestions` uses `prisma.$transaction`
+  - `items.ts` — `getItems/getItemById/createItem/updateItem` — maps `ItemOption[]→Option[]`; gets institutionId from session for create/list
+  - `students.ts` — `getStudents/getStudentById/getStudentsForExam/getMonitorStudents` — `getMonitorStudents` joins enrollments + attempts + violations for real status (active/warning/flagged/submitted)
+  - `analytics.ts` — all 13 functions use real Prisma aggregates; falls back to empty arrays when no data; `getRecentAlerts` computes relative time; `getPendingExams` casts `settings.proctoringLevel` from JSON
+
+**Key patterns used:**
+- `'use server'` at top of every file (runs on server, safe for Prisma)
+- institutionId always from Supabase session — never trust caller params
+- `...(value !== undefined && { field: value })` pattern for optional `Json?` fields (Prisma v7 rejects plain `null`)
+- Date→string via `.toISOString()` for all DateTime fields
+- `Json?` → typed cast via `as ExamSettings`, `as string | string[]`, `as TestCase[]`
+
+**Build status after session:**
+- `npm run build` → **PASSES (0 errors, 44 routes)**
+- `npm run lint` → **PASSES (0 errors, 0 warnings)**
+- GitHub: pushed to master (commit 12ef452)
+
+**What's next (Phase 2 Session D):**
+- API routes → Prisma (replace mock data in `/api/exams`, `/api/questions`, `/api/attempts`, `/api/violations`)
+- Supabase Storage for file uploads
+- Supabase Realtime for live violation streaming to teacher monitor
+
+---
+
 ### 2026-06-25 — Phase 2 Session A: Prisma + Supabase Foundation ✅
 
 **What was done:**
