@@ -38,6 +38,7 @@ export default function AdminTeachersPage() {
   const [copied, setCopied]         = useState(false);
   const [emailInput, setEmailInput] = useState('');
   const [sentEmails, setSentEmails] = useState<string[]>([]);
+  const [inviteError, setInviteError] = useState('');
 
   useEffect(() => {
     getTeachersList().then(t => setTeachers(t as Teacher[]));
@@ -49,9 +50,21 @@ export default function AdminTeachersPage() {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  function sendInvite() {
-    if (!emailInput.trim() || !emailInput.includes('@')) return;
-    setSentEmails(prev => [...prev, emailInput.trim()]);
+  async function sendInvite() {
+    const email = emailInput.trim();
+    if (!email || !email.includes('@')) return;
+    setInviteError('');
+    const res = await fetch('/api/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, role: 'teacher' }),
+    });
+    if (!res.ok) {
+      const body = await res.json() as { error?: string };
+      setInviteError(body.error ?? 'Failed to send invite.');
+      return;
+    }
+    setSentEmails(prev => [...prev, email]);
     setEmailInput('');
   }
 
@@ -135,6 +148,9 @@ export default function AdminTeachersPage() {
                 Send
               </button>
             </div>
+            {inviteError && (
+              <p className="mt-2 text-[12px] text-red-500">{inviteError}</p>
+            )}
             {sentEmails.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">
                 {sentEmails.map(email => (

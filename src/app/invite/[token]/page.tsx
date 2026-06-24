@@ -1,49 +1,85 @@
 'use client';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { AlertTriangle, Clock, CheckCircle2 } from 'lucide-react';
 
-const schema = z
-  .object({
-    name: z.string().min(2, 'Name is required'),
-    password: z.string().min(8, 'Password must be at least 8 characters'),
-    confirmPassword: z.string(),
-  })
-  .refine(d => d.password === d.confirmPassword, {
-    message: 'Passwords do not match',
-    path: ['confirmPassword'],
-  });
-
-type FormData = z.infer<typeof schema>;
+type InviteInfo = {
+  email: string;
+  role: 'teacher' | 'student';
+  institutionName: string;
+  expiresAt: string;
+  acceptedAt: string | null;
+};
 
 export default function InvitePage() {
+  const { token } = useParams<{ token: string }>();
   const router = useRouter();
-  // In Phase 2: decode token to get institution + role
-  const mockInvite = { institution: 'State University', role: 'teacher', email: 'newteacher@university.edu' };
+  const [invite, setInvite]   = useState<InviteInfo | null>(null);
+  const [status, setStatus]   = useState<'loading' | 'valid' | 'invalid' | 'expired' | 'used'>('loading');
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<FormData>({ resolver: zodResolver(schema) });
+  useEffect(() => {
+    fetch(`/api/invites/token/${token}`)
+      .then(async res => {
+        if (!res.ok) { setStatus('invalid'); return; }
+        const data = await res.json() as InviteInfo;
+        if (data.acceptedAt) { setStatus('used'); setInvite(data); return; }
+        if (new Date(data.expiresAt) < new Date()) { setStatus('expired'); setInvite(data); return; }
+        setInvite(data);
+        setStatus('valid');
+      })
+      .catch(() => setStatus('invalid'));
+  }, [token]);
 
-  function onSubmit(data: FormData) {
-    const user = {
-      id: 'teacher-new',
-      name: data.name,
-      email: mockInvite.email,
-      role: mockInvite.role as 'teacher',
-      institutionId: 'inst-1',
-    };
-    localStorage.setItem('exam_user', JSON.stringify(user));
-    router.push('/teacher');
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-muted-foreground text-sm">Validating invite…</p>
+      </div>
+    );
   }
 
+  if (status === 'invalid') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border p-8 text-center space-y-4">
+          <AlertTriangle className="h-10 w-10 text-red-500 mx-auto" />
+          <h2 className="text-lg font-semibold">Invalid Invite Link</h2>
+          <p className="text-sm text-muted-foreground">This link is not valid. Please ask your administrator to resend the invitation.</p>
+          <Button variant="outline" onClick={() => router.push('/login')}>Go to Login</Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === 'expired') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border p-8 text-center space-y-4">
+          <Clock className="h-10 w-10 text-amber-500 mx-auto" />
+          <h2 className="text-lg font-semibold">Invite Expired</h2>
+          <p className="text-sm text-muted-foreground">This invitation expired on {new Date(invite!.expiresAt).toLocaleDateString()}. Please request a new invite.</p>
+          <Button variant="outline" onClick={() => router.push('/login')}>Go to Login</Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === 'used') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border p-8 text-center space-y-4">
+          <CheckCircle2 className="h-10 w-10 text-emerald-500 mx-auto" />
+          <h2 className="text-lg font-semibold">Invite Already Accepted</h2>
+          <p className="text-sm text-muted-foreground">This invitation was already used. Sign in to access your account.</p>
+          <Button onClick={() => router.push('/login')}>Go to Login</Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Valid invite — show info and redirect to login (account was already created via Supabase email)
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
@@ -53,57 +89,41 @@ export default function InvitePage() {
           </div>
           <h1 className="text-2xl font-bold text-gray-900">ExamPro</h1>
         </div>
-        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">
-          <div className="mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">Accept Invitation</h2>
-            <p className="text-sm text-gray-500 mt-1">Complete your account setup</p>
+
+        <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8 space-y-6">
+          <div>
+            <h2 className="text-xl font-semibold text-gray-900">You&apos;ve been invited</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              Check your email for the sign-in link sent to <strong>{invite?.email}</strong>.
+            </p>
           </div>
 
-          <div className="rounded-lg bg-blue-50 border border-blue-100 p-4 mb-6 space-y-2">
+          <div className="rounded-lg bg-blue-50 border border-blue-100 p-4 space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span className="text-gray-500">Institution</span>
-              <span className="font-medium text-gray-900">{mockInvite.institution}</span>
+              <span className="font-medium text-gray-900">{invite?.institutionName}</span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-gray-500">Role</span>
-              <Badge variant="info" className="capitalize">{mockInvite.role}</Badge>
+              <Badge variant="info" className="capitalize">{invite?.role}</Badge>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="text-gray-500">Email</span>
-              <span className="font-medium text-gray-900">{mockInvite.email}</span>
+              <span className="font-medium text-gray-900">{invite?.email}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-500">Expires</span>
+              <span className="text-gray-900">{new Date(invite!.expiresAt).toLocaleDateString()}</span>
             </div>
           </div>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Your Full Name</Label>
-              <Input id="name" placeholder="Dr. John Smith" {...register('name')} />
-              {errors.name && <p className="text-sm text-red-500">{errors.name.message}</p>}
-            </div>
+          <p className="text-xs text-muted-foreground text-center">
+            Click the link in your email to activate your account. The link expires in 7 days.
+          </p>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Set Password</Label>
-              <Input id="password" type="password" placeholder="••••••••" {...register('password')} />
-              {errors.password && <p className="text-sm text-red-500">{errors.password.message}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm Password</Label>
-              <Input
-                id="confirmPassword"
-                type="password"
-                placeholder="••••••••"
-                {...register('confirmPassword')}
-              />
-              {errors.confirmPassword && (
-                <p className="text-sm text-red-500">{errors.confirmPassword.message}</p>
-              )}
-            </div>
-
-            <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? 'Setting up...' : 'Complete Registration'}
-            </Button>
-          </form>
+          <Button variant="outline" className="w-full" onClick={() => router.push('/login')}>
+            Already have an account? Sign in
+          </Button>
         </div>
       </div>
     </div>

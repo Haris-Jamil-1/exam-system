@@ -110,10 +110,12 @@ function LinkTab() {
 // ── Email tab ─────────────────────────────────────────────────────────────────
 function EmailTab() {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [input,  setInput]  = useState('');
-  const [emails, setEmails] = useState<string[]>([]);
-  const [error,  setError]  = useState('');
-  const [sent,   setSent]   = useState(false);
+  const [input,    setInput]    = useState('');
+  const [emails,   setEmails]   = useState<string[]>([]);
+  const [error,    setError]    = useState('');
+  const [sent,     setSent]     = useState(false);
+  const [sending,  setSending]  = useState(false);
+  const [sentCount, setSentCount] = useState(0);
 
   function add() {
     const v = input.trim().toLowerCase();
@@ -131,6 +133,24 @@ function EmailTab() {
     if (e.key === 'Enter') { e.preventDefault(); add(); }
   }
 
+  async function sendAll() {
+    if (!emails.length) return;
+    setSending(true);
+    setError('');
+    let sent = 0;
+    for (const email of emails) {
+      const res = await fetch('/api/invites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, role: 'student' }),
+      });
+      if (res.ok) sent++;
+    }
+    setSentCount(sent);
+    setSending(false);
+    setSent(true);
+  }
+
   if (sent) {
     return (
       <div className="flex flex-col items-center gap-4 py-10 text-center">
@@ -140,11 +160,11 @@ function EmailTab() {
         <div>
           <p className="text-[16px] font-bold text-[#1A1D23]">Invites Sent!</p>
           <p className="mt-1 text-[13px] text-[#6B7280]">
-            {emails.length} student{emails.length !== 1 ? 's' : ''} will receive an email invitation.
+            {sentCount} student{sentCount !== 1 ? 's' : ''} will receive an email invitation.
           </p>
         </div>
         <button
-          onClick={() => { setEmails([]); setSent(false); }}
+          onClick={() => { setEmails([]); setSent(false); setSentCount(0); }}
           className="mt-1 rounded-xl border border-[#E8ECF4] px-5 py-2 text-[13px] font-semibold text-[#1A1D23] transition-colors hover:border-[#CBD5E1] hover:bg-[#F9FBFE]"
         >
           Send more invites
@@ -219,12 +239,12 @@ function EmailTab() {
           : <span />
         }
         <button
-          onClick={() => { if (emails.length) setSent(true); }}
-          disabled={emails.length === 0}
+          onClick={() => { void sendAll(); }}
+          disabled={emails.length === 0 || sending}
           className="flex items-center gap-2 rounded-xl bg-[#1E88E5] px-5 py-2.5 text-[13px] font-semibold text-white shadow-md shadow-blue-200 transition-all hover:-translate-y-px hover:bg-[#1976D2] disabled:pointer-events-none disabled:opacity-40"
         >
           <Send className="h-4 w-4" />
-          Send {emails.length > 0 ? `${emails.length} ` : ''}Invite{emails.length !== 1 ? 's' : ''}
+          {sending ? 'Sending…' : `Send ${emails.length > 0 ? `${emails.length} ` : ''}Invite${emails.length !== 1 ? 's' : ''}`}
         </button>
       </div>
     </div>

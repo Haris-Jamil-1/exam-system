@@ -258,13 +258,21 @@ export async function getStudentExams() {
   return enrollments.map(({ exam }) => {
     const attempt = attemptMap.get(exam.id);
     let status: 'available' | 'upcoming' | 'completed' = 'upcoming';
-    if (attempt && (attempt.status === 'submitted' || attempt.status === 'auto_submitted')) {
+    const submitted = attempt && (attempt.status === 'submitted' || attempt.status === 'auto_submitted');
+    if (submitted) {
       status = 'completed';
     } else if (exam.status === 'live') {
       status = 'available';
     } else if (exam.startTime <= now) {
       status = 'available';
     }
+
+    // Hide score if results visibility is 'held' and teacher hasn't published yet
+    const settings = exam.settings as { resultsVisibility?: string } | null;
+    const resultsHeld = settings?.resultsVisibility === 'held' && !exam.resultsPublishedAt;
+    const scoreValue = submitted && !resultsHeld && attempt?.scorePercentage != null
+      ? Math.round(attempt.scorePercentage) : undefined;
+
     return {
       id: exam.id,
       title: exam.title,
@@ -273,9 +281,8 @@ export async function getStudentExams() {
       schedule: exam.startTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
       durationMins: exam.duration,
       questions: exam._count.questions,
-      score: attempt?.scorePercentage !== null && attempt?.scorePercentage !== undefined
-        ? Math.round(attempt.scorePercentage) : undefined,
-      trust: attempt?.trustScore,
+      score: scoreValue,
+      trust: submitted ? attempt?.trustScore : undefined,
     };
   });
 }
