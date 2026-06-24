@@ -53,10 +53,9 @@ export default function ResultsPage() {
   }, [examId]);
 
   async function handlePublishResults() {
-    // Phase 2: PATCH /api/exams/[examId]/publish-results
     setPublishing(true);
-    await new Promise(r => setTimeout(r, 800));
-    setResultsPublished(true);
+    const res = await fetch(`/api/exams/${examId}/publish-results`, { method: 'PATCH' });
+    if (res.ok) setResultsPublished(true);
     setPublishing(false);
   }
 

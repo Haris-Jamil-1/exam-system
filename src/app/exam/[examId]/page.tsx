@@ -83,11 +83,10 @@ export default function ExamPage() {
       if (stored) {
         session = JSON.parse(stored) as AttemptSession;
       } else {
-        const studentId = user?.id ?? 'anonymous';
         const res = await fetch('/api/attempts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ examId, studentId }),
+          body: JSON.stringify({ examId }),
         });
         const attempt = await res.json() as { id: string; startedAt: string };
         session = { attemptId: attempt.id, startedAt: attempt.startedAt };
@@ -126,22 +125,43 @@ export default function ExamPage() {
     if (submitting || !exam) return;
     setSubmitting(true);
     try {
+      // Upload any pending file answers and collect URLs
+      const fileUploads = await Promise.allSettled(
+        Object.entries(fileAnswers)
+          .filter(([, file]) => file !== null)
+          .map(async ([questionId, file]) => {
+            const fd = new FormData();
+            fd.append('file', file!);
+            fd.append('folder', `exams/${examId}`);
+            const uploadRes = await fetch('/api/upload', { method: 'POST', body: fd });
+            if (!uploadRes.ok) throw new Error('Upload failed');
+            const { path } = await uploadRes.json() as { path: string };
+            return { questionId, path };
+          })
+      );
+      const mergedAnswers: Record<string, string | string[]> = { ...answers };
+      for (const result of fileUploads) {
+        if (result.status === 'fulfilled') {
+          mergedAnswers[result.value.questionId] = result.value.path;
+        }
+      }
+
       const res = await fetch(`/api/attempts/${attemptId}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ examId, answers, violationCount, trustScore }),
+        body: JSON.stringify({ examId, answers: mergedAnswers, violationCount, trustScore }),
       });
-      const result = await res.json() as { score: number; totalMarks: number; scorePercentage: number };
+      const submitResult = await res.json() as { score: number; totalMarks: number; scorePercentage: number };
       sessionStorage.removeItem(SESSION_KEY(examId));
       const heldParam = exam.settings.resultsVisibility === 'held' ? '&held=1' : '';
       router.push(
-        `/exam/${examId}/complete?score=${result.score}&total=${result.totalMarks}&pct=${result.scorePercentage}${heldParam}`
+        `/exam/${examId}/complete?score=${submitResult.score}&total=${submitResult.totalMarks}&pct=${submitResult.scorePercentage}${heldParam}`
       );
     } catch {
       sessionStorage.removeItem(SESSION_KEY(examId));
       router.push(`/exam/${examId}/complete?score=0&total=0&pct=0`);
     }
-  }, [submitting, exam, attemptId, examId, answers, violationCount, trustScore, router]);
+  }, [submitting, exam, attemptId, examId, answers, fileAnswers, violationCount, trustScore, router]);
 
   const handleTimeUp = useCallback(() => { void doSubmit(); }, [doSubmit]);
   const { timeRemaining, isLow } = useExamTimer(initialSeconds, handleTimeUp, paused);

@@ -1,17 +1,61 @@
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { prisma } from '@/lib/prisma';
+import { getAuthUser, unauthorized, notFound } from '@/lib/api-auth';
 
 export async function GET(_req: Request, { params }: { params: Promise<{ attemptId: string }> }) {
+  const user = await getAuthUser();
+  if (!user) return unauthorized();
+
   const { attemptId } = await params;
+  const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId } });
+  if (!attempt) return notFound();
+
+  // Students can only read their own attempts; teachers/admins can read any
+  if (user.role === 'student' && attempt.studentId !== user.id) return notFound();
+
   return NextResponse.json({
-    id: attemptId,
-    status: 'in_progress',
-    trustScore: 100,
-    violationCount: 0,
+    id: attempt.id,
+    examId: attempt.examId,
+    studentId: attempt.studentId,
+    status: attempt.status,
+    startedAt: attempt.startedAt.toISOString(),
+    submittedAt: attempt.submittedAt?.toISOString(),
+    score: attempt.score,
+    totalMarks: attempt.totalMarks,
+    scorePercentage: attempt.scorePercentage,
+    trustScore: attempt.trustScore,
+    violationCount: attempt.violationCount,
   });
 }
 
+const updateSchema = z.object({
+  trustScore: z.number().min(0).max(100).optional(),
+  violationCount: z.number().min(0).optional(),
+});
+
 export async function PUT(request: Request, { params }: { params: Promise<{ attemptId: string }> }) {
+  const user = await getAuthUser();
+  if (!user) return unauthorized();
+
   const { attemptId } = await params;
   const body = await request.json();
-  return NextResponse.json({ id: attemptId, ...body });
+  const parsed = updateSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  }
+
+  const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId } });
+  if (!attempt) return notFound();
+  if (user.role === 'student' && attempt.studentId !== user.id) return notFound();
+
+  const updated = await prisma.examAttempt.update({
+    where: { id: attemptId },
+    data: {
+      ...(parsed.data.trustScore !== undefined && { trustScore: parsed.data.trustScore }),
+      ...(parsed.data.violationCount !== undefined && { violationCount: parsed.data.violationCount }),
+    },
+  });
+
+  return NextResponse.json({ id: updated.id, trustScore: updated.trustScore, violationCount: updated.violationCount });
 }

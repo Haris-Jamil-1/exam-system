@@ -25,6 +25,12 @@ const VIOLATION_LABELS: Record<string, string> = {
   phone_detected: 'Phone Detected',
 };
 
+async function refreshLiveData(examId: string, setStudents: (s: MonitorStudent[]) => void, setFeed: (f: Violation[]) => void) {
+  const [s, f] = await Promise.all([getMonitorStudents(examId), getMonitorFeed(examId)]);
+  setStudents(s);
+  setFeed(f.slice(0, 30));
+}
+
 export default function MonitorPage() {
   const { examId } = useParams<{ examId: string }>();
   const [exam, setExam] = useState<Exam | null>(null);
@@ -36,6 +42,12 @@ export default function MonitorPage() {
     Promise.all([getExamById(examId), getMonitorStudents(examId), getMonitorFeed(examId)]).then(
       ([e, s, f]) => { setExam(e ?? null); setStudents(s); setFeed(f.slice(0, 30)); }
     );
+  }, [examId]);
+
+  // Poll every 10 seconds for live updates
+  useEffect(() => {
+    const id = setInterval(() => { void refreshLiveData(examId, setStudents, setFeed); }, 10000);
+    return () => clearInterval(id);
   }, [examId]);
 
   const active    = students.filter(s => s.status === 'active').length;
