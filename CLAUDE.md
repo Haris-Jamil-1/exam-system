@@ -2,6 +2,34 @@
 
 ## Session Log
 
+### 2026-06-25 — Phase 2 Session E: Invite Flow + Setup Page ✅
+
+**What was done:**
+- Created `POST /api/invites` — creates `InviteToken` in DB + calls `adminSupabase.auth.admin.inviteUserByEmail(email, { redirectTo: '/auth/callback?setup=1&invite=...', data: { role, institutionId } })`; teachers can only invite students, admins invite teachers
+- Created `GET /api/invites/token/[token]` — public endpoint for `/invite/[token]` page; returns `{ email, role, institutionName, expiresAt, acceptedAt }` without auth
+- Added `PATCH /api/users/me` — update display name + avatarUrl; used by invite setup page
+- Created `/invite/setup/page.tsx` — name-entry form for newly invited users; calls PATCH, persists to localStorage + exam_role cookie, redirects to `/${role}` dashboard
+- Updated `/auth/callback/route.ts` — marks `InviteToken.acceptedAt` on accept; detects `?setup=1` param → redirects new user to `/invite/setup` instead of dashboard
+- Rewrote `/invite/[token]/page.tsx` — fetches real invite from `/api/invites/token/[token]`; shows 4 states: valid (info), expired, used (already accepted), invalid
+- Admin teachers page `sendInvite()` — now calls `POST /api/invites` with `{ role: 'teacher' }`; shows error if API fails
+- Teacher students page `EmailTab.sendAll()` — loops all emails, calls `POST /api/invites` with `{ role: 'student' }` each; shows sending state
+- `getStudentExams()` in analytics.ts — hides score when `exam.settings.resultsVisibility === 'held'` AND `exam.resultsPublishedAt === null` (proper held-results enforcement for student results page)
+
+**Build status after session:**
+- `npm run build` → **PASSES (0 errors, 48 routes)**
+- `npm run lint` → **PASSES (0 errors, 0 warnings)**
+- GitHub: pushed to master (commit 42471f7)
+- Vercel: deploying to https://exam-system-sigma.vercel.app
+
+**Phase 2 is now complete. What's next (Phase 3):**
+- AI essay/coding grading via Claude API (`/api/grade`)
+- Real face detection via face-api.js in `FaceDetector.tsx`
+- Supabase Realtime for teacher monitor (replace 10s polling)
+- Exam enrollment flow (student joins exam via code/link)
+- Teacher exam results page: show real attempt scores from DB
+
+---
+
 ### 2026-06-25 — Phase 2 Session D: API Routes + File Uploads ✅
 
 **What was done:**
