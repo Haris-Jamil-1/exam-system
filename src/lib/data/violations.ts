@@ -1,38 +1,73 @@
-// Phase 2: replace each function body with Supabase/Prisma query.
-// Realtime subscription (getLiveAlerts) will use Supabase Realtime channel in Phase 2.
+'use server';
+import { prisma } from '@/lib/prisma';
 import type { Violation } from '@/types';
-import { mockViolations } from '@/lib/mock-data/violations';
 
-const violationsDb = [...mockViolations];
+type PrismaViolation = {
+  id: string;
+  attemptId: string;
+  studentId: string;
+  examId: string;
+  type: string;
+  severity: string;
+  description: string;
+  screenshotUrl: string | null;
+  timestamp: Date;
+};
+
+function mapViolation(v: PrismaViolation): Violation {
+  return {
+    id: v.id,
+    attemptId: v.attemptId,
+    studentId: v.studentId,
+    examId: v.examId,
+    type: v.type as Violation['type'],
+    severity: v.severity as Violation['severity'],
+    description: v.description,
+    screenshotUrl: v.screenshotUrl ?? undefined,
+    timestamp: v.timestamp.toISOString(),
+  };
+}
 
 export async function getViolations(examId?: string, studentId?: string): Promise<Violation[]> {
-  // Phase 2: prisma.violation.findMany({ where: { examId, studentId } })
-  return violationsDb.filter(v => {
-    if (examId && v.examId !== examId) return false;
-    if (studentId && v.studentId !== studentId) return false;
-    return true;
+  const rows = await prisma.violation.findMany({
+    where: {
+      ...(examId && { examId }),
+      ...(studentId && { studentId }),
+    },
+    orderBy: { timestamp: 'desc' },
   });
+  return rows.map(mapViolation);
 }
 
 export async function getLiveAlerts(examId: string): Promise<Violation[]> {
-  // Phase 2: supabase.from('violations').select().eq('examId', examId).order('timestamp', { ascending: false }).limit(20)
-  const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-  return violationsDb
-    .filter(v => v.examId === examId && v.timestamp >= cutoff)
-    .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
-    .slice(0, 20);
+  const cutoff = new Date(Date.now() - 30 * 60 * 1000);
+  const rows = await prisma.violation.findMany({
+    where: { examId, timestamp: { gte: cutoff } },
+    orderBy: { timestamp: 'desc' },
+    take: 20,
+  });
+  return rows.map(mapViolation);
 }
 
 export async function logViolation(data: Omit<Violation, 'id'>): Promise<Violation> {
-  // Phase 2: return prisma.violation.create({ data })
-  const newViolation: Violation = { ...data, id: `v-${Date.now()}` };
-  violationsDb.push(newViolation);
-  return newViolation;
+  const row = await prisma.violation.create({
+    data: {
+      attemptId: data.attemptId,
+      studentId: data.studentId,
+      examId: data.examId,
+      type: data.type,
+      severity: data.severity,
+      description: data.description,
+      screenshotUrl: data.screenshotUrl ?? null,
+    },
+  });
+  return mapViolation(row);
 }
 
 export async function getMonitorFeed(examId: string): Promise<Violation[]> {
-  // Phase 2: prisma.violation.findMany({ where: { examId }, orderBy: { timestamp: 'desc' } })
-  return violationsDb
-    .filter(v => v.examId === examId)
-    .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+  const rows = await prisma.violation.findMany({
+    where: { examId },
+    orderBy: { timestamp: 'desc' },
+  });
+  return rows.map(mapViolation);
 }

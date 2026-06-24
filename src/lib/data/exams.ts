@@ -1,59 +1,129 @@
-// Phase 2: replace each function body with Supabase/Prisma query scoped to institution_id.
-// Signatures stay identical — only the body changes.
-import type { Exam, StatValue } from '@/types';
-import { mockExams } from '@/lib/mock-data/exams';
-import { mockViolations } from '@/lib/mock-data/violations';
+'use server';
+import { prisma } from '@/lib/prisma';
+import { createClient } from '@/lib/supabase/server';
+import type { Exam, ExamSettings, StatValue } from '@/types';
 
-const examsDb = [...mockExams];
+type PrismaExam = {
+  id: string; title: string; subject: string; duration: number;
+  totalMarks: number; passingMarks: number; status: string;
+  approvalStatus: string; startTime: Date; endTime: Date;
+  maxViolations: number; settings: unknown; resultsPublishedAt: Date | null;
+  institutionId: string; teacherId: string; createdAt: Date;
+  _count?: { questions: number; enrollments: number };
+};
 
-export async function getExams(institutionId?: string): Promise<Exam[]> {
-  // Phase 2: return prisma.exam.findMany({ where: { institutionId } })
-  if (institutionId) return examsDb.filter(e => e.institutionId === institutionId);
-  return examsDb;
+function mapExam(e: PrismaExam): Exam {
+  return {
+    id: e.id,
+    title: e.title,
+    subject: e.subject,
+    duration: e.duration,
+    totalMarks: e.totalMarks,
+    passingMarks: e.passingMarks,
+    status: e.status as Exam['status'],
+    approvalStatus: e.approvalStatus as Exam['approvalStatus'],
+    startTime: e.startTime.toISOString(),
+    endTime: e.endTime.toISOString(),
+    maxViolations: e.maxViolations,
+    settings: e.settings as ExamSettings,
+    resultsPublishedAt: e.resultsPublishedAt?.toISOString(),
+    institutionId: e.institutionId,
+    teacherId: e.teacherId,
+    createdAt: e.createdAt.toISOString(),
+    _count: e._count,
+  };
+}
+
+const COUNT_SELECT = { questions: true, enrollments: true } as const;
+
+async function getSessionInstitutionId(): Promise<string | null> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  return (user?.user_metadata?.institutionId as string | undefined) ?? null;
+}
+
+export async function getExams(_institutionId?: string): Promise<Exam[]> {
+  const institutionId = await getSessionInstitutionId();
+  if (!institutionId) return [];
+  const rows = await prisma.exam.findMany({
+    where: { institutionId },
+    orderBy: { createdAt: 'desc' },
+    include: { _count: { select: COUNT_SELECT } },
+  });
+  return rows.map(mapExam);
 }
 
 export async function getExamById(id: string): Promise<Exam | undefined> {
-  // Phase 2: return prisma.exam.findUnique({ where: { id } }) ?? undefined
-  return examsDb.find(e => e.id === id);
+  const row = await prisma.exam.findUnique({
+    where: { id },
+    include: { _count: { select: COUNT_SELECT } },
+  });
+  return row ? mapExam(row) : undefined;
 }
 
 export async function createExam(data: Omit<Exam, 'id' | 'createdAt'>): Promise<Exam> {
-  // Phase 2: return prisma.exam.create({ data })
-  const newExam: Exam = {
-    ...data,
-    id: `exam-${Date.now()}`,
-    createdAt: new Date().toISOString(),
-    _count: { questions: 0, enrollments: 0 },
-  };
-  examsDb.push(newExam);
-  return newExam;
+  const row = await prisma.exam.create({
+    data: {
+      title: data.title,
+      subject: data.subject,
+      duration: data.duration,
+      totalMarks: data.totalMarks,
+      passingMarks: data.passingMarks,
+      status: data.status,
+      approvalStatus: data.approvalStatus ?? 'not_submitted',
+      startTime: new Date(data.startTime),
+      endTime: new Date(data.endTime),
+      maxViolations: data.maxViolations,
+      settings: data.settings as object,
+      resultsPublishedAt: data.resultsPublishedAt ? new Date(data.resultsPublishedAt) : null,
+      institutionId: data.institutionId,
+      teacherId: data.teacherId,
+    },
+    include: { _count: { select: COUNT_SELECT } },
+  });
+  return mapExam(row);
 }
 
 export async function updateExam(id: string, data: Partial<Exam>): Promise<Exam | undefined> {
-  // Phase 2: return prisma.exam.update({ where: { id }, data })
-  const index = examsDb.findIndex(e => e.id === id);
-  if (index === -1) return undefined;
-  examsDb[index] = { ...examsDb[index], ...data };
-  return examsDb[index];
+  const row = await prisma.exam.update({
+    where: { id },
+    data: {
+      ...(data.title && { title: data.title }),
+      ...(data.subject && { subject: data.subject }),
+      ...(data.duration !== undefined && { duration: data.duration }),
+      ...(data.totalMarks !== undefined && { totalMarks: data.totalMarks }),
+      ...(data.passingMarks !== undefined && { passingMarks: data.passingMarks }),
+      ...(data.status && { status: data.status }),
+      ...(data.approvalStatus && { approvalStatus: data.approvalStatus }),
+      ...(data.startTime && { startTime: new Date(data.startTime) }),
+      ...(data.endTime && { endTime: new Date(data.endTime) }),
+      ...(data.maxViolations !== undefined && { maxViolations: data.maxViolations }),
+      ...(data.settings && { settings: data.settings as object }),
+      ...(data.resultsPublishedAt !== undefined && {
+        resultsPublishedAt: data.resultsPublishedAt ? new Date(data.resultsPublishedAt) : null,
+      }),
+    },
+    include: { _count: { select: COUNT_SELECT } },
+  });
+  return mapExam(row);
 }
 
 export async function deleteExam(id: string): Promise<boolean> {
-  // Phase 2: await prisma.exam.delete({ where: { id } }); return true
-  const index = examsDb.findIndex(e => e.id === id);
-  if (index === -1) return false;
-  examsDb.splice(index, 1);
+  await prisma.exam.delete({ where: { id } });
   return true;
 }
 
 export async function getExamStats(examId: string): Promise<StatValue[]> {
-  const exam = await getExamById(examId);
+  const exam = await prisma.exam.findUnique({
+    where: { id: examId },
+    include: { _count: { select: COUNT_SELECT } },
+  });
   if (!exam) return [];
-  const violations = mockViolations.filter(v => v.examId === examId);
-  const enrollments = exam._count?.enrollments ?? 0;
+  const violationCount = await prisma.violation.count({ where: { examId } });
   return [
-    { label: 'Enrolled Students', value: enrollments },
-    { label: 'Total Questions', value: exam._count?.questions ?? 0 },
+    { label: 'Enrolled Students', value: exam._count.enrollments },
+    { label: 'Total Questions', value: exam._count.questions },
     { label: 'Duration (min)', value: exam.duration },
-    { label: 'Violations', value: violations.length, trend: violations.length > 5 ? 'up' : 'down' },
+    { label: 'Violations', value: violationCount, trend: violationCount > 5 ? 'up' : 'down' },
   ];
 }

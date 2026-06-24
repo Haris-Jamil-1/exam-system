@@ -1,18 +1,40 @@
-// Phase 2: replace each function body with Supabase/Prisma query.
+'use server';
+import { prisma } from '@/lib/prisma';
+import { createClient } from '@/lib/supabase/server';
 import type { CurrentUser } from '@/types';
-import { mockUsers } from '@/lib/mock-data/users';
 
-export async function getCurrentUser(): Promise<CurrentUser> {
-  // Phase 2: decode JWT from Supabase session; return prisma.user.findUnique({ where: { id: session.user.id } })
-  return mockUsers.find(u => u.role === 'teacher')!;
+function mapUser(u: {
+  id: string; name: string; email: string; role: string;
+  institutionId: string; avatarUrl: string | null;
+}): CurrentUser {
+  return {
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    role: u.role as CurrentUser['role'],
+    institutionId: u.institutionId,
+    avatarUrl: u.avatarUrl ?? undefined,
+  };
+}
+
+export async function getCurrentUser(): Promise<CurrentUser | undefined> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return undefined;
+  const row = await prisma.user.findUnique({ where: { supabaseId: user.id } });
+  return row ? mapUser(row) : undefined;
 }
 
 export async function getUserById(id: string): Promise<CurrentUser | undefined> {
-  // Phase 2: prisma.user.findUnique({ where: { id } }) ?? undefined
-  return mockUsers.find(u => u.id === id);
+  const row = await prisma.user.findUnique({ where: { id } });
+  return row ? mapUser(row) : undefined;
 }
 
 export async function getAllUsers(): Promise<CurrentUser[]> {
-  // Phase 2: prisma.user.findMany() scoped by institution_id via RLS
-  return mockUsers;
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const institutionId = user?.user_metadata?.institutionId as string | undefined;
+  if (!institutionId) return [];
+  const rows = await prisma.user.findMany({ where: { institutionId }, orderBy: { createdAt: 'asc' } });
+  return rows.map(mapUser);
 }

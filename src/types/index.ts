@@ -38,6 +38,8 @@ export interface ExamSettings {
   adaptiveTesting?: boolean;
 }
 
+export type ApprovalStatus = 'not_submitted' | 'pending' | 'approved' | 'rejected';
+
 export interface Exam {
   id: string;
   title: string;
@@ -46,6 +48,7 @@ export interface Exam {
   totalMarks: number;
   passingMarks: number;
   status: ExamStatus;
+  approvalStatus?: ApprovalStatus;
   startTime: string;
   endTime: string;
   institutionId: string;
@@ -53,6 +56,7 @@ export interface Exam {
   maxViolations: number;
   settings: ExamSettings;
   createdAt: string;
+  resultsPublishedAt?: string;
   _count?: {
     questions: number;
     enrollments: number;
