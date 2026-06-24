@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getQuestions, createQuestion } from '@/lib/data';
+import { getAuthUser, unauthorized, forbidden } from '@/lib/api-auth';
 
 const createQuestionSchema = z.object({
   examId: z.string(),
@@ -15,6 +16,9 @@ const createQuestionSchema = z.object({
 });
 
 export async function GET(request: Request) {
+  const user = await getAuthUser();
+  if (!user) return unauthorized();
+
   const { searchParams } = new URL(request.url);
   const examId = searchParams.get('examId');
   if (!examId) return NextResponse.json({ error: 'examId required' }, { status: 400 });
@@ -23,6 +27,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const user = await getAuthUser();
+  if (!user) return unauthorized();
+  if (user.role === 'student') return forbidden();
+
   const body = await request.json();
   const parsed = createQuestionSchema.safeParse(body);
   if (!parsed.success) {

@@ -1,8 +1,7 @@
 'use server';
 import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';
-import type { StatValue } from '@/types';
-import type { PendingExam } from '@/lib/mock-data/admin';
+import type { StatValue, PendingExam } from '@/types';
 
 async function getSession() {
   const supabase = await createClient();

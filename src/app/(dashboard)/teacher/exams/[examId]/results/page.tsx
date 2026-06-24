@@ -1,10 +1,10 @@
 'use client';
-// Phase 2: "Publish Results" calls prisma.exam.update({ data: { resultsPublishedAt: new Date() } })
-// Phase 2: held results check via exam.settings.resultsVisibility === 'held' && !exam.resultsPublishedAt
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { getExamById, getStudentsForExam, getViolations, getScoreDistribution, getQuestionDifficulty } from '@/lib/data';
-import type { Exam, CurrentUser, Violation } from '@/types';
+import { getExamById, getScoreDistribution, getQuestionDifficulty } from '@/lib/data';
+import { getStudentResults } from '@/lib/data/students';
+import type { Exam } from '@/types';
+import type { StudentResult } from '@/lib/data/students';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,37 +18,26 @@ const PASS_COLORS = ['#22c55e', '#ef4444'];
 
 export default function ResultsPage() {
   const { examId } = useParams<{ examId: string }>();
-  type StudentResult = CurrentUser & { score: number; trustScore: number; violationCount: number };
 
   const [exam, setExam] = useState<Exam | null>(null);
-  const [violations, setViolations] = useState<Violation[]>([]);
   const [scoreDist, setScoreDist] = useState<{ range: string; count: number }[]>([]);
   const [diffData, setDiffData] = useState<{ difficulty: string; correct: number; incorrect: number }[]>([]);
   const [studentResults, setStudentResults] = useState<StudentResult[]>([]);
-  // Phase 2: resultsPublished comes from exam.resultsPublishedAt !== null in DB
   const [resultsPublished, setResultsPublished] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
   useEffect(() => {
     Promise.all([
       getExamById(examId),
-      getStudentsForExam(examId),
-      getViolations(examId),
+      getStudentResults(examId),
       getScoreDistribution(examId),
       getQuestionDifficulty(examId),
-    ]).then(([e, s, v, sd, dd]) => {
+    ]).then(([e, s, sd, dd]) => {
       setExam(e ?? null);
-      setViolations(v);
+      setStudentResults(s);
       setScoreDist(sd);
       setDiffData(dd);
-      setStudentResults(
-        s.slice(0, 10).map(student => ({
-          ...student,
-          score: Math.floor(50 + Math.random() * 50),
-          trustScore: Math.floor(60 + Math.random() * 40),
-          violationCount: v.filter(vio => vio.studentId === student.id).length,
-        }))
-      );
+      if (e?.resultsPublishedAt) setResultsPublished(true);
     });
   }, [examId]);
 
@@ -61,10 +50,11 @@ export default function ResultsPage() {
 
   if (!exam) return <div className="text-center py-12 text-muted-foreground">Loading...</div>;
 
-  const passed = studentResults.filter(s => s.score >= exam.passingMarks).length;
+  const submitted = studentResults.filter(s => s.submitted);
+  const passed = submitted.filter(s => (s.scorePercentage ?? 0) >= (exam.passingMarks / exam.totalMarks * 100)).length;
   const passData = [
     { name: 'Pass', value: passed },
-    { name: 'Fail', value: studentResults.length - passed },
+    { name: 'Fail', value: submitted.length - passed },
   ];
   const isHeldMode = exam.settings.resultsVisibility === 'held';
 
@@ -91,7 +81,6 @@ export default function ResultsPage() {
         )}
       </div>
 
-      {/* Held results banner */}
       {isHeldMode && !resultsPublished && (
         <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <Clock className="h-4 w-4 text-amber-600 shrink-0" />
@@ -101,13 +90,12 @@ export default function ResultsPage() {
         </div>
       )}
 
-      {/* Summary */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Total Students', value: studentResults.length },
-          { label: 'Passed', value: passed },
-          { label: 'Pass Rate', value: `${Math.round(passed / Math.max(studentResults.length, 1) * 100)}%` },
-          { label: 'Total Violations', value: violations.length },
+          { label: 'Enrolled',      value: studentResults.length },
+          { label: 'Submitted',     value: submitted.length },
+          { label: 'Passed',        value: passed },
+          { label: 'Pass Rate',     value: submitted.length ? `${Math.round(passed / submitted.length * 100)}%` : '—' },
         ].map(s => (
           <Card key={s.label}>
             <CardContent className="pt-6">
@@ -118,7 +106,6 @@ export default function ResultsPage() {
         ))}
       </div>
 
-      {/* Charts */}
       <div className="grid lg:grid-cols-2 gap-4">
         <Card>
           <CardHeader><CardTitle>Score Distribution</CardTitle></CardHeader>
@@ -147,7 +134,6 @@ export default function ResultsPage() {
         </Card>
       </div>
 
-      {/* Question difficulty */}
       <Card>
         <CardHeader><CardTitle>Question Difficulty Performance</CardTitle></CardHeader>
         <CardContent>
@@ -156,14 +142,13 @@ export default function ResultsPage() {
               <XAxis type="number" tick={{ fontSize: 11 }} />
               <YAxis dataKey="difficulty" type="category" tick={{ fontSize: 11 }} />
               <Tooltip />
-              <Bar dataKey="correct" name="Correct %" fill="#22c55e" radius={[0, 4, 4, 0]} />
-              <Bar dataKey="incorrect" name="Incorrect %" fill="#ef4444" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="correct" name="Correct" fill="#22c55e" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="incorrect" name="Incorrect" fill="#ef4444" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
       </Card>
 
-      {/* Per-student table */}
       <Card>
         <CardHeader><CardTitle>Student Results</CardTitle></CardHeader>
         <CardContent className="p-0">
@@ -179,23 +164,37 @@ export default function ResultsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {studentResults.map(s => (
-                  <tr key={s.id} className="hover:bg-muted/30">
-                    <td className="px-4 py-3 font-medium">{s.name}</td>
-                    <td className="px-4 py-3">{s.score}/{exam.totalMarks}</td>
-                    <td className="px-4 py-3">
-                      <span className={s.trustScore < 60 ? 'text-red-600' : 'text-green-600'}>
-                        {s.trustScore}%
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">{s.violationCount}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant={s.score >= exam.passingMarks ? 'success' : 'danger'}>
-                        {s.score >= exam.passingMarks ? 'Pass' : 'Fail'}
-                      </Badge>
-                    </td>
+                {studentResults.map(s => {
+                  const pct = s.scorePercentage ?? null;
+                  const passPct = exam.passingMarks / exam.totalMarks * 100;
+                  const pass = pct !== null && pct >= passPct;
+                  return (
+                    <tr key={s.id} className="hover:bg-muted/30">
+                      <td className="px-4 py-3 font-medium">{s.name}</td>
+                      <td className="px-4 py-3">
+                        {s.submitted && s.score !== null
+                          ? `${s.score}/${s.totalMarks ?? exam.totalMarks}`
+                          : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={s.trustScore < 60 ? 'text-red-600' : 'text-green-600'}>
+                          {s.trustScore}%
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">{s.violationCount}</td>
+                      <td className="px-4 py-3">
+                        {s.submitted
+                          ? <Badge variant={pass ? 'success' : 'danger'}>{pass ? 'Pass' : 'Fail'}</Badge>
+                          : <Badge variant="outline">Pending</Badge>}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {studentResults.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No students enrolled yet.</td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>

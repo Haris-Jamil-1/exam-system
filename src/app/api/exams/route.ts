@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getExams, createExam } from '@/lib/data';
+import { getAuthUser, unauthorized, forbidden } from '@/lib/api-auth';
 
 const examSettingsSchema = z.object({
   shuffleQuestions: z.boolean().default(true),
@@ -19,25 +20,34 @@ const createExamSchema = z.object({
   status: z.enum(['draft', 'scheduled', 'live', 'completed']).default('draft'),
   startTime: z.string(),
   endTime: z.string(),
-  institutionId: z.string(),
-  teacherId: z.string(),
   maxViolations: z.number().default(3),
   settings: examSettingsSchema,
+  // institutionId and teacherId are NOT accepted from body — set from JWT
 });
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const institutionId = searchParams.get('institutionId') ?? undefined;
-  const exams = await getExams(institutionId);
+export async function GET() {
+  const user = await getAuthUser();
+  if (!user) return unauthorized();
+  const exams = await getExams();
   return NextResponse.json(exams);
 }
 
 export async function POST(request: Request) {
+  const user = await getAuthUser();
+  if (!user) return unauthorized();
+  if (user.role === 'student') return forbidden();
+
   const body = await request.json();
   const parsed = createExamSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
-  const exam = await createExam(parsed.data as Parameters<typeof createExam>[0]);
+
+  const exam = await createExam({
+    ...parsed.data,
+    institutionId: user.institutionId,
+    teacherId: user.id,
+  } as Parameters<typeof createExam>[0]);
+
   return NextResponse.json(exam, { status: 201 });
 }

@@ -10,7 +10,7 @@ import {
 import type { StatValue } from '@/types';
 import { getAdminStats, getTeachersList, getPendingExams, getApprovedExams } from '@/lib/data';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
-import type { PendingExam } from '@/lib/mock-data/admin';
+import type { PendingExam } from '@/types';
 
 const STAT_META: Record<string, { label: string; icon: React.ElementType; iconBg: string; iconColor: string }> = {
   pendingApprovals: { label: 'Pending Approvals', icon: ClipboardCheck, iconBg: '#FEF3C7', iconColor: '#D97706' },

@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { getAllUsers } from '@/lib/data';
+import { getAllUsers, getMyInstitution } from '@/lib/data';
 import type { CurrentUser, Role } from '@/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,16 +9,21 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Search } from 'lucide-react';
-import { mockInstitutions } from '@/lib/mock-data/institutions';
+
+type InstitutionData = { id: string; name: string };
 
 export default function UsersPage() {
   const [users, setUsers] = useState<CurrentUser[]>([]);
+  const [institution, setInstitution] = useState<InstitutionData | null>(null);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [instFilter, setInstFilter] = useState('all');
 
   useEffect(() => {
-    getAllUsers().then(setUsers);
+    Promise.all([getAllUsers(), getMyInstitution()]).then(([u, inst]) => {
+      setUsers(u);
+      if (inst) setInstitution({ id: inst.id, name: inst.name });
+    });
   }, []);
 
   const filtered = users.filter(u => {
@@ -59,9 +64,9 @@ export default function UsersPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All institutions</SelectItem>
-            {mockInstitutions.map(i => (
-              <SelectItem key={i.id} value={i.id}>{i.name}</SelectItem>
-            ))}
+            {institution && (
+              <SelectItem value={institution.id}>{institution.name}</SelectItem>
+            )}
           </SelectContent>
         </Select>
       </div>
@@ -80,7 +85,7 @@ export default function UsersPage() {
             </thead>
             <tbody className="divide-y">
               {filtered.map(user => {
-                const inst = mockInstitutions.find(i => i.id === user.institutionId);
+                const inst = institution?.id === user.institutionId ? institution : null;
                 return (
                   <tr key={user.id} className="hover:bg-muted/30">
                     <td className="px-4 py-3">

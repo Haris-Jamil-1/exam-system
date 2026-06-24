@@ -259,6 +259,8 @@ function BulkTab() {
   const [emails,      setEmails]      = useState<string[]>([]);
   const [parseError,  setParseError]  = useState('');
   const [sent,        setSent]        = useState(false);
+  const [sending,     setSending]     = useState(false);
+  const [sentCount,   setSentCount]   = useState(0);
 
   function processFile(file: File) {
     if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
@@ -296,7 +298,24 @@ function BulkTab() {
 
   function remove(email: string) { setEmails(p => p.filter(x => x !== email)); }
 
-  function reset() { setEmails([]); setFileName(''); setParseError(''); setSent(false); }
+  function reset() { setEmails([]); setFileName(''); setParseError(''); setSent(false); setSentCount(0); }
+
+  async function sendAll() {
+    if (!emails.length) return;
+    setSending(true);
+    let count = 0;
+    for (const email of emails) {
+      const res = await fetch('/api/invites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, role: 'student' }),
+      });
+      if (res.ok) count++;
+    }
+    setSentCount(count);
+    setSending(false);
+    setSent(true);
+  }
 
   if (sent) {
     return (
@@ -307,7 +326,7 @@ function BulkTab() {
         <div>
           <p className="text-[16px] font-bold text-[#1A1D23]">Invites Sent!</p>
           <p className="mt-1 text-[13px] text-[#6B7280]">
-            {emails.length} students from <strong>{fileName}</strong> will receive invitations.
+            {sentCount} of {emails.length} students from <strong>{fileName}</strong> will receive invitations.
           </p>
         </div>
         <button
@@ -413,12 +432,12 @@ function BulkTab() {
           : <span />
         }
         <button
-          onClick={() => { if (emails.length) setSent(true); }}
-          disabled={emails.length === 0}
+          onClick={() => { void sendAll(); }}
+          disabled={emails.length === 0 || sending}
           className="flex items-center gap-2 rounded-xl bg-[#1E88E5] px-5 py-2.5 text-[13px] font-semibold text-white shadow-md shadow-blue-200 transition-all hover:-translate-y-px hover:bg-[#1976D2] disabled:pointer-events-none disabled:opacity-40"
         >
           <Send className="h-4 w-4" />
-          Send {emails.length > 0 ? `${emails.length} ` : ''}Invite{emails.length !== 1 ? 's' : ''}
+          {sending ? 'Sending…' : `Send ${emails.length > 0 ? `${emails.length} ` : ''}Invite${emails.length !== 1 ? 's' : ''}`}
         </button>
       </div>
     </div>

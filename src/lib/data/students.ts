@@ -46,6 +46,53 @@ export async function getStudentsForExam(examId: string): Promise<CurrentUser[]>
   return enrollments.map(e => mapUser(e.student));
 }
 
+export type StudentResult = {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl?: string;
+  score: number | null;
+  totalMarks: number | null;
+  scorePercentage: number | null;
+  trustScore: number;
+  violationCount: number;
+  submitted: boolean;
+};
+
+export async function getStudentResults(examId: string): Promise<StudentResult[]> {
+  const [enrollments, attempts] = await Promise.all([
+    prisma.examEnrollment.findMany({
+      where: { examId },
+      include: { student: true },
+      orderBy: { enrolledAt: 'asc' },
+    }),
+    prisma.examAttempt.findMany({
+      where: { examId },
+      select: {
+        studentId: true, score: true, totalMarks: true,
+        scorePercentage: true, trustScore: true, violationCount: true, status: true,
+      },
+    }),
+  ]);
+  const attemptMap = new Map(attempts.map(a => [a.studentId, a]));
+  return enrollments.map(e => {
+    const attempt = attemptMap.get(e.studentId);
+    const submitted = attempt?.status === 'submitted' || attempt?.status === 'auto_submitted';
+    return {
+      id: e.student.id,
+      name: e.student.name,
+      email: e.student.email,
+      avatarUrl: e.student.avatarUrl ?? undefined,
+      score: submitted ? (attempt?.score ?? null) : null,
+      totalMarks: submitted ? (attempt?.totalMarks ?? null) : null,
+      scorePercentage: submitted ? (attempt?.scorePercentage ?? null) : null,
+      trustScore: attempt?.trustScore ?? 100,
+      violationCount: attempt?.violationCount ?? 0,
+      submitted,
+    };
+  });
+}
+
 export async function getMonitorStudents(examId: string): Promise<MonitorStudent[]> {
   const [enrollments, attempts, violations] = await Promise.all([
     prisma.examEnrollment.findMany({

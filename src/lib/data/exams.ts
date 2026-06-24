@@ -109,8 +109,12 @@ export async function updateExam(id: string, data: Partial<Exam>): Promise<Exam 
 }
 
 export async function deleteExam(id: string): Promise<boolean> {
-  await prisma.exam.delete({ where: { id } });
-  return true;
+  try {
+    await prisma.exam.delete({ where: { id } });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function getExamStats(examId: string): Promise<StatValue[]> {

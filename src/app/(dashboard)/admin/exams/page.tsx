@@ -6,7 +6,7 @@ import {
   ClipboardCheck, Users, Timer,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
-import type { PendingExam } from '@/lib/mock-data/admin';
+import type { PendingExam } from '@/types';
 
 type ApprovedExam = { id: string; title: string; subject: string; teacher: string; status: 'live' | 'scheduled' | 'completed'; date: string; students: number };
 

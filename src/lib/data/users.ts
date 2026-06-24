@@ -30,6 +30,14 @@ export async function getUserById(id: string): Promise<CurrentUser | undefined> 
   return row ? mapUser(row) : undefined;
 }
 
+export async function getMyInstitution() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const institutionId = user?.user_metadata?.institutionId as string | undefined;
+  if (!institutionId) return null;
+  return prisma.institution.findUnique({ where: { id: institutionId } });
+}
+
 export async function getAllUsers(): Promise<CurrentUser[]> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

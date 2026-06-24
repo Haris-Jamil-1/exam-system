@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { getTeachersList } from '@/lib/data';
+import { getTeachersList, getMyInstitution } from '@/lib/data';
 import {
   UserPlus, Copy, Check, X, Mail, MoreHorizontal,
   GraduationCap, FileText, Users, ExternalLink,
@@ -20,32 +20,31 @@ type Teacher = {
   exams: number; students: number; status: 'active' | 'invited';
 };
 
-const INSTITUTION_ID = 'inst-1';
-const INSTITUTION_NAME = 'University of Technology';
-
-function generateInviteToken(institutionId: string): string {
-  const payload = { institutionId, institutionName: INSTITUTION_NAME, expires: '2026-07-21' };
-  return btoa(JSON.stringify(payload)).replace(/=/g, '').slice(0, 24);
-}
-
-const INVITE_TOKEN = generateInviteToken(INSTITUTION_ID);
-const INVITE_LINK  = `https://exampro.app/join?inst=${INSTITUTION_ID}&token=${INVITE_TOKEN}`;
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://exam-system-sigma.vercel.app';
 
 export default function AdminTeachersPage() {
-  const [teachers, setTeachers]     = useState<Teacher[]>([]);
-  const [search, setSearch]         = useState('');
-  const [showInvite, setShowInvite] = useState(false);
-  const [copied, setCopied]         = useState(false);
-  const [emailInput, setEmailInput] = useState('');
-  const [sentEmails, setSentEmails] = useState<string[]>([]);
-  const [inviteError, setInviteError] = useState('');
+  const [teachers, setTeachers]         = useState<Teacher[]>([]);
+  const [institutionName, setInstitutionName] = useState('');
+  const [inviteLink, setInviteLink]     = useState('');
+  const [search, setSearch]             = useState('');
+  const [showInvite, setShowInvite]     = useState(false);
+  const [copied, setCopied]             = useState(false);
+  const [emailInput, setEmailInput]     = useState('');
+  const [sentEmails, setSentEmails]     = useState<string[]>([]);
+  const [inviteError, setInviteError]   = useState('');
 
   useEffect(() => {
-    getTeachersList().then(t => setTeachers(t as Teacher[]));
+    Promise.all([getTeachersList(), getMyInstitution()]).then(([t, inst]) => {
+      setTeachers(t as Teacher[]);
+      if (inst) {
+        setInstitutionName(inst.name);
+        setInviteLink(`${APP_URL}/register?institution=${inst.id}`);
+      }
+    });
   }, []);
 
   function copyLink() {
-    navigator.clipboard.writeText(INVITE_LINK).catch(() => {});
+    navigator.clipboard.writeText(inviteLink).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
@@ -79,7 +78,7 @@ export default function AdminTeachersPage() {
       <PageHeader
         en="Teachers"
         ar="المعلمون"
-        subEn={`${INSTITUTION_NAME} · ${teachers.length} teachers`}
+        subEn={`${institutionName} · ${teachers.length} teachers`}
         subAr="إدارة المعلمين ودعواتهم"
         action={
           <button
@@ -113,7 +112,7 @@ export default function AdminTeachersPage() {
             <p className="mb-2 text-[12px] font-semibold text-[#6B7280] uppercase tracking-wide">Invite Link</p>
             <div className="flex items-center gap-2 rounded-xl border border-[#E8ECF4] bg-[#F4F7FC] px-4 py-3">
               <ExternalLink className="h-4 w-4 flex-shrink-0 text-[#9CA3AF]" />
-              <p className="min-w-0 flex-1 truncate text-[13px] text-[#1A1D23] font-mono">{INVITE_LINK}</p>
+              <p className="min-w-0 flex-1 truncate text-[13px] text-[#1A1D23] font-mono">{inviteLink}</p>
               <button
                 onClick={copyLink}
                 className={`flex-shrink-0 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors ${

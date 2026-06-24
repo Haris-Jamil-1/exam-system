@@ -40,6 +40,19 @@ export interface ExamSettings {
 
 export type ApprovalStatus = 'not_submitted' | 'pending' | 'approved' | 'rejected';
 
+export type PendingExam = {
+  id: string;
+  title: string;
+  subject: string;
+  teacher: string;
+  teacherId: string;
+  questions: number;
+  duration: number;
+  students: number;
+  submittedAt: string;
+  proctoringLevel: 'basic' | 'standard' | 'strict';
+};
+
 export interface Exam {
   id: string;
   title: string;
