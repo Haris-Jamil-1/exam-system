@@ -2,6 +2,31 @@
 
 ## Session Log
 
+### 2026-06-25 — Phase 2 Session D: API Routes + File Uploads ✅
+
+**What was done:**
+- Created `src/lib/api-auth.ts` — shared `getAuthUser()` helper (Supabase JWT → Prisma User) + `unauthorized/forbidden/notFound` response factories
+- Rewrote `/api/attempts` POST — real Prisma upsert with auth; no longer accepts `studentId` from body (reads from JWT); handles exam-resume via `@@unique([examId, studentId])`
+- Rewrote `/api/attempts/[attemptId]` GET + PUT — real attempt from DB, role-based read access (students see only their own)
+- Rewrote `/api/attempts/[attemptId]/submit` POST — full scoring engine + `prisma.$transaction` to atomically upsert all `Answer` rows + update attempt `status/score/totalMarks/scorePercentage/trustScore/violationCount`; violation count is taken from DB (not client)
+- Created `/api/exams/[examId]/publish-results` PATCH — sets `resultsPublishedAt: new Date()`, restricted to exam owner (teacher) or admin
+- Created `/api/upload` POST — Supabase Storage upload with auto-bucket creation (`exam-uploads`), returns signed URL (1h)
+- `exam/[examId]/page.tsx` `doSubmit` — uploads file answers to `/api/upload` before submit; merges file paths into answers map; no longer sends `studentId` in POST body
+- `teacher/.../results/page.tsx` `handlePublishResults` — calls real `PATCH /api/exams/[id]/publish-results` instead of mock setTimeout
+- `teacher/.../monitor/page.tsx` — added 10s polling interval (`setInterval + clearInterval`) via a top-level `refreshLiveData` function (outside component — React Compiler safe)
+
+**Build status after session:**
+- `npm run build` → **PASSES (0 errors, 46 routes)**
+- `npm run lint` → **PASSES (0 errors, 0 warnings)**
+- GitHub: pushed to master (commit 37b0986)
+
+**What's next (Phase 2 Session E):**
+- Invite flow: `/api/invites` POST (send Supabase invite email) + `/invite/[token]` validate + `/invite/setup` name-entry page
+- Student results page: fetch real attempt data from DB (currently shows random scores)
+- Teacher students page: real trust scores from attempts table
+
+---
+
 ### 2026-06-25 — Phase 2 Session C: Data Layer Swap (lib/data/* → Prisma) ✅
 
 **What was done:**
