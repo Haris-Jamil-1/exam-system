@@ -50,18 +50,23 @@ export async function getLiveAlerts(examId: string): Promise<Violation[]> {
 }
 
 export async function logViolation(data: Omit<Violation, 'id'>): Promise<Violation> {
-  const row = await prisma.violation.create({
-    data: {
-      attemptId: data.attemptId,
-      studentId: data.studentId,
-      examId: data.examId,
-      type: data.type,
-      severity: data.severity,
-      description: data.description,
-      screenshotUrl: data.screenshotUrl ?? null,
-    },
-  });
-  return mapViolation(row);
+  try {
+    const row = await prisma.violation.create({
+      data: {
+        attemptId: data.attemptId,
+        studentId: data.studentId,
+        examId: data.examId,
+        type: data.type,
+        severity: data.severity,
+        description: data.description,
+        screenshotUrl: data.screenshotUrl ?? null,
+      },
+    });
+    return mapViolation(row);
+  } catch (err) {
+    console.error('[logViolation] Prisma error:', err);
+    throw err;
+  }
 }
 
 export async function getMonitorFeed(examId: string): Promise<Violation[]> {

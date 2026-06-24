@@ -42,8 +42,13 @@ export async function getCourseById(id: string): Promise<Course | undefined> {
 }
 
 export async function createCourse(data: Omit<Course, 'id' | 'createdAt'>): Promise<Course> {
-  const row = await prisma.course.create({ data });
-  return mapCourse(row);
+  try {
+    const row = await prisma.course.create({ data });
+    return mapCourse(row);
+  } catch (err) {
+    console.error('[createCourse] Prisma error:', err);
+    throw err;
+  }
 }
 
 export async function getTopics(courseId: string): Promise<Topic[]> {
@@ -57,8 +62,13 @@ export async function getTopicById(id: string): Promise<Topic | undefined> {
 }
 
 export async function createTopic(data: Omit<Topic, 'id' | 'createdAt'>): Promise<Topic> {
-  const row = await prisma.topic.create({ data });
-  return mapTopic(row);
+  try {
+    const row = await prisma.topic.create({ data });
+    return mapTopic(row);
+  } catch (err) {
+    console.error('[createTopic] Prisma error:', err);
+    throw err;
+  }
 }
 
 export async function getCLOs(topicId: string): Promise<LearningObjective[]> {
@@ -72,16 +82,21 @@ export async function getCLOById(id: string): Promise<LearningObjective | undefi
 }
 
 export async function createCLO(data: Omit<LearningObjective, 'id' | 'createdAt'>): Promise<LearningObjective> {
-  const row = await prisma.learningObjective.create({
-    data: {
-      topicId: data.topicId,
-      code: data.code ?? null,
-      text: data.text,
-      bloomsLevel: data.bloomsLevel,
-      learningDomain: data.learningDomain,
-    },
-  });
-  return mapCLO(row);
+  try {
+    const row = await prisma.learningObjective.create({
+      data: {
+        topicId: data.topicId,
+        code: data.code ?? null,
+        text: data.text,
+        bloomsLevel: data.bloomsLevel,
+        learningDomain: data.learningDomain,
+      },
+    });
+    return mapCLO(row);
+  } catch (err) {
+    console.error('[createCLO] Prisma error:', err);
+    throw err;
+  }
 }
 
 export async function updateCLO(id: string, data: Partial<LearningObjective>): Promise<LearningObjective | undefined> {

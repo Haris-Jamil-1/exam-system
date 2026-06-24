@@ -92,34 +92,39 @@ export async function createItem(data: Omit<Item, 'id' | 'createdAt' | 'usageCou
   const institutionId = await getInstitutionId();
   if (!institutionId) throw new Error('Not authenticated');
   const { options, ...rest } = data;
-  const row = await prisma.item.create({
-    data: {
-      type: rest.type,
-      stem: rest.stem,
-      marks: rest.marks,
-      difficulty: rest.difficulty,
-      order: rest.order,
-      required: rest.required ?? false,
-      explanation: rest.explanation ?? null,
-      ...(rest.correctAnswer !== undefined && { correctAnswer: rest.correctAnswer as object }),
-      status: rest.status,
-      tags: rest.tags,
-      codeLanguage: rest.codeLanguage ?? null,
-      starterCode: rest.starterCode ?? null,
-      ...(rest.testCases !== undefined && { testCases: rest.testCases as object }),
-      allowedFileTypes: rest.allowedFileTypes ?? [],
-      maxFileSizeMB: rest.maxFileSizeMB ?? null,
-      learningObjectiveId: rest.learningObjectiveId ?? null,
-      previousVersionId: rest.previousVersionId ?? null,
-      institutionId,
-      authorId: rest.authorId,
-      options: options?.length
-        ? { create: options.map((o, i) => ({ text: o.text, isCorrect: o.isCorrect, order: i })) }
-        : undefined,
-    },
-    include: { options: { orderBy: { order: 'asc' } } },
-  });
-  return mapItem(row);
+  try {
+    const row = await prisma.item.create({
+      data: {
+        type: rest.type,
+        stem: rest.stem,
+        marks: rest.marks,
+        difficulty: rest.difficulty,
+        order: rest.order,
+        required: rest.required ?? false,
+        explanation: rest.explanation ?? null,
+        ...(rest.correctAnswer !== undefined && { correctAnswer: rest.correctAnswer as object }),
+        status: rest.status,
+        tags: rest.tags,
+        codeLanguage: rest.codeLanguage ?? null,
+        starterCode: rest.starterCode ?? null,
+        ...(rest.testCases !== undefined && { testCases: rest.testCases as object }),
+        allowedFileTypes: rest.allowedFileTypes ?? [],
+        maxFileSizeMB: rest.maxFileSizeMB ?? null,
+        learningObjectiveId: rest.learningObjectiveId ?? null,
+        previousVersionId: rest.previousVersionId ?? null,
+        institutionId,
+        authorId: rest.authorId,
+        options: options?.length
+          ? { create: options.map((o, i) => ({ text: o.text, isCorrect: o.isCorrect, order: i })) }
+          : undefined,
+      },
+      include: { options: { orderBy: { order: 'asc' } } },
+    });
+    return mapItem(row);
+  } catch (err) {
+    console.error('[createItem] Prisma error:', err);
+    throw err;
+  }
 }
 
 export async function updateItem(id: string, data: Partial<Item>): Promise<Item | undefined> {

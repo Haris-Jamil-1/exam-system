@@ -66,30 +66,35 @@ export async function getQuestionById(id: string): Promise<Question | undefined>
 
 export async function createQuestion(data: Omit<Question, 'id'>): Promise<Question> {
   const { options, ...rest } = data;
-  const row = await prisma.question.create({
-    data: {
-      examId: rest.examId,
-      type: rest.type,
-      stem: rest.stem,
-      marks: rest.marks,
-      difficulty: rest.difficulty,
-      order: rest.order,
-      required: rest.required ?? false,
-      explanation: rest.explanation ?? null,
-      ...(rest.correctAnswer !== undefined && { correctAnswer: rest.correctAnswer as object }),
-      learningObjectiveId: rest.learningObjectiveId ?? null,
-      codeLanguage: rest.codeLanguage ?? null,
-      starterCode: rest.starterCode ?? null,
-      ...(rest.testCases !== undefined && { testCases: rest.testCases as object }),
-      allowedFileTypes: rest.allowedFileTypes ?? [],
-      maxFileSizeMB: rest.maxFileSizeMB ?? null,
-      options: options?.length
-        ? { create: options.map((o, i) => ({ text: o.text, isCorrect: o.isCorrect, order: i })) }
-        : undefined,
-    },
-    include: { options: { orderBy: { order: 'asc' } } },
-  });
-  return mapQuestion(row);
+  try {
+    const row = await prisma.question.create({
+      data: {
+        examId: rest.examId,
+        type: rest.type,
+        stem: rest.stem,
+        marks: rest.marks,
+        difficulty: rest.difficulty,
+        order: rest.order,
+        required: rest.required ?? false,
+        explanation: rest.explanation ?? null,
+        ...(rest.correctAnswer !== undefined && { correctAnswer: rest.correctAnswer as object }),
+        learningObjectiveId: rest.learningObjectiveId ?? null,
+        codeLanguage: rest.codeLanguage ?? null,
+        starterCode: rest.starterCode ?? null,
+        ...(rest.testCases !== undefined && { testCases: rest.testCases as object }),
+        allowedFileTypes: rest.allowedFileTypes ?? [],
+        maxFileSizeMB: rest.maxFileSizeMB ?? null,
+        options: options?.length
+          ? { create: options.map((o, i) => ({ text: o.text, isCorrect: o.isCorrect, order: i })) }
+          : undefined,
+      },
+      include: { options: { orderBy: { order: 'asc' } } },
+    });
+    return mapQuestion(row);
+  } catch (err) {
+    console.error('[createQuestion] Prisma error:', err);
+    throw err;
+  }
 }
 
 export async function updateQuestion(id: string, data: Partial<Question>): Promise<Question | undefined> {

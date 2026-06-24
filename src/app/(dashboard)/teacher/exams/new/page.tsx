@@ -283,6 +283,9 @@ export default function NewExamPage() {
   const [poolSize, setPoolSize] = useState(30);
   const [questionLimit, setQuestionLimit] = useState(20);
 
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
   const totalAdded = addedAIQuestions.length + selectedBankItems.size;
 
   const { register, handleSubmit, formState: { errors } } = useForm<Step1Data>({
@@ -323,61 +326,68 @@ export default function NewExamPage() {
 
   async function handleFinish() {
     if (!step1Data) return;
-    const exam = await createExam({
-      ...step1Data,
-      institutionId: 'inst-1',
-      teacherId: 'teacher-1',
-      maxViolations,
-      status: 'draft',
-      settings: {
-        shuffleQuestions: shuffleQ,
-        shuffleOptions: shuffleO,
-        showResultsAfter: showResults,
-        allowedViolations: maxViolations,
-        proctoringLevel,
-        navigationMode,
-        forwardOnly: navigationMode === 'sequential' ? forwardOnly : undefined,
-        autoAdvance,
-        allowPause,
-        resultsVisibility,
-        ...(enablePooling ? { poolSize, questionLimit } : {}),
-      },
-    });
-
-    let order = 1;
-
-    // Add AI-generated questions
-    for (const q of addedAIQuestions) {
-      await createQuestion({
-        examId: exam.id,
-        type: q.type,
-        stem: q.stem,
-        options: q.options?.map((o, idx) => ({ id: `opt-${idx}`, text: o, isCorrect: o === q.correctAnswer || (Array.isArray(q.correctAnswer) && q.correctAnswer.includes(o)) })),
-        correctAnswer: q.correctAnswer,
-        marks: q.marks,
-        difficulty: q.difficulty,
-        order: order++,
-        explanation: q.explanation,
+    setIsCreating(true);
+    setCreateError(null);
+    try {
+      // institutionId and teacherId are resolved from the session in the server action
+      const exam = await createExam({
+        ...step1Data,
+        institutionId: '',
+        teacherId: '',
+        maxViolations,
+        status: 'draft',
+        settings: {
+          shuffleQuestions: shuffleQ,
+          shuffleOptions: shuffleO,
+          showResultsAfter: showResults,
+          allowedViolations: maxViolations,
+          proctoringLevel,
+          navigationMode,
+          forwardOnly: navigationMode === 'sequential' ? forwardOnly : undefined,
+          autoAdvance,
+          allowPause,
+          resultsVisibility,
+          ...(enablePooling ? { poolSize, questionLimit } : {}),
+        },
       });
-    }
 
-    // Add item bank questions (copy item → question, increment usage)
-    for (const item of selectedBankItems.values()) {
-      await createQuestion({
-        examId: exam.id,
-        type: item.type,
-        stem: item.stem,
-        options: item.options,
-        correctAnswer: item.correctAnswer,
-        marks: item.marks,
-        difficulty: item.difficulty,
-        order: order++,
-        explanation: item.explanation,
-      });
-      await updateItem(item.id, { usageCount: item.usageCount + 1 });
-    }
+      let order = 1;
 
-    router.push(`/teacher/exams/${exam.id}/edit`);
+      for (const q of addedAIQuestions) {
+        await createQuestion({
+          examId: exam.id,
+          type: q.type,
+          stem: q.stem,
+          options: q.options?.map((o, idx) => ({ id: `opt-${idx}`, text: o, isCorrect: o === q.correctAnswer || (Array.isArray(q.correctAnswer) && q.correctAnswer.includes(o)) })),
+          correctAnswer: q.correctAnswer,
+          marks: q.marks,
+          difficulty: q.difficulty,
+          order: order++,
+          explanation: q.explanation,
+        });
+      }
+
+      for (const item of selectedBankItems.values()) {
+        await createQuestion({
+          examId: exam.id,
+          type: item.type,
+          stem: item.stem,
+          options: item.options,
+          correctAnswer: item.correctAnswer,
+          marks: item.marks,
+          difficulty: item.difficulty,
+          order: order++,
+          explanation: item.explanation,
+        });
+        await updateItem(item.id, { usageCount: item.usageCount + 1 });
+      }
+
+      router.push(`/teacher/exams/${exam.id}/edit`);
+    } catch (err) {
+      console.error('[handleFinish] Failed to create exam:', err);
+      setCreateError('Failed to create exam. Please try again.');
+      setIsCreating(false);
+    }
   }
 
   return (
@@ -845,12 +855,15 @@ export default function NewExamPage() {
               </div>
             </CardContent>
           </Card>
+          {createError && (
+            <p className="text-sm text-red-600 text-center">{createError}</p>
+          )}
           <div className="flex justify-between">
-            <Button variant="outline" onClick={() => setStep(2)} className="gap-2">
+            <Button variant="outline" onClick={() => setStep(2)} className="gap-2" disabled={isCreating}>
               <ChevronLeft className="h-4 w-4" /> Back
             </Button>
-            <Button onClick={handleFinish} className="gap-2">
-              <Check className="h-4 w-4" /> Create Exam
+            <Button onClick={handleFinish} className="gap-2" disabled={isCreating}>
+              <Check className="h-4 w-4" /> {isCreating ? 'Creating…' : 'Create Exam'}
             </Button>
           </div>
         </div>

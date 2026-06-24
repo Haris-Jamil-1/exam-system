@@ -62,50 +62,69 @@ export async function getExamById(id: string): Promise<Exam | undefined> {
 }
 
 export async function createExam(data: Omit<Exam, 'id' | 'createdAt'>): Promise<Exam> {
-  const row = await prisma.exam.create({
-    data: {
-      title: data.title,
-      subject: data.subject,
-      duration: data.duration,
-      totalMarks: data.totalMarks,
-      passingMarks: data.passingMarks,
-      status: data.status,
-      approvalStatus: data.approvalStatus ?? 'not_submitted',
-      startTime: new Date(data.startTime),
-      endTime: new Date(data.endTime),
-      maxViolations: data.maxViolations,
-      settings: data.settings as object,
-      resultsPublishedAt: data.resultsPublishedAt ? new Date(data.resultsPublishedAt) : null,
-      institutionId: data.institutionId,
-      teacherId: data.teacherId,
-    },
-    include: { _count: { select: COUNT_SELECT } },
-  });
-  return mapExam(row);
+  // Always resolve institutionId and teacherId from the authenticated session
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const institutionId = (user?.user_metadata?.institutionId as string | undefined) ?? data.institutionId;
+  let teacherId = data.teacherId;
+  if (user?.id) {
+    const teacher = await prisma.user.findFirst({ where: { supabaseId: user.id }, select: { id: true } });
+    if (teacher) teacherId = teacher.id;
+  }
+  try {
+    const row = await prisma.exam.create({
+      data: {
+        title: data.title,
+        subject: data.subject,
+        duration: data.duration,
+        totalMarks: data.totalMarks,
+        passingMarks: data.passingMarks,
+        status: data.status,
+        approvalStatus: data.approvalStatus ?? 'not_submitted',
+        startTime: new Date(data.startTime),
+        endTime: new Date(data.endTime),
+        maxViolations: data.maxViolations,
+        settings: data.settings as object,
+        resultsPublishedAt: data.resultsPublishedAt ? new Date(data.resultsPublishedAt) : null,
+        institutionId,
+        teacherId,
+      },
+      include: { _count: { select: COUNT_SELECT } },
+    });
+    return mapExam(row);
+  } catch (err) {
+    console.error('[createExam] Prisma error:', err);
+    throw err;
+  }
 }
 
 export async function updateExam(id: string, data: Partial<Exam>): Promise<Exam | undefined> {
-  const row = await prisma.exam.update({
-    where: { id },
-    data: {
-      ...(data.title && { title: data.title }),
-      ...(data.subject && { subject: data.subject }),
-      ...(data.duration !== undefined && { duration: data.duration }),
-      ...(data.totalMarks !== undefined && { totalMarks: data.totalMarks }),
-      ...(data.passingMarks !== undefined && { passingMarks: data.passingMarks }),
-      ...(data.status && { status: data.status }),
-      ...(data.approvalStatus && { approvalStatus: data.approvalStatus }),
-      ...(data.startTime && { startTime: new Date(data.startTime) }),
-      ...(data.endTime && { endTime: new Date(data.endTime) }),
-      ...(data.maxViolations !== undefined && { maxViolations: data.maxViolations }),
-      ...(data.settings && { settings: data.settings as object }),
-      ...(data.resultsPublishedAt !== undefined && {
-        resultsPublishedAt: data.resultsPublishedAt ? new Date(data.resultsPublishedAt) : null,
-      }),
-    },
-    include: { _count: { select: COUNT_SELECT } },
-  });
-  return mapExam(row);
+  try {
+    const row = await prisma.exam.update({
+      where: { id },
+      data: {
+        ...(data.title && { title: data.title }),
+        ...(data.subject && { subject: data.subject }),
+        ...(data.duration !== undefined && { duration: data.duration }),
+        ...(data.totalMarks !== undefined && { totalMarks: data.totalMarks }),
+        ...(data.passingMarks !== undefined && { passingMarks: data.passingMarks }),
+        ...(data.status && { status: data.status }),
+        ...(data.approvalStatus && { approvalStatus: data.approvalStatus }),
+        ...(data.startTime && { startTime: new Date(data.startTime) }),
+        ...(data.endTime && { endTime: new Date(data.endTime) }),
+        ...(data.maxViolations !== undefined && { maxViolations: data.maxViolations }),
+        ...(data.settings && { settings: data.settings as object }),
+        ...(data.resultsPublishedAt !== undefined && {
+          resultsPublishedAt: data.resultsPublishedAt ? new Date(data.resultsPublishedAt) : null,
+        }),
+      },
+      include: { _count: { select: COUNT_SELECT } },
+    });
+    return mapExam(row);
+  } catch (err) {
+    console.error('[updateExam] Prisma error:', err);
+    throw err;
+  }
 }
 
 export async function deleteExam(id: string): Promise<boolean> {
