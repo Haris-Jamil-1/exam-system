@@ -1,9 +1,12 @@
 'use client';
+// Curriculum Analytics section — Phase 2: data from Prisma aggregate queries
+// Phase 2: CLO performance = AVG(answer.marksAwarded / question.marks) WHERE question.learningObjectiveId = clo.id
 import { useEffect, useState } from 'react';
 import { getAdminStats, getTeachersList } from '@/lib/data';
 import type { StatValue } from '@/types';
-import { BarChart3, ShieldCheck, TrendingUp, Users, GraduationCap, FileText } from 'lucide-react';
+import { BarChart3, ShieldCheck, TrendingUp, Users, GraduationCap, FileText, BookOpen, Download } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { Button } from '@/components/ui/button';
 
 const STAT_META: Record<string, { label: string; icon: React.ElementType; iconBg: string; iconColor: string }> = {
   pendingApprovals: { label: 'Pending Approvals', icon: FileText,      iconBg: '#FEF3C7', iconColor: '#D97706' },
@@ -24,6 +27,23 @@ const DEPT_STATS = [
   { dept: 'Physics',          exams: 11, avgScore: 71, trust: 91 },
   { dept: 'Chemistry',        exams: 7,  avgScore: 68, trust: 89 },
   { dept: 'History',          exams: 5,  avgScore: 82, trust: 97 },
+];
+
+// Phase 2: from prisma.answer aggregate grouped by clo.learningDomain
+const DOMAIN_BREAKDOWN = [
+  { domain: 'Knowledge', questions: 42, avgScore: 82, color: '#6366f1' },
+  { domain: 'Skill',     questions: 31, avgScore: 71, color: '#10b981' },
+  { domain: 'Values',    questions: 15, avgScore: 88, color: '#f59e0b' },
+];
+
+// Phase 2: from prisma.answer aggregate grouped by clo.bloomsLevel
+const BLOOMS_PERFORMANCE = [
+  { level: 'Remember',   avgScore: 88, items: 18 },
+  { level: 'Understand', avgScore: 82, items: 22 },
+  { level: 'Apply',      avgScore: 73, items: 19 },
+  { level: 'Analyze',    avgScore: 66, items: 14 },
+  { level: 'Evaluate',   avgScore: 61, items: 9  },
+  { level: 'Create',     avgScore: 55, items: 6  },
 ];
 
 type Teacher = { id: string; name: string; department: string; exams: number; students: number; status: 'active' | 'invited' };
@@ -121,6 +141,88 @@ export default function AdminAnalyticsPage() {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* ── Curriculum Analytics ── */}
+      <div className="rounded-2xl border border-[#EBF0F8] bg-white p-5 shadow-[0_2px_8px_rgba(0,0,0,0.05)] space-y-5">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-2">
+            <BookOpen className="h-5 w-5 text-blue-600" strokeWidth={2} />
+            <h2 className="text-[15px] font-bold text-[#1A1D23]">Curriculum Analytics</h2>
+            <span className="text-xs text-muted-foreground">(CLO-linked questions only)</span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 text-xs"
+            onClick={() => {
+              // Phase 2: export to CSV via GET /api/analytics/curriculum-export
+              const csv = [
+                'Level,Avg Score (%),Items',
+                ...BLOOMS_PERFORMANCE.map(b => `${b.level},${b.avgScore},${b.items}`),
+              ].join('\n');
+              const blob = new Blob([csv], { type: 'text/csv' });
+              const url  = URL.createObjectURL(blob);
+              const a    = document.createElement('a');
+              a.href = url; a.download = 'blooms-performance.csv'; a.click();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            <Download className="h-3.5 w-3.5" /> Export CSV
+          </Button>
+        </div>
+
+        <div className="grid lg:grid-cols-2 gap-6">
+          {/* Domain breakdown */}
+          <div className="space-y-3">
+            <p className="text-sm font-semibold text-[#1A1D23]">Performance by Learning Domain</p>
+            {DOMAIN_BREAKDOWN.map(d => (
+              <div key={d.domain}>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: d.color }} />
+                    <p className="text-[12px] font-semibold text-[#1A1D23]">{d.domain}</p>
+                    <span className="text-[10px] text-muted-foreground">{d.questions} items</span>
+                  </div>
+                  <span className="text-[12px] font-bold" style={{ color: d.color }}>{d.avgScore}%</span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-[#F4F7FC]">
+                  <div className="h-2 rounded-full transition-all" style={{ width: `${d.avgScore}%`, backgroundColor: d.color }} />
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Bloom's level performance */}
+          <div className="space-y-2">
+            <p className="text-sm font-semibold text-[#1A1D23]">Bloom&apos;s Taxonomy Performance</p>
+            <p className="text-[11px] text-muted-foreground mb-3">Higher cognitive levels show lower avg scores — expected pattern.</p>
+            <div className="space-y-1">
+              {BLOOMS_PERFORMANCE.map((b, i) => {
+                const colors = ['#64748b','#3b82f6','#10b981','#f59e0b','#f97316','#8b5cf6'];
+                return (
+                  <div key={b.level} className="flex items-center gap-3 text-xs">
+                    <div className="w-20 text-[#6B7280] font-medium shrink-0">{b.level}</div>
+                    <div className="flex-1 h-5 bg-[#F4F7FC] rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full flex items-center justify-end pe-2"
+                        style={{ width: `${b.avgScore}%`, backgroundColor: colors[i] }}
+                      >
+                        <span className="text-white font-bold text-[10px]">{b.avgScore}%</span>
+                      </div>
+                    </div>
+                    <span className="text-muted-foreground shrink-0 w-12 text-end">{b.items} items</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-800">
+          <span className="font-semibold">NCAAA Accreditation:</span> This breakdown maps directly to Course Learning Outcomes (CLOs).
+          Export the CSV above for inclusion in your annual accreditation report — it shows Bloom&apos;s taxonomy coverage and domain balance.
         </div>
       </div>
 

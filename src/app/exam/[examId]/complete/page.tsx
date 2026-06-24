@@ -1,7 +1,9 @@
 'use client';
+// Phase 2: held=1 state comes from exam.settings.resultsVisibility stored in DB
+// Teacher publishes via PATCH /api/exams/[id]/publish-results → sets resultsPublishedAt
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { CheckCircle, Shield, AlertTriangle, Trophy } from 'lucide-react';
+import { CheckCircle, Shield, AlertTriangle, Trophy, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -13,6 +15,7 @@ export default function ExamCompletePage() {
   const score = Number(params.get('score') ?? 0);
   const total = Number(params.get('total') ?? 0);
   const pct   = Number(params.get('pct')   ?? 0);
+  const held  = params.get('held') === '1';
 
   const { violationCount, trustScore } = useProctoringStore();
 
@@ -33,8 +36,23 @@ export default function ExamCompletePage() {
           </p>
         </div>
 
-        {/* Score card */}
-        {total > 0 && (
+        {/* Held results banner — replaces score card when results are held */}
+        {held && (
+          <Card className="border-amber-200 bg-amber-50">
+            <CardContent className="pt-6 space-y-3 text-center">
+              <Clock className="h-10 w-10 text-amber-500 mx-auto" />
+              <p className="font-semibold text-amber-800">Results Pending Review</p>
+              <p className="text-sm text-amber-700">
+                Your teacher has chosen to review submissions before publishing results.
+                You will be notified when your results are available.
+              </p>
+              <p className="text-xs text-amber-600 italic">Check &ldquo;My Results&rdquo; later to see your score.</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Score card — only shown when not held */}
+        {!held && total > 0 && (
           <Card>
             <CardContent className="pt-6 space-y-4">
               <div className="flex items-center justify-between">

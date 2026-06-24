@@ -4,7 +4,6 @@ import * as XLSX from 'xlsx';
 import { getStudents, getViolations } from '@/lib/data';
 import type { CurrentUser, Violation } from '@/types';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';

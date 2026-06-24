@@ -27,7 +27,9 @@ export default function StudentResultsPage() {
     getStudentExams().then(e => { setExams(e as StudentExam[]); setLoading(false); });
   }, []);
 
-  const completed = exams.filter(e => e.status === 'completed' && e.score !== undefined);
+  const completed       = exams.filter(e => e.status === 'completed' && e.score !== undefined);
+  // Exams submitted but results held by teacher (score === undefined on completed exams)
+  const pendingResults  = exams.filter(e => e.status === 'completed' && e.score === undefined);
   const avgScore  = completed.length
     ? Math.round(completed.reduce((sum, e) => sum + (e.score ?? 0), 0) / completed.length)
     : 0;
@@ -80,7 +82,7 @@ export default function StudentResultsPage() {
           <h2 className="text-[15px] font-bold text-[#1A1D23]">Exam Results</h2>
         </div>
 
-        {completed.length === 0 ? (
+        {completed.length === 0 && pendingResults.length === 0 ? (
           <div className="py-12 text-center text-[14px] text-[#9CA3AF]">No completed exams yet.</div>
         ) : (
           <>
@@ -94,6 +96,29 @@ export default function StudentResultsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#EBF0F8]">
+                {/* Pending (held) results */}
+                {pendingResults.map(exam => (
+                  <tr key={exam.id} className="hover:bg-[#F9FBFE] bg-amber-50/50">
+                    <td className="px-5 py-4">
+                      <p className="text-[14px] font-semibold text-[#1A1D23]">{exam.title}</p>
+                      <p className="text-[11px] text-[#9CA3AF]">{exam.course}</p>
+                    </td>
+                    <td className="px-5 py-4 text-[13px] text-[#6B7280]">{exam.schedule}</td>
+                    <td className="px-5 py-4">
+                      <span className="flex items-center gap-1 text-[13px] text-[#6B7280]">
+                        <Clock className="h-3.5 w-3.5 text-[#9CA3AF]" /> {exam.durationMins} min
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 text-[13px] text-amber-600">—</td>
+                    <td className="px-5 py-4 text-[13px] text-[#6B7280]">—</td>
+                    <td className="px-5 py-4">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+                        <Clock className="h-3 w-3" /> Pending
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {/* Published results */}
                 {completed.map(exam => {
                   const pass = (exam.score ?? 0) >= 60;
                   return (
@@ -134,6 +159,19 @@ export default function StudentResultsPage() {
 
             {/* Mobile cards */}
             <ul className="divide-y divide-[#EBF0F8] md:hidden">
+              {pendingResults.map(exam => (
+                <li key={exam.id} className="p-4 bg-amber-50/50">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[14px] font-semibold text-[#1A1D23]">{exam.title}</p>
+                      <p className="text-[12px] text-[#9CA3AF]">{exam.course} · {exam.schedule}</p>
+                    </div>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 shrink-0">
+                      <Clock className="h-3 w-3" /> Pending
+                    </span>
+                  </div>
+                </li>
+              ))}
               {completed.map(exam => {
                 const pass = (exam.score ?? 0) >= 60;
                 return (

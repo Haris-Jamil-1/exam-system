@@ -1,4 +1,6 @@
 'use client';
+// Phase 2: createItem calls prisma.item.create(); cloId stored as learning_objective_id FK
+// Phase 2: codeLanguage, starterCode, testCases, allowedFileTypes, maxFileSizeMB stored in Prisma item row
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -8,6 +10,7 @@ import { z } from 'zod';
 import { createItem } from '@/lib/data';
 import { generateQuestions } from '@/lib/ai/question-generator';
 import type { QuestionType, Option } from '@/types';
+import { CurriculumPicker, type CurriculumSelection } from '@/components/shared/CurriculumPicker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,7 +18,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Trash2, Sparkles, Check } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Plus, Trash2, Sparkles, Check, Code2, FileUp, Eye, EyeOff } from 'lucide-react';
 
 const schema = z.object({
   stem: z.string().min(5, 'Question stem is required'),
@@ -27,16 +31,30 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-const QUESTION_TYPES: { value: QuestionType; label: string; group: string }[] = [
-  { value: 'mcq', label: 'Multiple Choice (MCQ)', group: 'Open Choices' },
-  { value: 'mrq', label: 'Multiple Response (MRQ)', group: 'Open Choices' },
-  { value: 'true_false', label: 'True / False', group: 'Limited Choices' },
-  { value: 'short_answer', label: 'Short Answer', group: 'Complete' },
-  { value: 'essay', label: 'Essay', group: 'Series' },
-  { value: 'fill_blank', label: 'Fill in the Blank', group: 'Complete' },
-  { value: 'matching', label: 'Matching', group: 'Matching & Ordering' },
-  { value: 'ordering', label: 'Ordering', group: 'Matching & Ordering' },
+const CODE_LANGUAGES = ['python', 'javascript', 'java', 'cpp', 'c', 'sql'] as const;
+type CodeLanguage = typeof CODE_LANGUAGES[number];
+
+const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.xlsx', '.png', '.jpg', '.jpeg', '.zip', '.csv', '.mp4', '.txt'];
+
+const QUESTION_TYPES: { value: QuestionType; label: string; group: string; icon?: React.ReactNode }[] = [
+  { value: 'mcq',          label: 'Multiple Choice (MCQ)',   group: 'Open Choices' },
+  { value: 'mrq',          label: 'Multiple Response (MRQ)', group: 'Open Choices' },
+  { value: 'true_false',   label: 'True / False',            group: 'Limited Choices' },
+  { value: 'short_answer', label: 'Short Answer',            group: 'Complete' },
+  { value: 'essay',        label: 'Essay',                   group: 'Series' },
+  { value: 'fill_blank',   label: 'Fill in the Blank',       group: 'Complete' },
+  { value: 'matching',     label: 'Matching',                group: 'Matching & Ordering' },
+  { value: 'ordering',     label: 'Ordering',                group: 'Matching & Ordering' },
+  { value: 'coding',       label: 'Coding Challenge',        group: 'Advanced' },
+  { value: 'file_upload',  label: 'File Submission',         group: 'Advanced' },
 ];
+
+interface TestCaseRow {
+  id: string;
+  input: string;
+  expectedOutput: string;
+  isHidden: boolean;
+}
 
 export default function NewItemPage() {
   const router = useRouter();
@@ -51,6 +69,20 @@ export default function NewItemPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [saved, setSaved] = useState(false);
   const [stemValue, setStemValue] = useState('');
+
+  // CLO mapping via CurriculumPicker
+  const [cloSelection, setCloSelection] = useState<CurriculumSelection | null>(null);
+
+  // Coding type state
+  const [codeLanguage, setCodeLanguage] = useState<CodeLanguage>('python');
+  const [starterCode, setStarterCode] = useState('');
+  const [testCases, setTestCases] = useState<TestCaseRow[]>([
+    { id: 'tc-1', input: '', expectedOutput: '', isHidden: false },
+  ]);
+
+  // File upload type state
+  const [allowedExts, setAllowedExts] = useState<string[]>(['.pdf', '.docx']);
+  const [maxFileSizeMB, setMaxFileSizeMB] = useState(10);
 
   const {
     register,
@@ -92,6 +124,25 @@ export default function NewItemPage() {
     setOptions(prev => prev.map(o => o.id === id ? { ...o, text } : o));
   }
 
+  // Test case helpers
+  function addTestCase() {
+    setTestCases(prev => [...prev, { id: `tc-${Date.now()}`, input: '', expectedOutput: '', isHidden: false }]);
+  }
+
+  function removeTestCase(id: string) {
+    setTestCases(prev => prev.filter(tc => tc.id !== id));
+  }
+
+  function updateTestCase(id: string, field: keyof Omit<TestCaseRow, 'id'>, value: string | boolean) {
+    setTestCases(prev => prev.map(tc => tc.id === id ? { ...tc, [field]: value } : tc));
+  }
+
+  function toggleExt(ext: string) {
+    setAllowedExts(prev =>
+      prev.includes(ext) ? prev.filter(e => e !== ext) : [...prev, ext]
+    );
+  }
+
   async function onSubmit(data: FormData) {
     const tags = data.tags ? data.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
     const showOptions = ['mcq', 'mrq', 'true_false', 'matching', 'ordering'].includes(qType);
@@ -108,6 +159,18 @@ export default function NewItemPage() {
       status: data.status,
       tags,
       authorId: 'teacher-1',
+      learningObjectiveId: cloSelection?.cloId || undefined,
+      ...(qType === 'coding' ? {
+        codeLanguage,
+        starterCode: starterCode || undefined,
+        testCases: testCases
+          .filter(tc => tc.input.trim() || tc.expectedOutput.trim())
+          .map(tc => ({ input: tc.input, expectedOutput: tc.expectedOutput, isHidden: tc.isHidden })),
+      } : {}),
+      ...(qType === 'file_upload' ? {
+        allowedFileTypes: allowedExts,
+        maxFileSizeMB,
+      } : {}),
     });
     setSaved(true);
     setTimeout(() => router.push('/teacher/items'), 1000);
@@ -128,7 +191,7 @@ export default function NewItemPage() {
         <Tabs defaultValue="basic">
           <TabsList className="mb-4">
             <TabsTrigger value="basic">Basic</TabsTrigger>
-            <TabsTrigger value="mapping">Mapping</TabsTrigger>
+            <TabsTrigger value="mapping">CLO Mapping</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
 
@@ -148,7 +211,11 @@ export default function NewItemPage() {
                         qType === t.value ? 'border-blue-600 bg-blue-50 text-blue-700' : 'hover:border-gray-300'
                       }`}
                     >
-                      <p className="font-medium">{t.label}</p>
+                      <p className="font-medium flex items-center gap-1">
+                        {t.value === 'coding'      && <Code2 className="h-3 w-3" />}
+                        {t.value === 'file_upload' && <FileUp className="h-3 w-3" />}
+                        {t.label}
+                      </p>
                       <p className="text-muted-foreground text-xs mt-0.5">{t.group}</p>
                     </button>
                   ))}
@@ -263,6 +330,174 @@ export default function NewItemPage() {
               </Card>
             )}
 
+            {/* ── Coding type ── */}
+            {qType === 'coding' && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Code2 className="h-4 w-4 text-blue-600" />
+                    Coding Challenge Setup
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Language */}
+                  <div className="space-y-2">
+                    <Label>Programming Language</Label>
+                    <Select value={codeLanguage} onValueChange={v => setCodeLanguage(v as CodeLanguage)}>
+                      <SelectTrigger className="w-48">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CODE_LANGUAGES.map(lang => (
+                          <SelectItem key={lang} value={lang} className="capitalize">{lang.toUpperCase()}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Starter code */}
+                  <div className="space-y-2">
+                    <Label>Starter Code (optional)</Label>
+                    <textarea
+                      value={starterCode}
+                      onChange={e => setStarterCode(e.target.value)}
+                      rows={6}
+                      placeholder={`def solution():\n    # Your code here\n    pass`}
+                      className="w-full font-mono text-sm border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y bg-slate-950 text-slate-100"
+                      spellCheck={false}
+                    />
+                    <p className="text-xs text-muted-foreground">Students will see this code pre-filled in the editor.</p>
+                  </div>
+
+                  {/* Test cases */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Test Cases</Label>
+                      <Button type="button" variant="outline" size="sm" onClick={addTestCase} className="gap-1 h-7 text-xs">
+                        <Plus className="h-3 w-3" /> Add Test Case
+                      </Button>
+                    </div>
+                    <div className="rounded-lg border overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-muted/50">
+                          <tr>
+                            <th className="text-start px-3 py-2 font-medium text-muted-foreground">#</th>
+                            <th className="text-start px-3 py-2 font-medium text-muted-foreground">Input</th>
+                            <th className="text-start px-3 py-2 font-medium text-muted-foreground">Expected Output</th>
+                            <th className="text-center px-3 py-2 font-medium text-muted-foreground" title="Hidden test cases are not shown to students">Hidden</th>
+                            <th className="px-3 py-2 w-8" />
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {testCases.map((tc, i) => (
+                            <tr key={tc.id} className={tc.isHidden ? 'bg-slate-50' : ''}>
+                              <td className="px-3 py-2 text-muted-foreground font-medium">{i + 1}</td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="text"
+                                  value={tc.input}
+                                  onChange={e => updateTestCase(tc.id, 'input', e.target.value)}
+                                  placeholder="e.g. [1,2,3]"
+                                  className="w-full font-mono border rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="text"
+                                  value={tc.expectedOutput}
+                                  onChange={e => updateTestCase(tc.id, 'expectedOutput', e.target.value)}
+                                  placeholder="e.g. 6"
+                                  className="w-full font-mono border rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                />
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => updateTestCase(tc.id, 'isHidden', !tc.isHidden)}
+                                  className={`p-1 rounded transition-colors ${tc.isHidden ? 'text-slate-600' : 'text-muted-foreground/40 hover:text-slate-400'}`}
+                                  title={tc.isHidden ? 'Hidden from student' : 'Visible to student'}
+                                >
+                                  {tc.isHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                                </button>
+                              </td>
+                              <td className="px-3 py-2">
+                                <button type="button" onClick={() => removeTestCase(tc.id)} className="text-red-400 hover:text-red-600">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      <EyeOff className="h-3 w-3 inline me-1" />
+                      Hidden test cases are not shown to students — use them to prevent hard-coding.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ── File Upload type ── */}
+            {qType === 'file_upload' && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileUp className="h-4 w-4 text-purple-600" />
+                    File Submission Setup
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Allowed File Types</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {ALLOWED_EXTENSIONS.map(ext => (
+                        <button
+                          key={ext}
+                          type="button"
+                          onClick={() => toggleExt(ext)}
+                          className={`rounded-full px-3 py-1 text-xs font-mono font-medium border transition-colors ${
+                            allowedExts.includes(ext)
+                              ? 'bg-purple-100 text-purple-700 border-purple-300'
+                              : 'border-muted text-muted-foreground hover:border-purple-300'
+                          }`}
+                        >
+                          {ext}
+                        </button>
+                      ))}
+                    </div>
+                    {allowedExts.length === 0 && (
+                      <p className="text-xs text-red-500">Select at least one allowed file type.</p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Maximum File Size (MB)</Label>
+                    <div className="flex items-center gap-3 max-w-xs">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={500}
+                        value={maxFileSizeMB}
+                        onChange={e => setMaxFileSizeMB(Number(e.target.value))}
+                        className="w-24"
+                      />
+                      <span className="text-sm text-muted-foreground">MB</span>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg bg-purple-50 border border-purple-100 p-3 text-xs text-purple-700 space-y-1">
+                    <p className="font-semibold">Manual Review Required</p>
+                    <p>File submissions are not auto-graded. After the exam ends, teachers must open each submission and assign a score manually.</p>
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {allowedExts.map(ext => <Badge key={ext} variant="info" className="text-[10px] font-mono">{ext}</Badge>)}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Meta */}
             <Card>
               <CardHeader><CardTitle>Metadata</CardTitle></CardHeader>
@@ -292,30 +527,23 @@ export default function NewItemPage() {
             </Card>
           </TabsContent>
 
-          {/* Mapping Tab */}
+          {/* CLO Mapping Tab — replaces old free-text mapping fields */}
           <TabsContent value="mapping" className="space-y-4">
             <Card>
-              <CardHeader><CardTitle>Curriculum Mapping</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Learning Objective</Label>
-                  <Input placeholder="Students will be able to..." />
-                </div>
-                <div className="space-y-2">
-                  <Label>Bloom&apos;s Taxonomy Level</Label>
-                  <Select>
-                    <SelectTrigger><SelectValue placeholder="Select level" /></SelectTrigger>
-                    <SelectContent>
-                      {['Remember', 'Understand', 'Apply', 'Analyze', 'Evaluate', 'Create'].map(l => (
-                        <SelectItem key={l} value={l.toLowerCase()}>{l}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>Topic / Chapter</Label>
-                  <Input placeholder="Chapter 3: Sorting Algorithms" />
-                </div>
+              <CardHeader>
+                <CardTitle>CLO Mapping</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <CurriculumPicker
+                  value={cloSelection}
+                  onChange={setCloSelection}
+                  institutionId="inst-1"
+                />
+                {!cloSelection?.cloId && (
+                  <p className="mt-4 text-xs text-muted-foreground">
+                    Linking a CLO is optional but recommended — it enables Bloom&apos;s taxonomy analytics and accreditation exports.
+                  </p>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

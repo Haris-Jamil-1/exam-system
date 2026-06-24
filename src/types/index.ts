@@ -25,6 +25,17 @@ export interface ExamSettings {
   showResultsAfter: boolean;
   allowedViolations: number;
   proctoringLevel: 'basic' | 'standard' | 'strict';
+  // Phase 2: persisted in exam_settings table, enforced server-side
+  navigationMode?: 'free' | 'sequential';
+  forwardOnly?: boolean;
+  autoAdvance?: boolean;
+  allowPause?: boolean;
+  resultsVisibility?: 'instant' | 'held';
+  // Phase 2: randomized selection query — SELECT * FROM questions WHERE examId ORDER BY RANDOM() LIMIT questionLimit
+  poolSize?: number;
+  questionLimit?: number;
+  // Phase 2: CAT engine — adjusts next question difficulty based on attempt.lastResponseCorrect
+  adaptiveTesting?: boolean;
 }
 
 export interface Exam {
@@ -56,12 +67,20 @@ export type QuestionType =
   | 'essay'
   | 'fill_blank'
   | 'matching'
-  | 'ordering';
+  | 'ordering'
+  | 'coding'
+  | 'file_upload';
 
 export interface Option {
   id: string;
   text: string;
   isCorrect: boolean;
+}
+
+export interface TestCase {
+  input: string;
+  expectedOutput: string;
+  isHidden?: boolean;
 }
 
 export interface Question {
@@ -75,9 +94,19 @@ export interface Question {
   difficulty: 'easy' | 'medium' | 'hard';
   order: number;
   explanation?: string;
+  // Phase 2: FK → learning_objectives.id; JOIN replaces storing bloomsLevel/domain strings
+  learningObjectiveId?: string;
+  required?: boolean;
+  // coding type
+  codeLanguage?: string;
+  starterCode?: string;
+  testCases?: TestCase[];
+  // file_upload type
+  allowedFileTypes?: string[];
+  maxFileSizeMB?: number;
 }
 
-export type ItemStatus = 'draft' | 'review' | 'approved';
+export type ItemStatus = 'draft' | 'review' | 'approved' | 'archived';
 
 export interface Item {
   id: string;
@@ -95,6 +124,23 @@ export interface Item {
   tags: string[];
   createdAt: string;
   authorId: string;
+  // Phase 2: FK → learning_objectives.id (replaces free-text topic/bloom fields)
+  learningObjectiveId?: string;
+  required?: boolean;
+  // coding type
+  codeLanguage?: string;
+  starterCode?: string;
+  testCases?: TestCase[];
+  // file_upload type
+  allowedFileTypes?: string[];
+  maxFileSizeMB?: number;
+  // Phase 2: computed from exam_answers aggregate — facility_index = correct_count / attempt_count
+  facilityIndex?: number;
+  // Phase 2: point-biserial correlation between item score and total score
+  discriminationIndex?: number;
+  // Phase 2: version control — archived original when approved item is edited
+  version?: number;
+  previousVersionId?: string;
 }
 
 export type AttemptStatus = 'in_progress' | 'submitted' | 'auto_submitted';
@@ -186,4 +232,45 @@ export interface Invitation {
   expiresAt: string;
   invitedBy: string;
   acceptedAt?: string;
+}
+
+// ── Curriculum Hierarchy ──────────────────────────────────────────────────────
+// Phase 2: 3 Prisma models — Course, Topic, LearningObjective
+// Questions link via learning_objective_id FK (not string tags)
+// Bloom's Level and Learning Domain are inherited from the CLO — never stored on questions
+
+export type LearningDomain = 'Knowledge' | 'Skill' | 'Values';
+
+export type BloomsLevel =
+  | 'Remember'
+  | 'Understand'
+  | 'Apply'
+  | 'Analyze'
+  | 'Evaluate'
+  | 'Create';
+
+export interface Course {
+  id: string;
+  code: string;           // e.g. CS101
+  title: string;          // e.g. Introduction to Computer Science
+  institutionId: string;
+  createdAt: string;
+}
+
+export interface Topic {
+  id: string;
+  courseId: string;       // FK → courses.id
+  title: string;          // e.g. Chapter 3: Asymmetric Cryptography
+  order: number;
+  createdAt: string;
+}
+
+export interface LearningObjective {
+  id: string;
+  topicId: string;        // FK → topics.id
+  code?: string;          // e.g. CS101-3-CLO2 (for accreditation reports)
+  text: string;           // e.g. Students will be able to generate public and private keys
+  bloomsLevel: BloomsLevel;
+  learningDomain: LearningDomain;
+  createdAt: string;
 }

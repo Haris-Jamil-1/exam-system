@@ -14,6 +14,7 @@ import { PageHeader } from '@/components/shared/PageHeader';
 const TYPE_LABELS: Record<QuestionType, string> = {
   mcq: 'MCQ', mrq: 'MRQ', true_false: 'T/F', short_answer: 'Short',
   essay: 'Essay', fill_blank: 'Fill', matching: 'Match', ordering: 'Order',
+  coding: 'Code', file_upload: 'File',
 };
 
 const DIFF_VARIANT: Record<string, 'success' | 'warning' | 'danger'> = {

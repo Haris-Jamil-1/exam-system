@@ -9,7 +9,8 @@ interface UseExamTimerReturn {
 
 export function useExamTimer(
   initialSeconds: number,
-  onTimeUp: () => void
+  onTimeUp: () => void,
+  isPaused?: boolean,
 ): UseExamTimerReturn {
   // initialSeconds is stable by the time this hook is first called:
   // the exam page gates on initialSeconds === 0 so we never start with 0.
@@ -21,6 +22,7 @@ export function useExamTimer(
   }, [onTimeUp]);
 
   useEffect(() => {
+    if (isPaused) return; // interval stopped while paused; resumes on next render
     if (secondsLeft <= 0) {
       onTimeUpRef.current();
       return;
@@ -35,7 +37,7 @@ export function useExamTimer(
       });
     }, 1000);
     return () => clearInterval(id);
-  }, [secondsLeft]);
+  }, [secondsLeft, isPaused]);
 
   const minutes = Math.floor(secondsLeft / 60);
   const seconds = secondsLeft % 60;

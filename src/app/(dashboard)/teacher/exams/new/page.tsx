@@ -46,6 +46,7 @@ const ALL_QUESTION_TYPES: { value: QuestionType; label: string }[] = [
 const TYPE_LABELS: Record<QuestionType, string> = {
   mcq: 'MCQ', mrq: 'MRQ', true_false: 'T/F', short_answer: 'Short',
   essay: 'Essay', fill_blank: 'Fill', matching: 'Match', ordering: 'Order',
+  coding: 'Code', file_upload: 'File',
 };
 
 const DIFF_VARIANT: Record<string, string> = { easy: 'success', medium: 'warning', hard: 'danger' };
@@ -264,12 +265,23 @@ export default function NewExamPage() {
   // Item bank selections
   const [selectedBankItems, setSelectedBankItems] = useState<Map<string, Item>>(new Map());
 
-  // Settings
+  // Settings — proctoring + shuffle
   const [proctoringLevel, setProctoringLevel] = useState<'basic' | 'standard' | 'strict'>('standard');
   const [maxViolations, setMaxViolations] = useState(3);
   const [shuffleQ, setShuffleQ] = useState(true);
   const [shuffleO, setShuffleO] = useState(true);
   const [showResults, setShowResults] = useState(true);
+  // Navigation
+  const [navigationMode, setNavigationMode] = useState<'free' | 'sequential'>('free');
+  const [forwardOnly, setForwardOnly] = useState(false);
+  const [autoAdvance, setAutoAdvance] = useState(false);
+  const [allowPause, setAllowPause] = useState(true);
+  // Results visibility — Phase 2: stored in ExamSettings.resultsVisibility
+  const [resultsVisibility, setResultsVisibility] = useState<'instant' | 'held'>('instant');
+  // Dynamic pooling — Phase 2: pool drawn randomly from item bank at runtime
+  const [enablePooling, setEnablePooling] = useState(false);
+  const [poolSize, setPoolSize] = useState(30);
+  const [questionLimit, setQuestionLimit] = useState(20);
 
   const totalAdded = addedAIQuestions.length + selectedBankItems.size;
 
@@ -323,6 +335,12 @@ export default function NewExamPage() {
         showResultsAfter: showResults,
         allowedViolations: maxViolations,
         proctoringLevel,
+        navigationMode,
+        forwardOnly: navigationMode === 'sequential' ? forwardOnly : undefined,
+        autoAdvance,
+        allowPause,
+        resultsVisibility,
+        ...(enablePooling ? { poolSize, questionLimit } : {}),
       },
     });
 
@@ -632,52 +650,198 @@ export default function NewExamPage() {
           <Card>
             <CardHeader><CardTitle>Exam Settings</CardTitle></CardHeader>
             <CardContent className="space-y-6">
+
+              {/* ── Navigation Mode ── */}
+              <div className="space-y-3">
+                <Label className="text-sm font-semibold">Navigation Mode</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['free', 'sequential'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => {
+                        setNavigationMode(mode);
+                        if (mode === 'free') setForwardOnly(false);
+                      }}
+                      className={`border rounded-lg p-3 text-start text-xs transition-colors ${
+                        navigationMode === mode ? 'border-blue-600 bg-blue-50 text-blue-700' : 'hover:border-gray-300'
+                      }`}
+                    >
+                      <p className="font-semibold capitalize">{mode}</p>
+                      <p className="text-muted-foreground mt-0.5">
+                        {mode === 'free' ? 'Students can jump to any question freely' : 'Questions appear one by one in order'}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+                {navigationMode === 'sequential' && (
+                  <label className="flex items-center gap-3 cursor-pointer ps-1">
+                    <input
+                      type="checkbox"
+                      checked={forwardOnly}
+                      onChange={e => setForwardOnly(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                    <div>
+                      <span className="text-sm font-medium">Forward-only</span>
+                      <p className="text-xs text-muted-foreground">Students cannot go back to previous questions once they move forward.</p>
+                    </div>
+                  </label>
+                )}
+              </div>
+
+              <div className="h-px bg-border" />
+
+              {/* ── Auto-advance + Pause ── */}
+              <div className="space-y-3">
+                <Label className="text-sm font-semibold">Behavior</Label>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoAdvance}
+                    onChange={e => setAutoAdvance(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <div>
+                    <span className="text-sm font-medium">Auto-advance after MCQ answer</span>
+                    <p className="text-xs text-muted-foreground">Moves to next question automatically when student selects an option.</p>
+                  </div>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={allowPause}
+                    onChange={e => setAllowPause(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <div>
+                    <span className="text-sm font-medium">Allow exam pause</span>
+                    <p className="text-xs text-muted-foreground">Students can pause the timer (timer stops, proctoring continues). Log is recorded.</p>
+                  </div>
+                </label>
+              </div>
+
+              <div className="h-px bg-border" />
+
+              {/* ── Results Visibility ── */}
               <div className="space-y-2">
-                <Label>Proctoring Level</Label>
-                <Select value={proctoringLevel} onValueChange={v => setProctoringLevel(v as typeof proctoringLevel)}>
+                <Label className="text-sm font-semibold">Results Visibility</Label>
+                <Select value={resultsVisibility} onValueChange={v => setResultsVisibility(v as 'instant' | 'held')}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="basic">Basic — Tab/window detection only</SelectItem>
-                    <SelectItem value="standard">Standard — Tab + face detection</SelectItem>
-                    <SelectItem value="strict">Strict — Full proctoring + audio</SelectItem>
+                    <SelectItem value="instant">Instant — shown immediately after submission</SelectItem>
+                    <SelectItem value="held">Held — teacher publishes results manually</SelectItem>
                   </SelectContent>
                 </Select>
+                {resultsVisibility === 'held' && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                    Students will see a &ldquo;Results Pending Review&rdquo; message until you publish results from the exam results page.
+                  </p>
+                )}
               </div>
-              <div className="space-y-2">
-                <Label>Max Violations (auto-submit after)</Label>
-                <Input
-                  type="number"
-                  value={maxViolations}
-                  min={1} max={10}
-                  onChange={e => setMaxViolations(Number(e.target.value))}
-                  className="w-24"
-                />
-              </div>
+
+              <div className="h-px bg-border" />
+
+              {/* ── Proctoring ── */}
               <div className="space-y-3">
-                <Label>Options</Label>
+                <Label className="text-sm font-semibold">Proctoring</Label>
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground font-normal">Proctoring Level</Label>
+                  <Select value={proctoringLevel} onValueChange={v => setProctoringLevel(v as typeof proctoringLevel)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="basic">Basic — Tab/window detection only</SelectItem>
+                      <SelectItem value="standard">Standard — Tab + face detection</SelectItem>
+                      <SelectItem value="strict">Strict — Full proctoring + audio</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Label className="text-xs text-muted-foreground font-normal whitespace-nowrap">Max violations (auto-submit)</Label>
+                  <Input
+                    type="number"
+                    value={maxViolations}
+                    min={1} max={10}
+                    onChange={e => setMaxViolations(Number(e.target.value))}
+                    className="w-20 h-8 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="h-px bg-border" />
+
+              {/* ── Shuffle ── */}
+              <div className="space-y-3">
+                <Label className="text-sm font-semibold">Shuffle & Display</Label>
                 {[
-                  { label: 'Shuffle questions', value: shuffleQ, set: setShuffleQ },
-                  { label: 'Shuffle answer options', value: shuffleO, set: setShuffleO },
-                  { label: 'Show results after submission', value: showResults, set: setShowResults },
+                  { label: 'Shuffle questions', desc: 'Randomize question order per student.', value: shuffleQ, set: setShuffleQ },
+                  { label: 'Shuffle answer options', desc: 'Randomize option order for MCQ/MRQ.', value: shuffleO, set: setShuffleO },
+                  { label: 'Show results after submission', desc: 'Display score and correct answers instantly.', value: showResults, set: setShowResults },
                 ].map(opt => (
                   <label key={opt.label} className="flex items-center gap-3 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={opt.value}
                       onChange={e => opt.set(e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                      className="h-4 w-4 rounded border-gray-300"
                     />
-                    <span className="text-sm">{opt.label}</span>
+                    <div>
+                      <span className="text-sm font-medium">{opt.label}</span>
+                      <p className="text-xs text-muted-foreground">{opt.desc}</p>
+                    </div>
                   </label>
                 ))}
               </div>
 
+              <div className="h-px bg-border" />
+
+              {/* ── Dynamic Pooling ── */}
+              <div className="space-y-3">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={enablePooling}
+                    onChange={e => setEnablePooling(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <div>
+                    <span className="text-sm font-semibold">Dynamic Question Pooling</span>
+                    <p className="text-xs text-muted-foreground">Draw a random subset of questions from a larger pool at runtime (Phase 2 feature).</p>
+                  </div>
+                </label>
+                {enablePooling && (
+                  <div className="ps-7 grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Pool size (total items)</Label>
+                      <Input type="number" value={poolSize} min={questionLimit} onChange={e => setPoolSize(Number(e.target.value))} className="h-8 text-sm" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Questions per student</Label>
+                      <Input type="number" value={questionLimit} min={1} max={poolSize} onChange={e => setQuestionLimit(Number(e.target.value))} className="h-8 text-sm" />
+                    </div>
+                    <p className="col-span-2 text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded px-3 py-2">
+                      Phase 2: at exam start, the system will randomly pick {questionLimit} questions from a pool of {poolSize} approved items matching this exam&apos;s subject/difficulty.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {/* Summary */}
-              <div className="rounded-lg bg-muted/50 p-4 space-y-1 text-sm">
+              <div className="rounded-lg bg-muted/50 p-4 space-y-1 text-sm border-t">
                 <p className="font-medium">Exam Summary</p>
                 <p className="text-muted-foreground">{step1Data?.title} · {step1Data?.subject}</p>
                 <p className="text-muted-foreground">{step1Data?.duration} min · {step1Data?.totalMarks} marks (pass at {step1Data?.passingMarks})</p>
                 <p className="text-muted-foreground">{totalAdded} question{totalAdded !== 1 ? 's' : ''} total ({addedAIQuestions.length} AI + {selectedBankItems.size} from bank)</p>
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  <Badge variant="outline" className="text-xs capitalize">{navigationMode} nav</Badge>
+                  {forwardOnly && <Badge variant="outline" className="text-xs">forward-only</Badge>}
+                  {autoAdvance && <Badge variant="outline" className="text-xs">auto-advance</Badge>}
+                  {allowPause && <Badge variant="outline" className="text-xs">pauseable</Badge>}
+                  <Badge variant={resultsVisibility === 'instant' ? 'success' : 'warning'} className="text-xs">
+                    {resultsVisibility === 'instant' ? 'Instant results' : 'Held results'}
+                  </Badge>
+                  {enablePooling && <Badge variant="info" className="text-xs">pooling {questionLimit}/{poolSize}</Badge>}
+                </div>
               </div>
             </CardContent>
           </Card>

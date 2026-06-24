@@ -2,6 +2,73 @@
 
 ## Session Log
 
+### 2026-06-24 — Session 3: Phase 1 Feature Expansion (Chunks 1–6) + Audit Fixes ✅
+
+**What was done:**
+
+#### Chunk 1 — Admin Curriculum Architecture
+- New route: `/admin/curriculum` — 3-column cascade UI (Course → Topic → CLO)
+- Create courses, topics, and CLOs with Bloom's Taxonomy level + Learning Domain metadata
+- CLO code auto-generated (`COURSE-CHAPTER-CLOn` pattern)
+- Data functions added to `lib/data`: `getCourses`, `getTopics`, `getCLOs`, `createCourse`, `createTopic`, `createCLO`
+- New mock data in `lib/mock-data/curriculum.ts`
+- New types in `src/types/index.ts`: `Course`, `Topic`, `LearningObjective`, `BloomsLevel`, `LearningDomain`
+
+#### Chunk 2 — CurriculumPicker Shared Component
+- New shared component: `src/components/shared/CurriculumPicker.tsx`
+- Cascading Course → Topic → CLO dropdowns with derived `selectedCLO` metadata panel
+- Shows inherited Bloom's and Domain badges in read-only panel on CLO selection
+- Phase 2 comment: replace `getCourses/getTopics/getCLOs` with Prisma queries
+
+#### Chunk 3 — Bulk Item Import + Psychometrics + Question Bank Enhancements
+- New component: `src/components/shared/BulkImportModal.tsx` — CSV upload, parse+validate, preview table, bulk import
+- CSV parser handles empty files, header-only, Windows `\r\n` line endings; known Phase 1 limitation: comma-in-stem fields
+- `teacher/items/page.tsx` updated: FI% and DI psychometric columns (amber flag when out of range), Archive action, archived tab (5th), CSV import button, at-risk banner
+- `teacher/items/new/page.tsx` updated: `coding` and `file_upload` question types, `CurriculumPicker` integration in Mapping tab, CLO `learning_objective_id` FK on submit
+
+#### Chunk 4 — Exam Settings: Navigation, Pooling, Grade Publishing
+- `teacher/exams/new/page.tsx` Step 4 completely rewritten with:
+  - Navigation Mode card (Free / Sequential + Forward-Only checkbox)
+  - Behavior section (Auto-Advance, Allow Pause toggles)
+  - Results Visibility dropdown (`instant` | `held`)
+  - Dynamic Pooling section (pool size + question limit)
+  - Summary badge strip showing all active settings
+- All settings serialised into `createExam` call with Phase 2 comments
+
+#### Chunk 5 — Coding & File-Upload Question Types in Exam
+- New component: `src/components/exam/CodeQuestion.tsx` — dark-theme monospace textarea, visible test cases table, mock "Run Code" (1200ms sim), Phase 3 comment for `/api/exec` endpoint
+- New component: `src/components/exam/FileUploadQuestion.tsx` — drag-and-drop zone, extension filter + size limit, replace flow, Phase 2 comment for Supabase Storage upload
+
+#### Chunk 6 — Proctoring, Biometric Gate, Pause, Held Results
+- New component: `src/components/proctoring/BiometricOnboarding.tsx` — 3-step simulated webcam → ID → verified flow, no camera APIs (safe on all browsers), gated to `strict` proctoring only
+- `src/components/proctoring/TabGuard.tsx` updated: F12/PrintScreen blocking, Ctrl+C/V/P/S/A/U/Shift+I/J/C blocking, right-click disabled; all 4 event listeners correctly removed on unmount
+- `src/app/exam/[examId]/page.tsx` full rewrite: biometric gate, pause overlay (with real timer pause), auto-advance effect, sequential/forwardOnly navigator, file answer state, `held=1` submit param
+- `src/app/exam/[examId]/complete/page.tsx`: amber "Results Pending Review" card when `held=1`, score card hidden when held
+- `src/app/(dashboard)/teacher/exams/[examId]/results/page.tsx`: "Publish Results" button (Phase 2 stub), held banner, `resultsPublished` local state
+- `src/app/(dashboard)/student/results/page.tsx`: pending results rows (amber badge) above published results in table + mobile cards
+- `src/app/(dashboard)/admin/analytics/page.tsx`: Curriculum Analytics section — domain breakdown bars, Bloom's horizontal bar chart, CSV export button (Phase 2: `/api/analytics/curriculum-export`)
+
+#### Audit Fixes (same session)
+- **Timer pause bug fixed**: `useExamTimer` now accepts `isPaused?: boolean` — interval is cleared while paused; timer truly stops, preventing silent auto-submit during pause
+- **5 `react-hooks/set-state-in-effect` errors fixed**: `CurriculumPicker.tsx` (derived `selectedCLO` state removed; cascade effects use `async update()` pattern) and `admin/curriculum/page.tsx` (same async pattern)
+- **`void count` lint suppression removed**: `handleImported` parameter renamed to `_count`
+- **Unused `Input` import removed** from `teacher/students/page.tsx` (pre-existing warning)
+
+**Build status after session:**
+- `npm run build` → **PASSES (0 errors, 40 routes)**
+- `npm run lint` → **PASSES (0 errors, 0 warnings)**
+- GitHub: `Haris-Jamil-1/exam-system` — master branch
+- Vercel: `https://exam-system-sigma.vercel.app` — redeployed
+
+**What's next (Phase 2):**
+- Start Phase 2: real backend with Supabase + Prisma (see Phase 2 Plan section below)
+- Replace all `src/lib/data/*.ts` function bodies with Prisma queries
+- Wire up "Publish Results" teacher action to `PATCH /api/exams/[id]/publish-results`
+- Set up Supabase project, copy `DATABASE_URL` + `DIRECT_URL` to Vercel env vars
+- Replace mock auth (`localStorage.exam_user`) with Supabase Auth JWT
+
+---
+
 ### 2026-06-21 — Session 2: Bug Fixes, Mobile Support, Live Deployment ✅
 
 **What was done:**
@@ -65,9 +132,9 @@
 ---
 
 ## Build Status
-- `npm run build` → **PASSES** (0 errors)
+- `npm run build` → **PASSES** (0 errors, 40 routes)
 - `npm run lint` → **PASSES** (0 errors, 0 warnings)
-- Last verified: 2026-06-21
+- Last verified: 2026-06-24
 
 ---
 

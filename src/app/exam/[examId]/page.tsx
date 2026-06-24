@@ -1,21 +1,24 @@
 'use client';
+// Phase 2: sequential/forwardOnly/autoAdvance enforced server-side via ExamSession
+// Phase 3: biometric onboarding uses real face-api.js capture
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { getExamById, getQuestionsForStudent } from '@/lib/data';
-import type { Exam, PublicQuestion } from '@/types';
+import type { Exam, PublicQuestion, Question } from '@/types';
 import { useExamStore } from '@/store/examStore';
 import { useProctoringStore } from '@/store/proctoringStore';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useExamTimer } from '@/hooks/useExamTimer';
 import { ProctoringOverlay } from '@/components/proctoring/ProctoringOverlay';
+import { BiometricOnboarding } from '@/components/proctoring/BiometricOnboarding';
+import { CodeQuestion } from '@/components/exam/CodeQuestion';
+import { FileUploadQuestion } from '@/components/exam/FileUploadQuestion';
 import { DesktopGuard } from '@/components/shared/DesktopGuard';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from '@/components/ui/dialog';
-import { Flag, ChevronLeft, ChevronRight, Clock, ChevronUp, ChevronDown } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Flag, ChevronLeft, ChevronRight, Clock, ChevronUp, ChevronDown, Pause, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const SESSION_KEY = (examId: string) => `exam_attempt_${examId}`;
@@ -37,6 +40,13 @@ export default function ExamPage() {
   const [attemptId, setAttemptId] = useState('');
   const [initialSeconds, setInitialSeconds] = useState(0);
 
+  // Biometric gate — shown before exam if proctoring level is strict
+  const [biometricDone, setBiometricDone] = useState(false);
+  // Pause overlay
+  const [paused, setPaused] = useState(false);
+  // File upload answers stored separately (File objects can't go into Zustand string answers)
+  const [fileAnswers, setFileAnswers] = useState<Record<string, File | null>>({});
+
   const {
     currentQuestionIndex,
     answers,
@@ -52,6 +62,12 @@ export default function ExamPage() {
 
   const { violationCount, trustScore } = useProctoringStore();
 
+  const settings = exam?.settings;
+  const isSequential = settings?.navigationMode === 'sequential';
+  const forwardOnly  = isSequential && !!settings?.forwardOnly;
+  const autoAdvance  = !!settings?.autoAdvance;
+  const allowPause   = settings?.allowPause !== false; // default true
+
   // Load exam + questions + start/rehydrate attempt
   useEffect(() => {
     async function load() {
@@ -61,7 +77,6 @@ export default function ExamPage() {
       setCurrentExam(e);
       setQuestions(q);
 
-      // Rehydrate or create attempt
       const stored = sessionStorage.getItem(SESSION_KEY(examId));
       let session: AttemptSession;
 
@@ -80,19 +95,33 @@ export default function ExamPage() {
       }
 
       setAttemptId(session.attemptId);
-      // Calculate remaining seconds accounting for elapsed time
-      const elapsedSeconds = Math.floor(
-        (Date.now() - new Date(session.startedAt).getTime()) / 1000
-      );
+      const elapsedSeconds = Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 1000);
       const remaining = Math.max(0, e.duration * 60 - elapsedSeconds);
       setInitialSeconds(remaining);
+
+      // Skip biometric gate if not strict proctoring
+      if (e.settings.proctoringLevel !== 'strict') {
+        setBiometricDone(true);
+      }
     }
 
     load();
     return () => { resetExam(); };
   }, [examId, resetExam, setCurrentExam, user?.id]);
 
-  // Submit answers to backend then navigate
+  // Auto-advance effect: when MCQ answer is set in autoAdvance mode, move to next
+  useEffect(() => {
+    if (!autoAdvance) return;
+    const q = questions[currentQuestionIndex];
+    if (!q) return;
+    if ((q.type === 'mcq' || q.type === 'true_false') && answers[q.id]) {
+      const timer = setTimeout(() => {
+        if (currentQuestionIndex < questions.length - 1) nextQuestion();
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [answers, currentQuestionIndex, questions, autoAdvance, nextQuestion]);
+
   const doSubmit = useCallback(async () => {
     if (submitting || !exam) return;
     setSubmitting(true);
@@ -100,31 +129,31 @@ export default function ExamPage() {
       const res = await fetch(`/api/attempts/${attemptId}/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          examId,
-          answers,
-          violationCount,
-          trustScore,
-        }),
+        body: JSON.stringify({ examId, answers, violationCount, trustScore }),
       });
       const result = await res.json() as { score: number; totalMarks: number; scorePercentage: number };
       sessionStorage.removeItem(SESSION_KEY(examId));
+      const heldParam = exam.settings.resultsVisibility === 'held' ? '&held=1' : '';
       router.push(
-        `/exam/${examId}/complete?score=${result.score}&total=${result.totalMarks}&pct=${result.scorePercentage}`
+        `/exam/${examId}/complete?score=${result.score}&total=${result.totalMarks}&pct=${result.scorePercentage}${heldParam}`
       );
     } catch {
-      // On network error still navigate so student isn't stuck
       sessionStorage.removeItem(SESSION_KEY(examId));
       router.push(`/exam/${examId}/complete?score=0&total=0&pct=0`);
     }
   }, [submitting, exam, attemptId, examId, answers, violationCount, trustScore, router]);
 
   const handleTimeUp = useCallback(() => { void doSubmit(); }, [doSubmit]);
-  const { timeRemaining, isLow } = useExamTimer(initialSeconds, handleTimeUp);
+  const { timeRemaining, isLow } = useExamTimer(initialSeconds, handleTimeUp, paused);
 
   function handleSubmitConfirm() {
     setShowSubmitModal(false);
     void doSubmit();
+  }
+
+  // ── Biometric gate ────────────────────────────────────────────────────────────
+  if (exam && !biometricDone) {
+    return <BiometricOnboarding onComplete={() => setBiometricDone(true)} />;
   }
 
   if (!exam || questions.length === 0 || initialSeconds === 0) {
@@ -136,13 +165,35 @@ export default function ExamPage() {
   }
 
   const q = questions[currentQuestionIndex];
-  const answeredCount = Object.keys(answers).length;
+  const answeredCount = Object.keys(answers).length + Object.values(fileAnswers).filter(Boolean).length;
   const progress = Math.round((answeredCount / questions.length) * 100);
+  const currentAnswered = answers[q.id] !== undefined || fileAnswers[q.id] !== undefined;
+  const isRequired = q.required && !currentAnswered;
+
+  function handleGoToQuestion(i: number) {
+    if (isSequential && Math.abs(i - currentQuestionIndex) > 1) return;
+    if (forwardOnly && i < currentQuestionIndex) return;
+    goToQuestion(i);
+  }
 
   return (
     <DesktopGuard>
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <ProctoringOverlay examId={examId} attemptId={attemptId || 'attempt-loading'} />
+
+      {/* ── Pause overlay ── */}
+      {paused && (
+        <div className="fixed inset-0 z-50 bg-slate-950/95 flex flex-col items-center justify-center gap-6">
+          <Pause className="h-12 w-12 text-slate-400" />
+          <div className="text-center space-y-1">
+            <p className="text-white text-xl font-bold">Exam Paused</p>
+            <p className="text-slate-400 text-sm">Timer is stopped. Proctoring continues.</p>
+          </div>
+          <Button onClick={() => setPaused(false)} className="gap-2 bg-blue-600 hover:bg-blue-700 px-8">
+            <Play className="h-4 w-4" /> Resume Exam
+          </Button>
+        </div>
+      )}
 
       {/* Header */}
       <header className="bg-white border-b px-4 py-3 flex items-center justify-between">
@@ -150,12 +201,25 @@ export default function ExamPage() {
           <h1 className="font-semibold text-gray-900">{exam.title}</h1>
           <p className="text-xs text-muted-foreground">{exam.subject}</p>
         </div>
-        <div className={cn(
-          'flex items-center gap-2 font-mono font-bold text-lg px-3 py-1 rounded-lg',
-          isLow ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-700'
-        )}>
-          <Clock className="h-4 w-4" />
-          {timeRemaining}
+        <div className="flex items-center gap-3">
+          {allowPause && !paused && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setPaused(true)}
+              className="gap-1 text-muted-foreground hover:text-gray-900"
+              title="Pause exam"
+            >
+              <Pause className="h-4 w-4" /> Pause
+            </Button>
+          )}
+          <div className={cn(
+            'flex items-center gap-2 font-mono font-bold text-lg px-3 py-1 rounded-lg',
+            isLow ? 'bg-red-100 text-red-700' : 'bg-blue-50 text-blue-700'
+          )}>
+            <Clock className="h-4 w-4" />
+            {paused ? <span className="text-muted-foreground">--:--</span> : timeRemaining}
+          </div>
         </div>
       </header>
 
@@ -164,19 +228,25 @@ export default function ExamPage() {
         <aside className="w-20 border-e bg-white flex-shrink-0 overflow-y-auto hidden sm:block">
           <div className="p-2 space-y-1.5">
             {questions.map((qi, i) => {
-              const answered = !!answers[qi.id];
-              const flagged = flaggedQuestions.has(qi.id);
-              const current = i === currentQuestionIndex;
+              const answered = !!answers[qi.id] || !!fileAnswers[qi.id];
+              const flagged  = flaggedQuestions.has(qi.id);
+              const current  = i === currentQuestionIndex;
+              const disabled =
+                (isSequential && Math.abs(i - currentQuestionIndex) > 1) ||
+                (forwardOnly && i < currentQuestionIndex);
               return (
                 <button
                   key={qi.id}
-                  onClick={() => goToQuestion(i)}
+                  onClick={() => handleGoToQuestion(i)}
+                  disabled={disabled}
                   className={cn(
                     'w-full h-10 rounded text-xs font-medium transition-colors border-2',
-                    current ? 'border-blue-600 bg-blue-600 text-white' :
-                    flagged  ? 'border-yellow-400 bg-yellow-50 text-yellow-700' :
-                    answered ? 'border-green-400 bg-green-50 text-green-700' :
-                    'border-gray-200 text-gray-500 hover:border-gray-300'
+                    disabled
+                      ? 'border-gray-100 text-gray-300 cursor-not-allowed'
+                      : current  ? 'border-blue-600 bg-blue-600 text-white' :
+                        flagged  ? 'border-yellow-400 bg-yellow-50 text-yellow-700' :
+                        answered ? 'border-green-400 bg-green-50 text-green-700' :
+                        'border-gray-200 text-gray-500 hover:border-gray-300'
                   )}
                 >
                   {flagged && <span className="block text-yellow-500">🚩</span>}
@@ -192,7 +262,7 @@ export default function ExamPage() {
           <div className="max-w-2xl mx-auto space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1">
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <Badge variant="outline" className="capitalize text-xs">{q.type.replace('_', ' ')}</Badge>
                   <Badge
                     variant={q.difficulty === 'easy' ? 'success' : q.difficulty === 'medium' ? 'warning' : 'danger'}
@@ -201,6 +271,10 @@ export default function ExamPage() {
                     {q.difficulty}
                   </Badge>
                   <span className="text-xs text-muted-foreground">{q.marks} marks</span>
+                  {q.required && <Badge variant="danger" className="text-xs">Required</Badge>}
+                  {isSequential && (
+                    <Badge variant="info" className="text-xs">Sequential</Badge>
+                  )}
                 </div>
                 <p className="text-base font-medium text-gray-900">
                   Q{currentQuestionIndex + 1}. {q.stem}
@@ -306,7 +380,7 @@ export default function ExamPage() {
               />
             )}
 
-            {/* Matching — select which pairs are correct */}
+            {/* Matching */}
             {q.type === 'matching' && q.options && (
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">Select all correct matches</p>
@@ -334,13 +408,31 @@ export default function ExamPage() {
               </div>
             )}
 
-            {/* Ordering — reorder with up/down buttons */}
+            {/* Ordering */}
             {q.type === 'ordering' && q.options && (
               <OrderingQuestion
                 questionId={q.id}
                 options={q.options}
                 answers={answers}
                 setAnswer={setAnswer}
+              />
+            )}
+
+            {/* Coding challenge */}
+            {q.type === 'coding' && (
+              <CodeQuestion
+                question={q as unknown as Question}
+                value={(answers[q.id] as string) ?? (q.starterCode ?? '')}
+                onChange={code => setAnswer(q.id, code)}
+              />
+            )}
+
+            {/* File upload */}
+            {q.type === 'file_upload' && (
+              <FileUploadQuestion
+                question={q as unknown as Question}
+                value={fileAnswers[q.id] ?? null}
+                onChange={file => setFileAnswers(prev => ({ ...prev, [q.id]: file }))}
               />
             )}
           </div>
@@ -360,6 +452,9 @@ export default function ExamPage() {
               <div className="flex items-center gap-2"><div className="h-3 w-3 rounded bg-yellow-100 border border-yellow-400" /> Flagged</div>
               <div className="flex items-center gap-2"><div className="h-3 w-3 rounded bg-gray-100 border border-gray-200" /> Not visited</div>
             </div>
+            {isSequential && (
+              <p className="text-xs text-blue-700 bg-blue-50 rounded px-2 py-1">Sequential mode — questions must be answered in order.</p>
+            )}
           </div>
           <div className="mt-auto">
             <Button onClick={() => setShowSubmitModal(true)} className="w-full" disabled={submitting}>
@@ -371,16 +466,34 @@ export default function ExamPage() {
 
       {/* Bottom nav */}
       <footer className="bg-white border-t px-4 py-3 flex items-center justify-between">
-        <Button variant="outline" onClick={prevQuestion} disabled={currentQuestionIndex === 0} className="gap-2">
-          <ChevronLeft className="h-4 w-4" /> Previous
-        </Button>
+        {!forwardOnly ? (
+          <Button
+            variant="outline"
+            onClick={prevQuestion}
+            disabled={currentQuestionIndex === 0}
+            className="gap-2"
+          >
+            <ChevronLeft className="h-4 w-4" /> Previous
+          </Button>
+        ) : (
+          <div /> // spacer to keep layout
+        )}
         <span className="text-sm text-muted-foreground">{currentQuestionIndex + 1} / {questions.length}</span>
         {currentQuestionIndex < questions.length - 1 ? (
-          <Button onClick={nextQuestion} className="gap-2">
+          <Button
+            onClick={nextQuestion}
+            disabled={!!isRequired}
+            className="gap-2"
+            title={isRequired ? 'This question is required — please answer before continuing.' : undefined}
+          >
             Next <ChevronRight className="h-4 w-4" />
           </Button>
         ) : (
-          <Button onClick={() => setShowSubmitModal(true)} className="gap-2 lg:hidden" disabled={submitting}>
+          <Button
+            onClick={() => setShowSubmitModal(true)}
+            className="gap-2 lg:hidden"
+            disabled={submitting}
+          >
             Submit
           </Button>
         )}
@@ -425,7 +538,6 @@ interface OrderingProps {
 }
 
 function OrderingQuestion({ questionId, options, answers, setAnswer }: OrderingProps) {
-  // Initialise order from saved answer, or default to given order
   const savedOrder = (answers[questionId] as string[] | undefined) ?? options.map(o => o.id);
 
   function move(index: number, direction: -1 | 1) {

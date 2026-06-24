@@ -1,10 +1,14 @@
 'use client';
+// Phase 2: "Publish Results" calls prisma.exam.update({ data: { resultsPublishedAt: new Date() } })
+// Phase 2: held results check via exam.settings.resultsVisibility === 'held' && !exam.resultsPublishedAt
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { getExamById, getStudentsForExam, getViolations, getScoreDistribution, getQuestionDifficulty } from '@/lib/data';
 import type { Exam, CurrentUser, Violation } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { CheckCircle2, Clock } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -21,6 +25,9 @@ export default function ResultsPage() {
   const [scoreDist, setScoreDist] = useState<{ range: string; count: number }[]>([]);
   const [diffData, setDiffData] = useState<{ difficulty: string; correct: number; incorrect: number }[]>([]);
   const [studentResults, setStudentResults] = useState<StudentResult[]>([]);
+  // Phase 2: resultsPublished comes from exam.resultsPublishedAt !== null in DB
+  const [resultsPublished, setResultsPublished] = useState(false);
+  const [publishing, setPublishing] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -45,6 +52,14 @@ export default function ResultsPage() {
     });
   }, [examId]);
 
+  async function handlePublishResults() {
+    // Phase 2: PATCH /api/exams/[examId]/publish-results
+    setPublishing(true);
+    await new Promise(r => setTimeout(r, 800));
+    setResultsPublished(true);
+    setPublishing(false);
+  }
+
   if (!exam) return <div className="text-center py-12 text-muted-foreground">Loading...</div>;
 
   const passed = studentResults.filter(s => s.score >= exam.passingMarks).length;
@@ -52,13 +67,40 @@ export default function ResultsPage() {
     { name: 'Pass', value: passed },
     { name: 'Fail', value: studentResults.length - passed },
   ];
+  const isHeldMode = exam.settings.resultsVisibility === 'held';
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold">{exam.title}</h2>
-        <p className="text-sm text-muted-foreground">{exam.subject} · Passing: {exam.passingMarks}/{exam.totalMarks}</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-xl font-semibold">{exam.title}</h2>
+          <p className="text-sm text-muted-foreground">{exam.subject} · Passing: {exam.passingMarks}/{exam.totalMarks}</p>
+        </div>
+        {isHeldMode && (
+          resultsPublished
+            ? <Badge variant="success" className="flex items-center gap-1 self-start">
+                <CheckCircle2 className="h-3.5 w-3.5" /> Results Published
+              </Badge>
+            : <Button
+                onClick={handlePublishResults}
+                disabled={publishing}
+                className="gap-2 bg-green-600 hover:bg-green-700 self-start"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                {publishing ? 'Publishing…' : 'Publish Results'}
+              </Button>
+        )}
       </div>
+
+      {/* Held results banner */}
+      {isHeldMode && !resultsPublished && (
+        <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <Clock className="h-4 w-4 text-amber-600 shrink-0" />
+          <p>
+            Results for this exam are <strong>held</strong> — students see &ldquo;Results Pending Review&rdquo; until you click <strong>Publish Results</strong>.
+          </p>
+        </div>
+      )}
 
       {/* Summary */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

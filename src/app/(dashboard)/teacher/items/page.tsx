@@ -1,4 +1,6 @@
 'use client';
+// Phase 2: psychometric stats (facilityIndex, discriminationIndex) come from Prisma aggregate queries
+// Phase 2: archiving calls prisma.item.update({ data: { status: 'archived' } })
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { getItems, updateItem } from '@/lib/data';
@@ -9,13 +11,15 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Search, ChevronDown, ChevronUp, Check, Clock, Hourglass } from 'lucide-react';
+import { Plus, Search, ChevronDown, ChevronUp, Check, Clock, Hourglass, Archive, AlertTriangle, Upload } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { BulkImportModal } from '@/components/shared/BulkImportModal';
 
-const STATUS_STYLES: Record<ItemStatus, 'outline' | 'warning' | 'success'> = {
+const STATUS_STYLES: Record<ItemStatus, 'outline' | 'warning' | 'success' | 'secondary'> = {
   draft: 'outline',
   review: 'warning',
   approved: 'success',
+  archived: 'secondary',
 };
 
 const TYPE_LABELS: Record<QuestionType, string> = {
@@ -27,6 +31,8 @@ const TYPE_LABELS: Record<QuestionType, string> = {
   fill_blank: 'Fill',
   matching: 'Match',
   ordering: 'Order',
+  coding: 'Code',
+  file_upload: 'File',
 };
 
 const DIFF_STYLES: Record<string, 'success' | 'warning' | 'danger'> = {
@@ -35,15 +41,32 @@ const DIFF_STYLES: Record<string, 'success' | 'warning' | 'danger'> = {
   hard: 'danger',
 };
 
-function ItemRow({ item, onSubmit }: { item: Item; onSubmit: (id: string) => void }) {
+function psychometricFlag(item: Item): { label: string; title: string } | null {
+  const fi = item.facilityIndex;
+  const di = item.discriminationIndex;
+  if (fi !== undefined && fi > 0.9) return { label: 'Too Easy', title: `Facility Index ${(fi * 100).toFixed(0)}% — consider increasing difficulty` };
+  if (fi !== undefined && fi < 0.2) return { label: 'Too Hard', title: `Facility Index ${(fi * 100).toFixed(0)}% — consider decreasing difficulty` };
+  if (di !== undefined && di < 0.2) return { label: 'Low Disc.', title: `Discrimination Index ${di.toFixed(2)} — item does not differentiate well between high/low performers` };
+  return null;
+}
+
+function ItemRow({ item, onSubmit, onArchive }: { item: Item; onSubmit: (id: string) => void; onArchive: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const hasOptions = item.options && item.options.length > 0;
+  const flag = psychometricFlag(item);
 
   async function handleSubmit() {
     setSubmitting(true);
     await onSubmit(item.id);
     setSubmitting(false);
+  }
+
+  async function handleArchive() {
+    setArchiving(true);
+    await onArchive(item.id);
+    setArchiving(false);
   }
 
   return (
@@ -62,7 +85,18 @@ function ItemRow({ item, onSubmit }: { item: Item; onSubmit: (id: string) => voi
             )}
             {!hasOptions && <span className="w-4 shrink-0" />}
             <div className="min-w-0">
-              <p className="font-medium text-sm leading-snug line-clamp-2">{item.stem}</p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <p className="font-medium text-sm leading-snug line-clamp-2">{item.stem}</p>
+                {flag && (
+                  <span
+                    title={flag.title}
+                    className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 text-amber-700 px-1.5 py-0.5 text-[10px] font-semibold cursor-help"
+                  >
+                    <AlertTriangle className="h-2.5 w-2.5" />
+                    {flag.label}
+                  </span>
+                )}
+              </div>
               {item.tags.length > 0 && (
                 <div className="flex gap-1 mt-1 flex-wrap">
                   {item.tags.slice(0, 4).map(tag => (
@@ -80,37 +114,76 @@ function ItemRow({ item, onSubmit }: { item: Item; onSubmit: (id: string) => voi
           <Badge variant={DIFF_STYLES[item.difficulty]} className="text-xs capitalize">{item.difficulty}</Badge>
         </td>
         <td className="px-4 py-3 hidden lg:table-cell text-sm text-muted-foreground">{item.usageCount}×</td>
+        {/* Psychometric columns — Phase 2: live data from analytics aggregates */}
+        <td className="px-4 py-3 hidden xl:table-cell text-sm text-center">
+          {item.facilityIndex !== undefined
+            ? <span className={`font-mono text-xs ${item.facilityIndex < 0.2 || item.facilityIndex > 0.9 ? 'text-amber-600 font-semibold' : 'text-muted-foreground'}`}>
+                {(item.facilityIndex * 100).toFixed(0)}%
+              </span>
+            : <span className="text-xs text-muted-foreground/50">—</span>
+          }
+        </td>
+        <td className="px-4 py-3 hidden xl:table-cell text-sm text-center">
+          {item.discriminationIndex !== undefined
+            ? <span className={`font-mono text-xs ${item.discriminationIndex < 0.2 ? 'text-amber-600 font-semibold' : 'text-muted-foreground'}`}>
+                {item.discriminationIndex.toFixed(2)}
+              </span>
+            : <span className="text-xs text-muted-foreground/50">—</span>
+          }
+        </td>
         <td className="px-4 py-3">
           <Badge variant={STATUS_STYLES[item.status]} className="text-xs capitalize">{item.status}</Badge>
         </td>
         <td className="px-4 py-3">
-          {item.status === 'draft' ? (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="gap-1 h-7 text-xs text-blue-600 border-blue-300 hover:bg-blue-50"
-            >
-              <Clock className="h-3 w-3" />
-              {submitting ? 'Submitting…' : 'Submit for Review'}
-            </Button>
-          ) : item.status === 'review' ? (
-            <span className="text-xs text-orange-600 flex items-center gap-1">
-              <Hourglass className="h-3 w-3" /> Awaiting admin approval
-            </span>
-          ) : (
-            <span className="text-xs text-green-600 flex items-center gap-1">
-              <Check className="h-3 w-3" /> Approved
-            </span>
-          )}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {item.status === 'draft' && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleSubmit}
+                disabled={submitting}
+                className="gap-1 h-7 text-xs text-blue-600 border-blue-300 hover:bg-blue-50"
+              >
+                <Clock className="h-3 w-3" />
+                {submitting ? 'Submitting…' : 'Submit'}
+              </Button>
+            )}
+            {item.status === 'review' && (
+              <span className="text-xs text-orange-600 flex items-center gap-1">
+                <Hourglass className="h-3 w-3" /> Awaiting approval
+              </span>
+            )}
+            {item.status === 'approved' && (
+              <span className="text-xs text-green-600 flex items-center gap-1">
+                <Check className="h-3 w-3" /> Approved
+              </span>
+            )}
+            {item.status === 'archived' && (
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <Archive className="h-3 w-3" /> Archived
+              </span>
+            )}
+            {item.status !== 'archived' && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={handleArchive}
+                disabled={archiving}
+                className="gap-1 h-7 text-xs text-muted-foreground hover:text-red-600"
+                title="Archive item"
+              >
+                <Archive className="h-3 w-3" />
+                {archiving ? '…' : 'Archive'}
+              </Button>
+            )}
+          </div>
         </td>
       </tr>
 
       {/* Expanded options row */}
       {expanded && hasOptions && (
         <tr className="bg-muted/20">
-          <td colSpan={6} className="px-4 pb-3 pt-0">
+          <td colSpan={9} className="px-4 pb-3 pt-0">
             <div className="ms-6 border rounded-lg overflow-hidden">
               <table className="w-full text-xs">
                 <thead className="bg-muted/40">
@@ -136,12 +209,6 @@ function ItemRow({ item, onSubmit }: { item: Item; onSubmit: (id: string) => voi
             {item.explanation && (
               <p className="ms-6 mt-2 text-xs text-muted-foreground italic border-s-2 border-blue-200 ps-2">{item.explanation}</p>
             )}
-            {!hasOptions && item.correctAnswer && (
-              <p className="ms-6 mt-2 text-xs">
-                <span className="font-medium">Answer: </span>
-                <span className="text-green-700">{Array.isArray(item.correctAnswer) ? item.correctAnswer.join(', ') : item.correctAnswer}</span>
-              </p>
-            )}
           </td>
         </tr>
       )}
@@ -154,6 +221,7 @@ export default function ItemBankPage() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [diffFilter, setDiffFilter] = useState('all');
+  const [importOpen, setImportOpen] = useState(false);
 
   useEffect(() => {
     getItems().then(setItems);
@@ -164,6 +232,17 @@ export default function ItemBankPage() {
     if (updated) {
       setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'review' as ItemStatus } : i));
     }
+  }
+
+  async function handleArchive(id: string) {
+    const updated = await updateItem(id, { status: 'archived' });
+    if (updated) {
+      setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'archived' as ItemStatus } : i));
+    }
+  }
+
+  function handleImported(_count: number) {
+    getItems().then(setItems);
   }
 
   function filterItems(status: string) {
@@ -177,42 +256,56 @@ export default function ItemBankPage() {
     });
   }
 
-  function ItemTable({ items }: { items: Item[] }) {
+  function ItemTable({ items: tableItems }: { items: Item[] }) {
     return (
-      <table className="w-full text-sm">
-        <thead className="bg-muted/50 border-b">
-          <tr>
-            <th className="text-start px-4 py-3 font-medium text-muted-foreground">Question</th>
-            <th className="text-start px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">Type</th>
-            <th className="text-start px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Difficulty</th>
-            <th className="text-start px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">Usage</th>
-            <th className="text-start px-4 py-3 font-medium text-muted-foreground">Status</th>
-            <th className="text-start px-4 py-3 font-medium text-muted-foreground">Action</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y">
-          {items.length === 0 ? (
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50 border-b">
             <tr>
-              <td colSpan={6} className="text-center py-8 text-muted-foreground">No items found</td>
+              <th className="text-start px-4 py-3 font-medium text-muted-foreground">Question</th>
+              <th className="text-start px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">Type</th>
+              <th className="text-start px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Difficulty</th>
+              <th className="text-start px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">Usage</th>
+              <th className="text-center px-4 py-3 font-medium text-muted-foreground hidden xl:table-cell" title="Facility Index — percentage of students who answered correctly">FI %</th>
+              <th className="text-center px-4 py-3 font-medium text-muted-foreground hidden xl:table-cell" title="Discrimination Index — point-biserial correlation between item score and total score">DI</th>
+              <th className="text-start px-4 py-3 font-medium text-muted-foreground">Status</th>
+              <th className="text-start px-4 py-3 font-medium text-muted-foreground">Action</th>
             </tr>
-          ) : items.map(item => (
-            <ItemRow
-              key={item.id}
-              item={item}
-              onSubmit={handleSubmitForReview}
-            />
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody className="divide-y">
+            {tableItems.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="text-center py-8 text-muted-foreground">No items found</td>
+              </tr>
+            ) : tableItems.map(item => (
+              <ItemRow
+                key={item.id}
+                item={item}
+                onSubmit={handleSubmitForReview}
+                onArchive={handleArchive}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
     );
   }
 
   const counts = {
-    all: items.length,
+    all: items.filter(i => i.status !== 'archived').length,
     approved: items.filter(i => i.status === 'approved').length,
     review: items.filter(i => i.status === 'review').length,
     draft: items.filter(i => i.status === 'draft').length,
+    archived: items.filter(i => i.status === 'archived').length,
   };
+
+  // at-risk: approved items with low discrimination or extreme facility
+  const atRisk = items.filter(i =>
+    i.status === 'approved' && (
+      (i.discriminationIndex !== undefined && i.discriminationIndex < 0.2) ||
+      (i.facilityIndex !== undefined && (i.facilityIndex < 0.2 || i.facilityIndex > 0.9))
+    )
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -222,14 +315,35 @@ export default function ItemBankPage() {
         subEn="Create and manage your question items for exams"
         subAr="إنشاء وإدارة أسئلتك للاختبارات"
         action={
-          <Link href="/teacher/items/new">
-            <Button className="gap-2 bg-[#1E88E5] hover:bg-[#1976D2]">
-              <Plus className="h-4 w-4" />
-              Create Item
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setImportOpen(true)}
+              className="gap-2"
+            >
+              <Upload className="h-4 w-4" />
+              Import CSV
             </Button>
-          </Link>
+            <Link href="/teacher/items/new">
+              <Button className="gap-2 bg-[#1E88E5] hover:bg-[#1976D2]">
+                <Plus className="h-4 w-4" />
+                Create Item
+              </Button>
+            </Link>
+          </div>
         }
       />
+
+      {/* At-risk banner */}
+      {atRisk > 0 && (
+        <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+          <p>
+            <strong>{atRisk} approved item{atRisk > 1 ? 's' : ''}</strong> flagged for poor psychometric performance.
+            Check the <strong>FI %</strong> and <strong>DI</strong> columns — items with DI &lt; 0.20 or FI outside 20–90% may need revision.
+          </p>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-2 flex-wrap">
@@ -251,6 +365,8 @@ export default function ItemBankPage() {
             <SelectItem value="fill_blank">Fill in Blank</SelectItem>
             <SelectItem value="matching">Matching</SelectItem>
             <SelectItem value="ordering">Ordering</SelectItem>
+            <SelectItem value="coding">Coding</SelectItem>
+            <SelectItem value="file_upload">File Upload</SelectItem>
           </SelectContent>
         </Select>
         <Select value={diffFilter} onValueChange={setDiffFilter}>
@@ -272,10 +388,11 @@ export default function ItemBankPage() {
             <div className="border-b px-4 pt-4">
               <TabsList className="bg-transparent p-0 gap-4">
                 {([
-                  { value: 'all', label: `All (${counts.all})` },
+                  { value: 'all',      label: `All (${counts.all})` },
                   { value: 'approved', label: `Approved (${counts.approved})` },
-                  { value: 'review', label: `Need Review (${counts.review})` },
-                  { value: 'draft', label: `Draft (${counts.draft})` },
+                  { value: 'review',   label: `Need Review (${counts.review})` },
+                  { value: 'draft',    label: `Draft (${counts.draft})` },
+                  { value: 'archived', label: `Archived (${counts.archived})` },
                 ] as const).map(tab => (
                   <TabsTrigger
                     key={tab.value}
@@ -287,7 +404,7 @@ export default function ItemBankPage() {
                 ))}
               </TabsList>
             </div>
-            {(['all', 'approved', 'review', 'draft'] as const).map(status => (
+            {(['all', 'approved', 'review', 'draft', 'archived'] as const).map(status => (
               <TabsContent key={status} value={status} className="mt-0">
                 <ItemTable items={filterItems(status)} />
               </TabsContent>
@@ -295,6 +412,12 @@ export default function ItemBankPage() {
           </Tabs>
         </CardContent>
       </Card>
+
+      <BulkImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={handleImported}
+      />
     </div>
   );
 }

@@ -5,3 +5,4 @@ export * from './users';
 export * from './violations';
 export * from './analytics';
 export * from './items';
+export * from './curriculum';
