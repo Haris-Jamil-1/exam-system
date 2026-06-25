@@ -205,7 +205,7 @@ export default function ExamsPage() {
   const [sharingExam, setSharingExam] = useState<Exam | null>(null);
 
   useEffect(() => {
-    getExams('inst-1').then(data => { setExams(data); setLoading(false); });
+    getExams().then(data => { setExams(data); setLoading(false); });
   }, []);
 
   function handleDelete(id: string) {

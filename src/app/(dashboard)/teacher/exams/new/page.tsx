@@ -16,7 +16,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { createExam, createQuestion, getItems, updateItem } from '@/lib/data';
 import { generateQuestions } from '@/lib/ai/question-generator';
 import type { GeneratedQuestion, QuestionType, Item } from '@/types';
-import { Sparkles, Plus, Check, ChevronRight, ChevronLeft, Search, Library, ChevronDown, ChevronUp } from 'lucide-react';
+import { useRef } from 'react';
+import { Sparkles, Plus, Check, ChevronRight, ChevronLeft, Search, Library, ChevronDown, ChevronUp, Upload } from 'lucide-react';
 
 const step1Schema = z.object({
   title: z.string().min(3, 'Title required'),
@@ -258,9 +259,11 @@ export default function NewExamPage() {
   const [generatedQuestions, setGeneratedQuestions] = useState<GeneratedQuestion[]>([]);
   const [addedAIQuestions, setAddedAIQuestions] = useState<GeneratedQuestion[]>([]);
   const [docText, setDocText] = useState('');
+  const [fileName, setFileName] = useState('');
   const [genDifficulty, setGenDifficulty] = useState('medium');
   const [genType, setGenType] = useState<QuestionType>('mcq');
   const [isGenerating, setIsGenerating] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Item bank selections
   const [selectedBankItems, setSelectedBankItems] = useState<Map<string, Item>>(new Map());
@@ -295,6 +298,20 @@ export default function NewExamPage() {
   function onStep1(data: Step1Data) {
     setStep1Data(data);
     setStep(1);
+  }
+
+  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const text = (ev.target?.result as string) ?? '';
+      setDocText(text);
+    };
+    reader.readAsText(file);
+    // Reset so re-uploading same file fires onChange
+    e.target.value = '';
   }
 
   async function handleGenerate() {
@@ -480,13 +497,33 @@ export default function NewExamPage() {
             <CardHeader><CardTitle>Generate Questions with AI</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>Paste document content or topic description</Label>
+                <div className="flex items-center justify-between">
+                  <Label>Paste or upload document content</Label>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    {fileName ? fileName : 'Upload file (.txt, .md, .csv)'}
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".txt,.md,.csv,.text"
+                    className="hidden"
+                    onChange={handleFileUpload}
+                  />
+                </div>
                 <Textarea
-                  placeholder="Paste your lecture notes, textbook excerpt, or topic description here…"
+                  placeholder="Paste your lecture notes, textbook excerpt, or topic description here — or upload a .txt / .md file above…"
                   rows={6}
                   value={docText}
                   onChange={e => setDocText(e.target.value)}
                 />
+                {docText && (
+                  <p className="text-xs text-muted-foreground">{docText.length.toLocaleString()} characters loaded</p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">

@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getExamById, getQuestions, createQuestion, updateQuestion, deleteQuestion } from '@/lib/data';
+import { getExamById, getQuestions, createQuestion, updateQuestion, deleteQuestion, updateExam } from '@/lib/data';
 import type { Exam, Question, QuestionType } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, GripVertical, Save } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Save, Radio, CalendarCheck, CheckCircle2, ChevronRight } from 'lucide-react';
 
 const QUESTION_TYPES: { value: QuestionType; label: string }[] = [
   { value: 'mcq', label: 'Multiple Choice' },
@@ -31,6 +31,7 @@ export default function EditExamPage() {
   const [newMarks, setNewMarks] = useState(4);
   const [newDifficulty, setNewDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [saved, setSaved] = useState(false);
+  const [statusUpdating, setStatusUpdating] = useState(false);
 
   useEffect(() => {
     Promise.all([getExamById(examId), getQuestions(examId)]).then(([e, q]) => {
@@ -70,6 +71,21 @@ export default function EditExamPage() {
     setTimeout(() => setSaved(false), 2000);
   }
 
+  async function handleStatusChange(next: 'scheduled' | 'live' | 'completed') {
+    if (!exam) return;
+    setStatusUpdating(true);
+    const updated = await updateExam(exam.id, { status: next });
+    if (updated) setExam(updated);
+    setStatusUpdating(false);
+  }
+
+  const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+    draft:     { label: 'Draft',     color: '#6B7280', bg: '#F3F4F6' },
+    scheduled: { label: 'Scheduled', color: '#1E88E5', bg: '#EEF6FF' },
+    live:      { label: 'Live',      color: '#16A34A', bg: '#DCFCE7' },
+    completed: { label: 'Completed', color: '#9CA3AF', bg: '#F9FAFB' },
+  };
+
   if (!exam) return <div className="text-center py-12 text-muted-foreground">Loading...</div>;
 
   return (
@@ -91,6 +107,69 @@ export default function EditExamPage() {
           {saved ? 'Saved!' : 'Save'}
         </Button>
       </div>
+
+      {/* ── Status panel ── */}
+      {(() => {
+        const cfg = STATUS_CONFIG[exam.status] ?? STATUS_CONFIG.draft;
+        return (
+          <div className="rounded-xl border border-[#EBF0F8] bg-white p-4 flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="flex items-center gap-3 flex-1">
+              <span
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold"
+                style={{ background: cfg.bg, color: cfg.color }}
+              >
+                {exam.status === 'draft' && '✏'}
+                {exam.status === 'scheduled' && <CalendarCheck className="h-4 w-4" />}
+                {exam.status === 'live' && <Radio className="h-4 w-4" />}
+                {exam.status === 'completed' && <CheckCircle2 className="h-4 w-4" />}
+              </span>
+              <div>
+                <p className="text-sm font-semibold" style={{ color: cfg.color }}>{cfg.label}</p>
+                <p className="text-xs text-muted-foreground">
+                  {exam.status === 'draft' && 'Publish to schedule this exam for students.'}
+                  {exam.status === 'scheduled' && 'Go live when you\'re ready to start the exam.'}
+                  {exam.status === 'live' && 'Exam is currently running. Students can join now.'}
+                  {exam.status === 'completed' && 'Exam has ended. View results from the exams list.'}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              {exam.status === 'draft' && (
+                <Button
+                  onClick={() => handleStatusChange('scheduled')}
+                  disabled={statusUpdating}
+                  className="gap-2 bg-[#1E88E5] hover:bg-[#1976D2]"
+                >
+                  <CalendarCheck className="h-4 w-4" />
+                  {statusUpdating ? 'Publishing…' : 'Publish Exam'}
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              )}
+              {exam.status === 'scheduled' && (
+                <Button
+                  onClick={() => handleStatusChange('live')}
+                  disabled={statusUpdating}
+                  className="gap-2 bg-green-600 hover:bg-green-700"
+                >
+                  <Radio className="h-4 w-4" />
+                  {statusUpdating ? 'Going live…' : 'Go Live Now'}
+                </Button>
+              )}
+              {exam.status === 'live' && (
+                <Button
+                  onClick={() => handleStatusChange('completed')}
+                  disabled={statusUpdating}
+                  variant="outline"
+                  className="gap-2 border-red-200 text-red-600 hover:bg-red-50"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  {statusUpdating ? 'Ending…' : 'End Exam'}
+                </Button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Questions list */}
       <Card>
