@@ -332,18 +332,37 @@ export default function NewExamPage() {
     setStep(1);
   }
 
-  function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const text = (ev.target?.result as string) ?? '';
-      setDocText(text);
-    };
-    reader.readAsText(file);
-    // Reset so re-uploading same file fires onChange
-    e.target.value = '';
+    e.target.value = ''; // Reset so re-uploading same file fires onChange
+
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+
+    if (ext === 'pdf' || ext === 'doc' || ext === 'docx') {
+      // Server-side extraction for binary formats
+      setDocText('');
+      setIsGenerating(false);
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        const res = await fetch('/api/extract-text', { method: 'POST', body: fd });
+        const json = await res.json();
+        if (json.text) setDocText(json.text);
+        else setDocText('');
+      } catch {
+        setDocText('');
+      }
+    } else {
+      // Plain text formats — read directly in browser
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const text = (ev.target?.result as string) ?? '';
+        setDocText(text);
+      };
+      reader.readAsText(file);
+    }
   }
 
   async function handleGenerate() {
@@ -543,18 +562,18 @@ export default function NewExamPage() {
                     className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium"
                   >
                     <Upload className="h-3.5 w-3.5" />
-                    {fileName ? fileName : 'Upload file (.txt, .md, .csv)'}
+                    {fileName ? fileName : 'Upload file (.pdf, .doc, .docx, .txt, .md)'}
                   </button>
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".txt,.md,.csv,.text"
+                    accept=".pdf,.doc,.docx,.txt,.md,.csv"
                     className="hidden"
                     onChange={handleFileUpload}
                   />
                 </div>
                 <Textarea
-                  placeholder="Paste your lecture notes, textbook excerpt, or topic description here — or upload a .txt / .md file above…"
+                  placeholder="Paste your lecture notes, textbook excerpt, or topic description here — or upload a PDF / Word / .txt file above…"
                   rows={6}
                   value={docText}
                   onChange={e => setDocText(e.target.value)}
