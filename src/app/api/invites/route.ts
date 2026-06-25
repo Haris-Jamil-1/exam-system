@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Resend } from 'resend';
 import { prisma } from '@/lib/prisma';
-import { adminSupabase } from '@/lib/supabase/admin';
 import { getAuthUser, unauthorized, forbidden } from '@/lib/api-auth';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -38,30 +37,9 @@ export async function POST(request: Request) {
   });
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-  const redirectTo = `${appUrl}/auth/callback?invite=${invite.id}`;
-
-  // Generate invite link without sending Supabase's default email
-  const { data: linkData, error: linkError } = await adminSupabase.auth.admin.generateLink({
-    type: 'invite',
-    email,
-    options: {
-      redirectTo,
-      data: { role, institutionId: user.institutionId },
-    },
-  });
-
-  if (linkError || !linkData) {
-    await prisma.inviteToken.delete({ where: { id: invite.id } }).catch(() => {});
-    return NextResponse.json({ error: linkError?.message ?? 'Failed to generate invite link' }, { status: 500 });
-  }
-
-  const inviteUrl = linkData.properties?.action_link;
-  if (!inviteUrl) {
-    await prisma.inviteToken.delete({ where: { id: invite.id } }).catch(() => {});
-    return NextResponse.json({ error: 'Failed to get invite URL' }, { status: 500 });
-  }
-
+  const acceptUrl = `${appUrl}/invite/${invite.token}`;
   const roleLabel = role === 'teacher' ? 'Teacher' : 'Student';
+
   const { error: emailError } = await resend.emails.send({
     from: 'ExamPro <noreply@aurixy.store>',
     to: email,
@@ -79,7 +57,7 @@ export async function POST(request: Request) {
           You've been invited to join ExamPro as a <strong>${roleLabel}</strong>.
           Click the button below to accept your invitation and set up your account.
         </p>
-        <a href="${inviteUrl}" style="display:inline-block;background:#1E88E5;color:#fff;font-weight:600;font-size:15px;padding:12px 28px;border-radius:8px;text-decoration:none">
+        <a href="${acceptUrl}" style="display:inline-block;background:#1E88E5;color:#fff;font-weight:600;font-size:15px;padding:12px 28px;border-radius:8px;text-decoration:none">
           Accept Invitation
         </a>
         <p style="color:#9CA3AF;font-size:13px;margin:24px 0 0">
