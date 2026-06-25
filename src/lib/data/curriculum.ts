@@ -42,8 +42,10 @@ export async function getCourseById(id: string): Promise<Course | undefined> {
 }
 
 export async function createCourse(data: Omit<Course, 'id' | 'createdAt'>): Promise<Course> {
+  const institutionId = await getInstitutionId();
+  if (!institutionId) throw new Error('Not authenticated');
   try {
-    const row = await prisma.course.create({ data });
+    const row = await prisma.course.create({ data: { ...data, institutionId } });
     return mapCourse(row);
   } catch (err) {
     console.error('[createCourse] Prisma error:', err);

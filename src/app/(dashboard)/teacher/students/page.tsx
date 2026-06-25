@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { getStudents, getViolations } from '@/lib/data';
+import { getStudents, getViolations, getMyInstitution } from '@/lib/data';
 import type { CurrentUser, Violation } from '@/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -10,17 +10,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { PageHeader } from '@/components/shared/PageHeader';
 import {
   Search, Mail, UserPlus, Link2, Copy, Check, X,
-  Upload, FileSpreadsheet, Send, AlertCircle, RefreshCw,
+  Upload, FileSpreadsheet, Send, AlertCircle,
 } from 'lucide-react';
 
-const TEACHER_ID  = 'teacher-1';
-const INVITE_BASE = 'https://exampro.app/invite/student';
-
-function generateToken(teacherId: string) {
-  const payload = { teacherId, role: 'student', expires: '2026-07-21' };
-  return btoa(JSON.stringify(payload)).replace(/=/g, '').slice(0, 24);
-}
-const INVITE_LINK = `${INVITE_BASE}?teacher=${TEACHER_ID}&token=${generateToken(TEACHER_ID)}`;
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://exam-system-sigma.vercel.app';
 
 function isEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
@@ -49,12 +42,11 @@ const TAB_CONFIG: { id: Tab; label: string; icon: React.ElementType }[] = [
 ];
 
 // ── Link tab ──────────────────────────────────────────────────────────────────
-function LinkTab() {
+function LinkTab({ inviteLink }: { inviteLink: string }) {
   const [copied, setCopied] = useState(false);
-  const [regen,  setRegen]  = useState(false);
 
   function copy() {
-    navigator.clipboard.writeText(INVITE_LINK).catch(() => {});
+    navigator.clipboard.writeText(inviteLink).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2200);
   }
@@ -68,7 +60,7 @@ function LinkTab() {
         </div>
         <div>
           <p className="text-[15px] font-bold text-[#1A1D23]">Invite via Link</p>
-          <p className="mt-0.5 text-[12px] text-[#6B7280]">Anyone with this link can join as a student</p>
+          <p className="mt-0.5 text-[12px] text-[#6B7280]">Share this link — students can register and join your institution</p>
         </div>
       </div>
 
@@ -76,7 +68,7 @@ function LinkTab() {
       <div className="overflow-hidden rounded-xl border border-[#E8ECF4] bg-[#F9FBFE]">
         <div className="flex items-center gap-3 px-4 py-3">
           <span className="flex-1 truncate font-mono text-[12px] text-[#6B7280]">
-            {INVITE_LINK}
+            {inviteLink}
           </span>
           <button
             onClick={copy}
@@ -91,18 +83,9 @@ function LinkTab() {
         </div>
       </div>
 
-      {/* Expiry + regen */}
-      <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-        <p className="text-[12px] text-amber-700">
-          Expires <strong>2026-07-21</strong>
-        </p>
-        <button
-          onClick={() => setRegen(true)}
-          className={`flex items-center gap-1 text-[12px] font-semibold transition-colors ${regen ? 'text-green-600' : 'text-amber-700 hover:text-amber-900'}`}
-        >
-          {regen ? <><Check className="h-3 w-3" />Regenerated</> : <><RefreshCw className="h-3 w-3" />Regenerate</>}
-        </button>
-      </div>
+      <p className="text-[12px] text-[#9CA3AF] text-center">
+        For individual email invitations, use the &quot;By Email&quot; tab above.
+      </p>
     </div>
   );
 }
@@ -445,7 +428,7 @@ function BulkTab() {
 }
 
 // ── Invite modal ──────────────────────────────────────────────────────────────
-function InviteStudentsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+function InviteStudentsModal({ open, onClose, inviteLink }: { open: boolean; onClose: () => void; inviteLink: string }) {
   const [activeTab, setActiveTab] = useState<Tab>('link');
 
   return (
@@ -487,7 +470,7 @@ function InviteStudentsModal({ open, onClose }: { open: boolean; onClose: () => 
 
         {/* Tab content */}
         <div className="flex-1 overflow-y-auto px-6 pb-6 pt-5">
-          {activeTab === 'link'  && <LinkTab  />}
+          {activeTab === 'link'  && <LinkTab inviteLink={inviteLink} />}
           {activeTab === 'email' && <EmailTab />}
           {activeTab === 'bulk'  && <BulkTab  />}
         </div>
@@ -502,11 +485,13 @@ export default function StudentsPage() {
   const [violations, setViolations] = useState<Violation[]>([]);
   const [search,     setSearch]     = useState('');
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteLink, setInviteLink] = useState(`${APP_URL}/register`);
 
   useEffect(() => {
-    Promise.all([getStudents('inst-1'), getViolations()]).then(([s, v]) => {
+    Promise.all([getStudents(), getViolations(), getMyInstitution()]).then(([s, v, inst]) => {
       setStudents(s);
       setViolations(v);
+      if (inst) setInviteLink(`${APP_URL}/register?institution=${inst.id}`);
     });
   }, []);
 
@@ -597,7 +582,7 @@ export default function StudentsPage() {
         </CardContent>
       </Card>
 
-      <InviteStudentsModal open={inviteOpen} onClose={() => setInviteOpen(false)} />
+      <InviteStudentsModal open={inviteOpen} onClose={() => setInviteOpen(false)} inviteLink={inviteLink} />
     </div>
   );
 }

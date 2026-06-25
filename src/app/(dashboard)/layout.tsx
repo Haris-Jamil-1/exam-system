@@ -1,11 +1,11 @@
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const cookieStore = await cookies();
-  const role = cookieStore.get('exam_role')?.value;
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  if (!role) {
+  if (!user) {
     redirect('/login');
   }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { generateQuestions } from '@/lib/ai/question-generator';
+import { getAuthUser, unauthorized } from '@/lib/api-auth';
 import type { QuestionType } from '@/types';
 
 const schema = z.object({
@@ -11,6 +12,9 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
+  const user = await getAuthUser();
+  if (!user) return unauthorized();
+
   const body = await request.json();
   const parsed = schema.safeParse(body);
   if (!parsed.success) {

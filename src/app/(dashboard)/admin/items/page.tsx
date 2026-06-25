@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { getItems, updateItem } from '@/lib/data';
+import { getItems, updateItem, getTeachersList } from '@/lib/data';
 import type { Item, QuestionType } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -21,14 +21,10 @@ const DIFF_VARIANT: Record<string, 'success' | 'warning' | 'danger'> = {
   easy: 'success', medium: 'warning', hard: 'danger',
 };
 
-const MOCK_AUTHORS: Record<string, string> = {
-  'teacher-1': 'Dr. Sarah Mitchell',
-  'teacher-2': 'Prof. James Chen',
-  'teacher-3': 'Ms. Amira Hassan',
-};
 
-function ItemReviewCard({ item, onApprove, onReturn }: {
+function ItemReviewCard({ item, authorName, onApprove, onReturn }: {
   item: Item;
+  authorName: string;
   onApprove: (id: string) => void;
   onReturn: (id: string) => void;
 }) {
@@ -58,7 +54,7 @@ function ItemReviewCard({ item, onApprove, onReturn }: {
               <Badge variant="info" className="text-xs">{TYPE_LABELS[item.type]}</Badge>
               <Badge variant={DIFF_VARIANT[item.difficulty]} className="text-xs capitalize">{item.difficulty}</Badge>
               <Badge variant="outline" className="text-xs">{item.marks} pts</Badge>
-              <span className="text-xs text-muted-foreground">by {MOCK_AUTHORS[item.authorId] ?? item.authorId}</span>
+              <span className="text-xs text-muted-foreground">by {authorName}</span>
               <span className="text-xs text-muted-foreground">· {new Date(item.createdAt).toLocaleDateString()}</span>
             </div>
             <p className="font-medium text-sm leading-snug">{item.stem}</p>
@@ -143,12 +139,18 @@ function ItemReviewCard({ item, onApprove, onReturn }: {
 
 export default function AdminItemsPage() {
   const [items, setItems] = useState<Item[]>([]);
+  const [authors, setAuthors] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [authorFilter, setAuthorFilter] = useState('all');
 
   useEffect(() => {
-    getItems().then(setItems);
+    Promise.all([getItems(), getTeachersList()]).then(([i, t]) => {
+      setItems(i);
+      const map: Record<string, string> = {};
+      for (const teacher of t) map[teacher.id] = teacher.name;
+      setAuthors(map);
+    });
   }, []);
 
   async function handleApprove(id: string) {
@@ -219,7 +221,7 @@ export default function AdminItemsPage() {
           <SelectTrigger className="w-44"><SelectValue placeholder="All teachers" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All teachers</SelectItem>
-            {Object.entries(MOCK_AUTHORS).map(([id, name]) => (
+            {Object.entries(authors).map(([id, name]) => (
               <SelectItem key={id} value={id}>{name}</SelectItem>
             ))}
           </SelectContent>
@@ -258,7 +260,7 @@ export default function AdminItemsPage() {
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">{pendingFiltered.length} item{pendingFiltered.length !== 1 ? 's' : ''} awaiting your review</p>
               {pendingFiltered.map(item => (
-                <ItemReviewCard key={item.id} item={item} onApprove={handleApprove} onReturn={handleReturn} />
+                <ItemReviewCard key={item.id} item={item} authorName={authors[item.authorId] ?? '—'} onApprove={handleApprove} onReturn={handleReturn} />
               ))}
             </div>
           )}
@@ -279,7 +281,7 @@ export default function AdminItemsPage() {
                         <Badge variant="info" className="text-xs">{TYPE_LABELS[item.type]}</Badge>
                         <Badge variant={DIFF_VARIANT[item.difficulty]} className="text-xs capitalize">{item.difficulty}</Badge>
                         <Badge variant="outline" className="text-xs">{item.marks} pts</Badge>
-                        <span className="text-xs text-muted-foreground">by {MOCK_AUTHORS[item.authorId] ?? item.authorId}</span>
+                        <span className="text-xs text-muted-foreground">by {authors[item.authorId] ?? '—'}</span>
                         <span className="text-xs text-muted-foreground">· used {item.usageCount}×</span>
                       </div>
                       <p className="text-sm font-medium leading-snug">{item.stem}</p>
@@ -336,7 +338,7 @@ export default function AdminItemsPage() {
                         <Badge variant="info" className="text-xs">{TYPE_LABELS[item.type]}</Badge>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell text-xs">
-                        {MOCK_AUTHORS[item.authorId] ?? item.authorId}
+                        {authors[item.authorId] ?? '—'}
                       </td>
                       <td className="px-4 py-3">
                         <Badge

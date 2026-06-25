@@ -89,8 +89,16 @@ export async function getItemById(id: string): Promise<Item | undefined> {
 }
 
 export async function createItem(data: Omit<Item, 'id' | 'createdAt' | 'usageCount'>): Promise<Item> {
-  const institutionId = await getInstitutionId();
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const institutionId = (user?.user_metadata?.institutionId as string | undefined) ?? null;
   if (!institutionId) throw new Error('Not authenticated');
+  // Always resolve authorId from session — ignore caller-supplied value
+  let authorId = data.authorId;
+  if (user?.id) {
+    const prismaUser = await prisma.user.findFirst({ where: { supabaseId: user.id }, select: { id: true } });
+    if (prismaUser) authorId = prismaUser.id;
+  }
   const { options, ...rest } = data;
   try {
     const row = await prisma.item.create({
@@ -113,7 +121,7 @@ export async function createItem(data: Omit<Item, 'id' | 'createdAt' | 'usageCou
         learningObjectiveId: rest.learningObjectiveId ?? null,
         previousVersionId: rest.previousVersionId ?? null,
         institutionId,
-        authorId: rest.authorId,
+        authorId,
         options: options?.length
           ? { create: options.map((o, i) => ({ text: o.text, isCorrect: o.isCorrect, order: i })) }
           : undefined,
