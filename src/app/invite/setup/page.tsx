@@ -7,10 +7,16 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { createClient } from '@/lib/supabase/client';
 import type { CurrentUser } from '@/types';
 
 const schema = z.object({
-  name: z.string().min(2, 'Full name is required (at least 2 characters)'),
+  name: z.string().min(2, 'Full name must be at least 2 characters'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  confirmPassword: z.string(),
+}).refine(d => d.password === d.confirmPassword, {
+  message: 'Passwords do not match',
+  path: ['confirmPassword'],
 });
 type FormData = z.infer<typeof schema>;
 
@@ -30,8 +36,16 @@ export default function InviteSetupPage() {
 
   async function onSubmit(data: FormData) {
     setError('');
+    const supabase = createClient();
 
-    // Update display name via API
+    // Set password on the Supabase account
+    const { error: pwError } = await supabase.auth.updateUser({ password: data.password });
+    if (pwError) {
+      setError(pwError.message);
+      return;
+    }
+
+    // Save display name in Prisma
     const res = await fetch('/api/users/me', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -61,9 +75,9 @@ export default function InviteSetupPage() {
 
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">
           <div className="mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">Welcome to ExamPro</h2>
+            <h2 className="text-xl font-semibold text-gray-900">Complete your account</h2>
             <p className="text-sm text-gray-500 mt-1">
-              Your account is ready. Just tell us your name to finish setup.
+              Set your display name and a password to finish setup.
             </p>
           </div>
 
@@ -75,7 +89,7 @@ export default function InviteSetupPage() {
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Your Full Name</Label>
+              <Label htmlFor="name">Full Name</Label>
               <Input
                 id="name"
                 placeholder="Dr. John Smith"
@@ -87,8 +101,34 @@ export default function InviteSetupPage() {
               )}
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="At least 8 characters"
+                {...register('password')}
+              />
+              {errors.password && (
+                <p className="text-sm text-red-500">{errors.password.message}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <Input
+                id="confirmPassword"
+                type="password"
+                placeholder="Repeat your password"
+                {...register('confirmPassword')}
+              />
+              {errors.confirmPassword && (
+                <p className="text-sm text-red-500">{errors.confirmPassword.message}</p>
+              )}
+            </div>
+
             <Button type="submit" className="w-full" disabled={isSubmitting}>
-              {isSubmitting ? 'Saving...' : 'Continue to Dashboard'}
+              {isSubmitting ? 'Setting up…' : 'Continue to Dashboard'}
             </Button>
           </form>
         </div>

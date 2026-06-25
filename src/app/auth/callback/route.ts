@@ -5,9 +5,7 @@ import { prisma } from '@/lib/prisma';
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
-  const isSetupFlow = searchParams.get('setup') === '1';
   const inviteTokenId = searchParams.get('invite');
-  const next = searchParams.get('next') ?? '/';
 
   if (code) {
     const supabase = await createClient();
@@ -27,7 +25,6 @@ export async function GET(request: NextRequest) {
             await prisma.user.create({
               data: {
                 supabaseId: user.id,
-                // Use email prefix as placeholder; replaced at /invite/setup
                 name: (meta.name as string | undefined) ?? user.email!.split('@')[0],
                 email: user.email!,
                 role: meta.role as 'admin' | 'teacher' | 'student',
@@ -35,7 +32,6 @@ export async function GET(request: NextRequest) {
               },
             });
 
-            // Mark invite token as accepted if provided
             if (inviteTokenId) {
               await prisma.inviteToken.update({
                 where: { id: inviteTokenId },
@@ -45,13 +41,14 @@ export async function GET(request: NextRequest) {
           }
         }
 
-        // New invited users must set their display name first
-        if (isNewUser && isSetupFlow) {
+        const role = (user.user_metadata?.role as string | undefined) ?? existing?.role;
+
+        // New invited users (student/teacher) must complete setup first
+        if (isNewUser && (role === 'student' || role === 'teacher')) {
           return NextResponse.redirect(`${origin}/invite/setup`);
         }
 
-        const role = (user.user_metadata?.role as string | undefined) ?? existing?.role;
-        const redirectTo = role ? `/${role}` : next;
+        const redirectTo = role ? `/${role}` : '/login';
         return NextResponse.redirect(`${origin}${redirectTo}`);
       }
     }
