@@ -255,26 +255,30 @@ function DateTimeField({ onChange }: { onChange: (v: string) => void }) {
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
 
-  useEffect(() => {
-    if (date && time) {
-      onChange(`${date}T${time}`);
-    } else {
-      onChange('');
-    }
-  }, [date, time, onChange]);
+  function handleDate(e: React.ChangeEvent<HTMLInputElement>) {
+    const d = e.target.value;
+    setDate(d);
+    onChange(d && time ? `${d}T${time}` : '');
+  }
+
+  function handleTime(e: React.ChangeEvent<HTMLInputElement>) {
+    const t = e.target.value;
+    setTime(t);
+    onChange(date && t ? `${date}T${t}` : '');
+  }
 
   return (
     <div className="flex gap-2">
       <input
         type="date"
         value={date}
-        onChange={e => setDate(e.target.value)}
+        onChange={handleDate}
         className="flex h-9 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
       <input
         type="time"
         value={time}
-        onChange={e => setTime(e.target.value)}
+        onChange={handleTime}
         className="flex h-9 w-28 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
     </div>
