@@ -238,35 +238,39 @@ export async function getStudentExams() {
   if (!supabaseId) return [];
   const student = await prisma.user.findUnique({ where: { supabaseId } });
   if (!student) return [];
+
   const now = new Date();
-  const enrollments = await prisma.examEnrollment.findMany({
-    where: { studentId: student.id },
-    include: {
-      exam: {
-        include: { _count: { select: { questions: true } } },
+
+  // Show all approved exams in the student's institution — no enrollment row needed
+  const [exams, attempts] = await Promise.all([
+    prisma.exam.findMany({
+      where: {
+        institutionId: student.institutionId,
+        approvalStatus: 'approved',
+        status: { in: ['scheduled', 'live', 'completed'] },
       },
-    },
-    orderBy: { enrolledAt: 'desc' },
-  });
-  const attempts = await prisma.examAttempt.findMany({
-    where: { studentId: student.id },
-    select: { examId: true, score: true, trustScore: true, status: true, scorePercentage: true },
-  });
+      include: { _count: { select: { questions: true } } },
+      orderBy: { startTime: 'asc' },
+    }),
+    prisma.examAttempt.findMany({
+      where: { studentId: student.id },
+      select: { examId: true, score: true, trustScore: true, status: true, scorePercentage: true },
+    }),
+  ]);
+
   const attemptMap = new Map(attempts.map(a => [a.examId, a]));
 
-  return enrollments.map(({ exam }) => {
+  return exams.map(exam => {
     const attempt = attemptMap.get(exam.id);
-    let status: 'available' | 'upcoming' | 'completed' = 'upcoming';
     const submitted = attempt && (attempt.status === 'submitted' || attempt.status === 'auto_submitted');
+
+    let status: 'available' | 'upcoming' | 'completed' = 'upcoming';
     if (submitted) {
       status = 'completed';
-    } else if (exam.status === 'live') {
-      status = 'available';
-    } else if (exam.startTime <= now) {
+    } else if (exam.status === 'live' || exam.startTime <= now) {
       status = 'available';
     }
 
-    // Hide score if results visibility is 'held' and teacher hasn't published yet
     const settings = exam.settings as { resultsVisibility?: string } | null;
     const resultsHeld = settings?.resultsVisibility === 'held' && !exam.resultsPublishedAt;
     const scoreValue = submitted && !resultsHeld && attempt?.scorePercentage != null

@@ -17,6 +17,13 @@ export async function POST(request: Request) {
 
   const { examId } = parsed.data;
 
+  // Auto-enroll student so teacher can see them in results
+  await prisma.examEnrollment.upsert({
+    where: { examId_studentId: { examId, studentId: user.id } },
+    create: { examId, studentId: user.id },
+    update: {},
+  });
+
   // Upsert: if student already has an attempt for this exam, return it (resume flow)
   const attempt = await prisma.examAttempt.upsert({
     where: { examId_studentId: { examId, studentId: user.id } },
