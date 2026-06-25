@@ -7,8 +7,14 @@ async function getSession() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const institutionId = user?.user_metadata?.institutionId as string | undefined;
-  const userId = user?.id as string | undefined;
-  return { institutionId: institutionId ?? null, supabaseId: userId ?? null };
+  const supabaseId = user?.id as string | undefined;
+  const role = user?.user_metadata?.role as string | undefined;
+  let prismaUserId: string | null = null;
+  if (supabaseId) {
+    const u = await prisma.user.findUnique({ where: { supabaseId }, select: { id: true } });
+    prismaUserId = u?.id ?? null;
+  }
+  return { institutionId: institutionId ?? null, supabaseId: supabaseId ?? null, role: role ?? null, prismaUserId };
 }
 
 function relativeTime(date: Date): string {
@@ -22,16 +28,19 @@ function relativeTime(date: Date): string {
 }
 
 export async function getDashboardStats(): Promise<StatValue[]> {
-  const { institutionId } = await getSession();
+  const { institutionId, role, prismaUserId } = await getSession();
   if (!institutionId) return [];
+  const examFilter = role === 'teacher' && prismaUserId
+    ? { institutionId, teacherId: prismaUserId }
+    : { institutionId };
   const [activeExams, totalStudents, pendingReviews, trustAgg] = await Promise.all([
-    prisma.exam.count({ where: { institutionId, status: 'live' } }),
+    prisma.exam.count({ where: { ...examFilter, status: 'live' } }),
     prisma.user.count({ where: { institutionId, role: 'student' } }),
     prisma.violation.count({
-      where: { exam: { institutionId }, severity: 'high' },
+      where: { exam: examFilter, severity: 'high' },
     }),
     prisma.examAttempt.aggregate({
-      where: { exam: { institutionId } },
+      where: { exam: examFilter },
       _avg: { trustScore: true },
     }),
   ]);
@@ -197,10 +206,13 @@ export async function getStudentStats(): Promise<StatValue[]> {
 }
 
 export async function getRecentExams() {
-  const { institutionId } = await getSession();
+  const { institutionId, role, prismaUserId } = await getSession();
   if (!institutionId) return [];
+  const where = role === 'teacher' && prismaUserId
+    ? { institutionId, teacherId: prismaUserId }
+    : { institutionId };
   const rows = await prisma.exam.findMany({
-    where: { institutionId },
+    where,
     orderBy: { updatedAt: 'desc' },
     take: 5,
     include: { _count: { select: { enrollments: true } } },
@@ -216,10 +228,13 @@ export async function getRecentExams() {
 }
 
 export async function getRecentAlerts() {
-  const { institutionId } = await getSession();
+  const { institutionId, role, prismaUserId } = await getSession();
   if (!institutionId) return [];
+  const examFilter = role === 'teacher' && prismaUserId
+    ? { institutionId, teacherId: prismaUserId }
+    : { institutionId };
   const rows = await prisma.violation.findMany({
-    where: { exam: { institutionId } },
+    where: { exam: examFilter },
     orderBy: { timestamp: 'desc' },
     take: 5,
     include: { student: { select: { name: true } } },

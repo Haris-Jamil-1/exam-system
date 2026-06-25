@@ -36,17 +36,28 @@ function mapExam(e: PrismaExam): Exam {
 
 const COUNT_SELECT = { questions: true, enrollments: true } as const;
 
-async function getSessionInstitutionId(): Promise<string | null> {
+async function getSessionContext() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  return (user?.user_metadata?.institutionId as string | undefined) ?? null;
+  const institutionId = (user?.user_metadata?.institutionId as string | undefined) ?? null;
+  const role = (user?.user_metadata?.role as string | undefined) ?? null;
+  const supabaseId = user?.id ?? null;
+  let prismaUserId: string | null = null;
+  if (supabaseId) {
+    const u = await prisma.user.findUnique({ where: { supabaseId }, select: { id: true } });
+    prismaUserId = u?.id ?? null;
+  }
+  return { institutionId, role, prismaUserId };
 }
 
 export async function getExams(_institutionId?: string): Promise<Exam[]> {
-  const institutionId = await getSessionInstitutionId();
+  const { institutionId, role, prismaUserId } = await getSessionContext();
   if (!institutionId) return [];
+  const where = role === 'teacher' && prismaUserId
+    ? { institutionId, teacherId: prismaUserId }
+    : { institutionId };
   const rows = await prisma.exam.findMany({
-    where: { institutionId },
+    where,
     orderBy: { createdAt: 'desc' },
     include: { _count: { select: COUNT_SELECT } },
   });
