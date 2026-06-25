@@ -250,6 +250,37 @@ function ItemBankPicker({ selectedIds, onToggle }: {
   );
 }
 
+// Two-field date + time picker — avoids the clunky single datetime-local popup
+function DateTimeField({ onChange }: { onChange: (v: string) => void }) {
+  const [date, setDate] = useState('');
+  const [time, setTime] = useState('');
+
+  useEffect(() => {
+    if (date && time) {
+      onChange(`${date}T${time}`);
+    } else {
+      onChange('');
+    }
+  }, [date, time, onChange]);
+
+  return (
+    <div className="flex gap-2">
+      <input
+        type="date"
+        value={date}
+        onChange={e => setDate(e.target.value)}
+        className="flex h-9 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      />
+      <input
+        type="time"
+        value={time}
+        onChange={e => setTime(e.target.value)}
+        className="flex h-9 w-28 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      />
+    </div>
+  );
+}
+
 export default function NewExamPage() {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -291,8 +322,9 @@ export default function NewExamPage() {
 
   const totalAdded = addedAIQuestions.length + selectedBankItems.size;
 
-  const { register, handleSubmit, formState: { errors } } = useForm<Step1Data>({
+  const { register, handleSubmit, setValue, formState: { errors } } = useForm<Step1Data>({
     resolver: zodResolver(step1Schema),
+    mode: 'onChange',
   });
 
   function onStep1(data: Step1Data) {
@@ -473,12 +505,18 @@ export default function NewExamPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Start Time</Label>
-                  <Input type="datetime-local" {...register('startTime')} />
+                  <input type="hidden" {...register('startTime')} />
+                  <DateTimeField
+                    onChange={v => setValue('startTime', v, { shouldValidate: true })}
+                  />
                   {errors.startTime && <p className="text-sm text-red-500">{errors.startTime.message}</p>}
                 </div>
                 <div className="space-y-2">
                   <Label>End Time</Label>
-                  <Input type="datetime-local" {...register('endTime')} />
+                  <input type="hidden" {...register('endTime')} />
+                  <DateTimeField
+                    onChange={v => setValue('endTime', v, { shouldValidate: true })}
+                  />
                   {errors.endTime && <p className="text-sm text-red-500">{errors.endTime.message}</p>}
                 </div>
               </div>
