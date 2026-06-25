@@ -2,6 +2,78 @@
 
 ## Session Log
 
+### 2026-06-25 — Phase 2 Complete QA Pass ✅
+
+**Commits: `3694489` (Issue 1/2/3 fixes) + `dd6f9cb` (full QA pass)**
+
+#### CHECK 1 — Frontend-to-DB trace
+- `createExam` (teacher/exams/new): session resolves `institutionId` + `teacherId` from Supabase JWT — hardcoded `'inst-1'`/`'teacher-1'` are now ignored
+- `createItem` (teacher/items/new): session resolves `institutionId` + `authorId` from Supabase JWT — hardcoded `'teacher-1'` ignored
+- `createCourse` (admin/curriculum): session resolves `institutionId` from Supabase JWT — hardcoded `'inst-1'` ignored
+- `createTopic`, `createCLO`, `logViolation`, `updateExam`, `createQuestion`: all wrapped in try/catch + `console.error` so failures appear in Vercel Function logs
+- Create exam button: shows "Creating…" loading state + error message on failure
+
+#### CHECK 2 — All lists load real data
+- `admin/items`: loads real teacher names from `getTeachersList()` — replaced `MOCK_AUTHORS` dict
+- `teacher/monitor`: wired to `getMonitorStudents(examId)` with 10s polling — replaced 8-entry `MOCK_STUDENTS` array; shows exam selector if multiple live exams; shows empty state if no live exams
+- `teacher/students` invite link: uses real institution ID + `NEXT_PUBLIC_APP_URL` — was hardcoded `https://exampro.app/invite/student?teacher=teacher-1`
+- All other lists already on real Prisma data (confirmed: exams, questions, students, violations, analytics, curriculum, users, institutions)
+
+#### CHECK 3 — Auth boundaries
+- Middleware: Supabase JWT validation on all non-public routes ✓
+- `dashboard/layout.tsx`: switched from `exam_role` cookie check to Supabase `getUser()` server-side — fixes auth loop after invite-link callback
+- `useCurrentUser.ts`: falls back to `GET /api/users/me` + `persistSession` when localStorage is empty — invite-link users auto-hydrate session without re-login
+- Role boundaries enforced by middleware: admin→/admin, teacher→/teacher, student→/student+/exam
+- Wrong role → redirected to own dashboard
+
+#### CHECK 4 — Invite flow (PARTIALLY FIXED)
+- Invite API (`POST /api/invites`): correctly uses `NEXT_PUBLIC_APP_URL` for redirectTo ✓
+- Invite email goes through Supabase `inviteUserByEmail` with correct callback URL ✓
+- **MANUAL ACTION REQUIRED**: Go to Supabase dashboard → Authentication → URL Configuration:
+  - Set **Site URL** to: `https://exam-system-sigma.vercel.app`
+  - Add to **Additional Redirect URLs**: `https://exam-system-sigma.vercel.app/**`
+  - Without this, Supabase overrides redirectTo with localhost:3000
+
+#### CHECK 5 — Console/network errors (fixed)
+- `/api/analytics`: added `getAuthUser()` guard (was unauthenticated — all callers got data without JWT)
+- `/api/ai/generate-questions`: added `getAuthUser()` guard
+- All 10 API routes now have auth guards
+
+#### CHECK 6 — Complete exam flow end to end
+- Teacher creates exam → real Prisma row → appears in Supabase table editor ✓
+- Teacher adds questions → real Prisma rows ✓
+- Student sees enrolled exams via `getStudentExams()` → real DB ✓
+- Student starts exam → `POST /api/attempts` → upserts attempt in DB ✓
+- Student submits → `POST /api/attempts/[id]/submit` → scores, persists all answers ✓
+- Teacher sees results → `getStudentResults(examId)` → real scores from DB ✓
+- Teacher publishes → `PATCH /api/exams/[id]/publish-results` → sets `resultsPublishedAt` ✓
+- Student sees published results via `getStudentExams()` ✓
+
+#### CHECK 7 — Security
+- All API routes require valid JWT: `getAuthUser()` on every handler ✓
+- Students blocked from POST /api/exams, POST /api/questions ✓
+- `studentId` in violations always from JWT, never from body ✓
+- `institutionId`/`teacherId` in createExam always from JWT, never from body ✓
+- `authorId` in createItem always from JWT, never from body ✓
+- `SUPABASE_SECRET_KEY` only used in `src/lib/supabase/admin.ts` (server-only) ✓
+- No credentials in committed files (`.env.local` in `.gitignore`) ✓
+
+#### CHECK 8 — Build and deployment
+- `npm run build` → **PASSES (0 errors, 48 routes)** ✓
+- `npm run lint` → **PASSES (0 errors, 0 warnings)** ✓
+- All 6 env vars confirmed on Vercel ✓
+- Live URL: https://exam-system-sigma.vercel.app ✓
+
+#### Phase 3 low-priority items (do NOT fix in Phase 2):
+- `teacher/monitor` global page: shows empty state when no live exams — real-time Supabase channel subscription is Phase 3
+- `teacher/students` trust score: calculated from violation count (`Math.max(40, 100 - vCount * 15)`) not actual attempt trustScore — Phase 3: query ExamAttempt per student
+- `proctoring/FaceDetector.tsx`: uses mock random violations — Phase 3: face-api.js
+- `teacher/items/page.tsx`: psychometric FI%/DI% are random floats — Phase 3: real calculation from answers
+- AI question generation: mock generator — Phase 3: Claude API
+- Supabase Realtime: teacher monitor polling (10s) — Phase 3: channel subscriptions
+
+---
+
 ### 2026-06-25 — Phase 2 QA Fixes: Security + Real Results + Mock Cleanup ✅
 
 **What was done:**
