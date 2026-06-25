@@ -109,7 +109,7 @@ export async function updateExam(id: string, data: Partial<Exam>): Promise<Exam 
         ...(data.totalMarks !== undefined && { totalMarks: data.totalMarks }),
         ...(data.passingMarks !== undefined && { passingMarks: data.passingMarks }),
         ...(data.status && { status: data.status }),
-        ...(data.approvalStatus && { approvalStatus: data.approvalStatus }),
+        ...(data.approvalStatus !== undefined && { approvalStatus: data.approvalStatus }),
         ...(data.startTime && { startTime: new Date(data.startTime) }),
         ...(data.endTime && { endTime: new Date(data.endTime) }),
         ...(data.maxViolations !== undefined && { maxViolations: data.maxViolations }),

@@ -71,20 +71,13 @@ export default function EditExamPage() {
     setTimeout(() => setSaved(false), 2000);
   }
 
-  async function handleStatusChange(next: 'scheduled' | 'live' | 'completed') {
+  async function handleUpdate(patch: Partial<Exam>) {
     if (!exam) return;
     setStatusUpdating(true);
-    const updated = await updateExam(exam.id, { status: next });
+    const updated = await updateExam(exam.id, patch);
     if (updated) setExam(updated);
     setStatusUpdating(false);
   }
-
-  const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-    draft:     { label: 'Draft',     color: '#6B7280', bg: '#F3F4F6' },
-    scheduled: { label: 'Scheduled', color: '#1E88E5', bg: '#EEF6FF' },
-    live:      { label: 'Live',      color: '#16A34A', bg: '#DCFCE7' },
-    completed: { label: 'Completed', color: '#9CA3AF', bg: '#F9FAFB' },
-  };
 
   if (!exam) return <div className="text-center py-12 text-muted-foreground">Loading...</div>;
 
@@ -108,60 +101,80 @@ export default function EditExamPage() {
         </Button>
       </div>
 
-      {/* ── Status panel ── */}
+      {/* ── Approval / Status panel ── */}
       {(() => {
-        const cfg = STATUS_CONFIG[exam.status] ?? STATUS_CONFIG.draft;
+        const approval = exam.approvalStatus ?? 'not_submitted';
+
+        if (approval === 'not_submitted') return (
+          <div className="rounded-xl border border-[#EBF0F8] bg-white p-4 flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="flex items-center gap-3 flex-1">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-gray-100 text-gray-500">✏</span>
+              <div>
+                <p className="text-sm font-semibold text-gray-700">Draft</p>
+                <p className="text-xs text-muted-foreground">Submit to admin for approval before going live.</p>
+              </div>
+            </div>
+            <Button onClick={() => handleUpdate({ approvalStatus: 'pending' })} disabled={statusUpdating} className="gap-2 bg-[#7C3AED] hover:bg-[#6D28D9] shrink-0">
+              <ChevronRight className="h-4 w-4" />
+              {statusUpdating ? 'Submitting…' : 'Submit for Approval'}
+            </Button>
+          </div>
+        );
+
+        if (approval === 'pending') return (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-center gap-3">
+            <CalendarCheck className="h-5 w-5 text-amber-600 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-amber-800">Awaiting Admin Approval</p>
+              <p className="text-xs text-amber-700">Your exam has been submitted and is pending review. You&apos;ll be able to go live once approved.</p>
+            </div>
+          </div>
+        );
+
+        if (approval === 'rejected') return (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-4 flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="flex items-center gap-3 flex-1">
+              <CheckCircle2 className="h-5 w-5 text-red-500 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-red-700">Returned for Revision</p>
+                <p className="text-xs text-red-600">Admin returned this exam. Make your changes and resubmit.</p>
+              </div>
+            </div>
+            <Button onClick={() => handleUpdate({ approvalStatus: 'pending' })} disabled={statusUpdating} variant="outline" className="gap-2 border-red-300 text-red-600 hover:bg-red-100 shrink-0">
+              <ChevronRight className="h-4 w-4" />
+              {statusUpdating ? 'Resubmitting…' : 'Resubmit for Approval'}
+            </Button>
+          </div>
+        );
+
+        // approved — show live controls
         return (
           <div className="rounded-xl border border-[#EBF0F8] bg-white p-4 flex flex-col sm:flex-row sm:items-center gap-4">
             <div className="flex items-center gap-3 flex-1">
-              <span
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold"
-                style={{ background: cfg.bg, color: cfg.color }}
-              >
-                {exam.status === 'draft' && '✏'}
-                {exam.status === 'scheduled' && <CalendarCheck className="h-4 w-4" />}
-                {exam.status === 'live' && <Radio className="h-4 w-4" />}
-                {exam.status === 'completed' && <CheckCircle2 className="h-4 w-4" />}
+              <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${
+                exam.status === 'live' ? 'bg-green-100 text-green-600' :
+                exam.status === 'completed' ? 'bg-gray-100 text-gray-500' : 'bg-blue-100 text-blue-600'
+              }`}>
+                {exam.status === 'live' ? <Radio className="h-4 w-4" /> : exam.status === 'completed' ? <CheckCircle2 className="h-4 w-4" /> : <CalendarCheck className="h-4 w-4" />}
               </span>
               <div>
-                <p className="text-sm font-semibold" style={{ color: cfg.color }}>{cfg.label}</p>
+                <p className="text-sm font-semibold capitalize text-gray-700">{exam.status}</p>
                 <p className="text-xs text-muted-foreground">
-                  {exam.status === 'draft' && 'Publish to schedule this exam for students.'}
-                  {exam.status === 'scheduled' && 'Go live when you\'re ready to start the exam.'}
-                  {exam.status === 'live' && 'Exam is currently running. Students can join now.'}
-                  {exam.status === 'completed' && 'Exam has ended. View results from the exams list.'}
+                  {exam.status === 'scheduled' && 'Approved — go live when ready to start the exam.'}
+                  {exam.status === 'live' && 'Exam is running. Students can join now.'}
+                  {exam.status === 'completed' && 'Exam ended. View results from the exams list.'}
                 </p>
               </div>
             </div>
-            <div className="flex gap-2">
-              {exam.status === 'draft' && (
-                <Button
-                  onClick={() => handleStatusChange('scheduled')}
-                  disabled={statusUpdating}
-                  className="gap-2 bg-[#1E88E5] hover:bg-[#1976D2]"
-                >
-                  <CalendarCheck className="h-4 w-4" />
-                  {statusUpdating ? 'Publishing…' : 'Publish Exam'}
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </Button>
-              )}
+            <div className="flex gap-2 shrink-0">
               {exam.status === 'scheduled' && (
-                <Button
-                  onClick={() => handleStatusChange('live')}
-                  disabled={statusUpdating}
-                  className="gap-2 bg-green-600 hover:bg-green-700"
-                >
+                <Button onClick={() => handleUpdate({ status: 'live' })} disabled={statusUpdating} className="gap-2 bg-green-600 hover:bg-green-700">
                   <Radio className="h-4 w-4" />
                   {statusUpdating ? 'Going live…' : 'Go Live Now'}
                 </Button>
               )}
               {exam.status === 'live' && (
-                <Button
-                  onClick={() => handleStatusChange('completed')}
-                  disabled={statusUpdating}
-                  variant="outline"
-                  className="gap-2 border-red-200 text-red-600 hover:bg-red-50"
-                >
+                <Button onClick={() => handleUpdate({ status: 'completed' })} disabled={statusUpdating} variant="outline" className="gap-2 border-red-200 text-red-600 hover:bg-red-50">
                   <CheckCircle2 className="h-4 w-4" />
                   {statusUpdating ? 'Ending…' : 'End Exam'}
                 </Button>

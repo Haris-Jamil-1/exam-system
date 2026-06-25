@@ -41,11 +41,10 @@ export default function AdminExamsPage() {
   }, []);
 
   async function approve(id: string) {
-    // Persist to backend (Phase 2: updates DB; Phase 1: updates in-memory mock)
     await fetch(`/api/exams/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'scheduled' }),
+      body: JSON.stringify({ approvalStatus: 'approved', status: 'scheduled' }),
     });
     setApprovedIds(prev => new Set([...prev, id]));
   }
@@ -54,7 +53,7 @@ export default function AdminExamsPage() {
     await fetch(`/api/exams/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'draft' }),
+      body: JSON.stringify({ approvalStatus: 'rejected' }),
     });
     setRejectedIds(prev => new Set([...prev, id]));
   }
