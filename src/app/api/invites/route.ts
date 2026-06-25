@@ -63,7 +63,7 @@ export async function POST(request: Request) {
 
   const roleLabel = role === 'teacher' ? 'Teacher' : 'Student';
   const { error: emailError } = await resend.emails.send({
-    from: 'ExamPro <onboarding@resend.dev>',
+    from: 'ExamPro <noreply@aurixy.store>',
     to: email,
     subject: `You're invited to ExamPro as a ${roleLabel}`,
     html: `
