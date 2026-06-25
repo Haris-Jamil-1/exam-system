@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import {
   Shield, Search, Bell, Menu, X, ChevronDown, LogOut,
-  AlertTriangle, ClipboardCheck, UserPlus, CheckCircle2, Radio,
+  AlertTriangle, ClipboardCheck, UserPlus, CheckCircle2, Radio, Clock, XCircle,
   type LucideIcon,
 } from 'lucide-react';
 import { LanguageToggle } from './LanguageToggle';
@@ -45,27 +45,34 @@ interface DashboardShellProps {
   children: React.ReactNode;
 }
 
-// Default mock notifications per role — overridable via prop
-function defaultNotifications(role: string): NotificationItem[] {
-  if (role === 'Institution Admin') {
-    return [
-      { id: 'n1', title: 'Exam submitted for review', body: 'Dr. Sarah Mitchell submitted "Linear Algebra Midterm" for your approval.', time: '2m ago', icon: ClipboardCheck, iconBg: '#FEF3C7', iconColor: '#D97706' },
-      { id: 'n2', title: 'Teacher invite accepted', body: 'Prof. James Chen joined University of Technology via your invite link.', time: '1h ago', icon: UserPlus, iconBg: '#DCFCE7', iconColor: '#16A34A' },
-      { id: 'n3', title: 'Exam submitted for review', body: 'Dr. Amira Hassan submitted "Database Systems Final" for your approval.', time: '3h ago', icon: ClipboardCheck, iconBg: '#FEF3C7', iconColor: '#D97706' },
-      { id: 'n4', title: 'Live exam started', body: '"Data Structures Midterm" is now live — 42 students attending.', time: 'Today 9:00 AM', icon: Radio, iconBg: '#FEE2E2', iconColor: '#E53935' },
-    ];
-  }
-  if (role === 'Teacher') {
-    return [
-      { id: 'n1', title: 'High-severity violation', body: 'Ali Hassan — tab switch detected during "Data Structures Midterm".', time: '2m ago', icon: AlertTriangle, iconBg: '#FEE2E2', iconColor: '#E53935' },
-      { id: 'n2', title: 'No face detected', body: 'Sara Ahmed — camera blocked for 30s in "Algorithms Final".', time: '5m ago', icon: AlertTriangle, iconBg: '#FEE2E2', iconColor: '#E53935' },
-      { id: 'n3', title: 'Exam approved', body: 'Your exam "Web Dev Quiz 3" was approved and is ready to schedule.', time: '1h ago', icon: CheckCircle2, iconBg: '#DCFCE7', iconColor: '#16A34A' },
-    ];
-  }
-  // Student
-  return [
-    { id: 'n1', title: 'Exam available now', body: '"Mathematics Final" is open — you have 90 minutes to complete it.', time: 'Just now', icon: Radio, iconBg: '#DCFCE7', iconColor: '#16A34A' },
-  ];
+const ICON_MAP: Record<string, LucideIcon> = {
+  AlertTriangle, ClipboardCheck, UserPlus, CheckCircle2, Radio, Clock, XCircle, Bell,
+};
+
+type RawNotif = { id: string; title: string; body: string; time: string; icon: string; iconBg: string; iconColor: string; read: boolean };
+
+function mapRaw(n: RawNotif): NotificationItem {
+  return { ...n, icon: ICON_MAP[n.icon] ?? Bell };
+}
+
+function useNotifications() {
+  const [items, setItems] = useState<NotificationItem[]>([]);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch('/api/notifications');
+        if (!res.ok) return;
+        const data: RawNotif[] = await res.json();
+        setItems(data.map(mapRaw));
+      } catch { /* ignore */ }
+    }
+    load();
+    const id = setInterval(load, 30000);
+    return () => clearInterval(id);
+  }, []);
+
+  return items;
 }
 
 // Read avatar from localStorage (updated by settings pages)
@@ -102,7 +109,8 @@ export function DashboardShell({
   const bellRef  = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const items = notificationItems ?? defaultNotifications(user.role);
+  const liveItems = useNotifications();
+  const items = notificationItems ?? liveItems;
   const unread = items.filter(n => !readIds.has(n.id));
 
   // Close panel on outside click

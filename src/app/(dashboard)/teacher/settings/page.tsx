@@ -8,11 +8,13 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Check, User, Lock, Bell, FileText, GraduationCap, ShieldCheck, Camera } from 'lucide-react';
+import { getMyInstitution } from '@/lib/data/users';
 
 export default function TeacherSettingsPage() {
   const currentUser = useCurrentUser();
   const [saved, setSaved]     = useState(false);
   const [pwSaved, setPwSaved] = useState(false);
+  const [institutionName, setInstitutionName] = useState('');
   const [notifications, setNotifications] = useState({
     violationAlerts: true,
     examStart:       true,
@@ -21,13 +23,17 @@ export default function TeacherSettingsPage() {
   });
 
   const { register, reset, handleSubmit } = useForm({
-    defaultValues: { name: '', email: '', institution: 'University of Technology' },
+    defaultValues: { name: '', email: '', institution: '' },
   });
 
   useEffect(() => {
-    if (currentUser) {
-      reset({ name: currentUser.name, email: currentUser.email, institution: 'University of Technology' });
-    }
+    getMyInstitution().then(inst => {
+      const name = inst?.name ?? '';
+      setInstitutionName(name);
+      if (currentUser) {
+        reset({ name: currentUser.name, email: currentUser.email, institution: name });
+      }
+    });
   }, [currentUser, reset]);
 
   function onSubmit() {
@@ -155,7 +161,7 @@ export default function TeacherSettingsPage() {
               <p className="text-[13px] text-[#9CA3AF]">{currentUser?.email ?? ''}</p>
               <div className="mt-3 flex items-center gap-2">
                 <span className="rounded-full bg-[#E3F0FD] border border-[#BFDBFE] px-2.5 py-0.5 text-[11px] font-semibold text-[#1E88E5]">Teacher</span>
-                <span className="text-[11px] text-[#9CA3AF]">University of Technology</span>
+                <span className="text-[11px] text-[#9CA3AF]">{institutionName}</span>
               </div>
 
               <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-[#F4F7FC] p-3">

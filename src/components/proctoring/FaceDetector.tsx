@@ -64,7 +64,7 @@ export function FaceDetector({ examId, attemptId, studentId }: FaceDetectorProps
   }, [examId, attemptId, studentId, addViolation]);
 
   return (
-    <div className="fixed bottom-4 end-4 z-50">
+    <div className="fixed bottom-4 right-4 z-50">
       <div className="relative rounded-xl overflow-hidden border-2 border-white shadow-lg w-28 h-20 bg-gray-900">
         <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
         {cameraError ? (

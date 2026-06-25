@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useAvatarUpload } from '@/hooks/useAvatarUpload';
+import { getMyInstitution } from '@/lib/data/users';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +15,7 @@ export default function AdminSettingsPage() {
   const currentUser = useCurrentUser();
   const [saved, setSaved]     = useState(false);
   const [pwSaved, setPwSaved] = useState(false);
+  const [institutionName, setInstitutionName] = useState('');
   const [notifications, setNotifications] = useState({
     examApprovals:   true,
     teacherInvites:  true,
@@ -22,13 +24,17 @@ export default function AdminSettingsPage() {
   });
 
   const { register, reset, handleSubmit } = useForm({
-    defaultValues: { name: '', email: '', institution: 'University of Technology' },
+    defaultValues: { name: '', email: '', institution: '' },
   });
 
   useEffect(() => {
-    if (currentUser) {
-      reset({ name: currentUser.name, email: currentUser.email, institution: 'University of Technology' });
-    }
+    getMyInstitution().then(inst => {
+      const name = inst?.name ?? '';
+      setInstitutionName(name);
+      if (currentUser) {
+        reset({ name: currentUser.name, email: currentUser.email, institution: name });
+      }
+    });
   }, [currentUser, reset]);
 
   function onSubmit() { setSaved(true); setTimeout(() => setSaved(false), 2000); }
@@ -149,7 +155,7 @@ export default function AdminSettingsPage() {
               <p className="text-[13px] text-[#9CA3AF]">{currentUser?.email ?? ''}</p>
               <div className="mt-3 flex items-center gap-2">
                 <Badge variant="info">Institution Admin</Badge>
-                <span className="text-[11px] text-[#9CA3AF]">University of Technology</span>
+                <span className="text-[11px] text-[#9CA3AF]">{institutionName}</span>
               </div>
             </div>
           </div>

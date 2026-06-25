@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getQuestions, createQuestion } from '@/lib/data';
+import { getQuestionsForStudent } from '@/lib/data/questions';
 import { getAuthUser, unauthorized, forbidden } from '@/lib/api-auth';
 
 const createQuestionSchema = z.object({
@@ -22,7 +23,10 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const examId = searchParams.get('examId');
   if (!examId) return NextResponse.json({ error: 'examId required' }, { status: 400 });
-  const questions = await getQuestions(examId);
+  // Students must not receive correct answers or explanations
+  const questions = user.role === 'student'
+    ? await getQuestionsForStudent(examId)
+    : await getQuestions(examId);
   return NextResponse.json(questions);
 }
 

@@ -253,18 +253,38 @@ function StudentFeedModal({ student, violations }: { student: MonitorStudent; vi
         </div>
       </div>
 
-      {/* Recent violations for this student */}
-      {violations.length > 0 && (
-        <div className="space-y-1.5">
-          <p className="text-[12px] font-semibold text-[#6B7280]">Recent Violations</p>
-          {violations.slice(0, 4).map(v => (
-            <div key={v.id} className="flex items-center justify-between rounded-lg border border-red-100 bg-red-50 px-3 py-2">
-              <span className="text-xs text-red-700">{VIOLATION_LABELS[v.type] ?? v.type}</span>
-              <span className="text-[10px] text-[#9CA3AF]">{formatDistanceToNow(new Date(v.timestamp), { addSuffix: true })}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Full violations timeline */}
+      <div className="space-y-1.5">
+        <p className="text-[12px] font-semibold text-[#6B7280]">
+          Violations Timeline {violations.length > 0 ? `(${violations.length})` : ''}
+        </p>
+        {violations.length === 0 ? (
+          <p className="text-xs text-[#9CA3AF] py-2 text-center">No violations recorded</p>
+        ) : (
+          <div className="max-h-[200px] overflow-y-auto space-y-1.5 pr-1">
+            {violations.map(v => (
+              <div key={v.id} className={`flex items-center justify-between rounded-lg border px-3 py-2 ${
+                v.severity === 'high'   ? 'border-red-200 bg-red-50' :
+                v.severity === 'medium' ? 'border-yellow-200 bg-yellow-50' :
+                'border-blue-100 bg-blue-50'
+              }`}>
+                <div className="flex items-center gap-2 min-w-0">
+                  <Badge
+                    variant={v.severity === 'high' ? 'danger' : v.severity === 'medium' ? 'warning' : 'info'}
+                    className="text-[10px] capitalize shrink-0"
+                  >
+                    {v.severity}
+                  </Badge>
+                  <span className="text-xs truncate">{VIOLATION_LABELS[v.type] ?? v.type}</span>
+                </div>
+                <span className="text-[10px] text-[#9CA3AF] shrink-0 ml-2">
+                  {formatDistanceToNow(new Date(v.timestamp), { addSuffix: true })}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

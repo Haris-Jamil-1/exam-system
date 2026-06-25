@@ -27,18 +27,23 @@ export default function ResultsPage() {
   const [publishing, setPublishing] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      getExamById(examId),
-      getStudentResults(examId),
-      getScoreDistribution(examId),
-      getQuestionDifficulty(examId),
-    ]).then(([e, s, sd, dd]) => {
+    async function load() {
+      const [e, s, sd, dd] = await Promise.all([
+        getExamById(examId),
+        getStudentResults(examId),
+        getScoreDistribution(examId),
+        getQuestionDifficulty(examId),
+      ]);
       setExam(e ?? null);
       setStudentResults(s);
       setScoreDist(sd);
       setDiffData(dd);
       if (e?.resultsPublishedAt) setResultsPublished(true);
-    });
+    }
+    load();
+    // Poll every 15 seconds so new submissions appear without manual refresh
+    const id = setInterval(load, 15000);
+    return () => clearInterval(id);
   }, [examId]);
 
   async function handlePublishResults() {

@@ -85,7 +85,7 @@ export function BulkImportModal({ open, onClose, onImported }: Props) {
         order: 0,
         status: 'draft',
         tags: row.tags,
-        authorId: 'teacher-1',
+        authorId: '',
       });
       count++;
     }

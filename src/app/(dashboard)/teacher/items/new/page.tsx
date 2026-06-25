@@ -34,7 +34,7 @@ type FormData = z.infer<typeof schema>;
 const CODE_LANGUAGES = ['python', 'javascript', 'java', 'cpp', 'c', 'sql'] as const;
 type CodeLanguage = typeof CODE_LANGUAGES[number];
 
-const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.xlsx', '.png', '.jpg', '.jpeg', '.zip', '.csv', '.mp4', '.txt'];
+const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.md', '.txt', '.xlsx', '.png', '.jpg', '.jpeg', '.zip', '.csv', '.mp4'];
 
 const QUESTION_TYPES: { value: QuestionType; label: string; group: string; icon?: React.ReactNode }[] = [
   { value: 'mcq',          label: 'Multiple Choice (MCQ)',   group: 'Open Choices' },
@@ -81,7 +81,7 @@ export default function NewItemPage() {
   ]);
 
   // File upload type state
-  const [allowedExts, setAllowedExts] = useState<string[]>(['.pdf', '.docx']);
+  const [allowedExts, setAllowedExts] = useState<string[]>(['.pdf', '.doc', '.docx', '.md', '.txt']);
   const [maxFileSizeMB, setMaxFileSizeMB] = useState(10);
 
   const {
@@ -158,7 +158,7 @@ export default function NewItemPage() {
       order: 0,
       status: data.status,
       tags,
-      authorId: 'teacher-1',
+      authorId: '',
       learningObjectiveId: cloSelection?.cloId || undefined,
       ...(qType === 'coding' ? {
         codeLanguage,
@@ -537,7 +537,7 @@ export default function NewItemPage() {
                 <CurriculumPicker
                   value={cloSelection}
                   onChange={setCloSelection}
-                  institutionId="inst-1"
+                  institutionId={undefined}
                 />
                 {!cloSelection?.cloId && (
                   <p className="mt-4 text-xs text-muted-foreground">

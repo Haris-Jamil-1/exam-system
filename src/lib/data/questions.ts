@@ -1,6 +1,14 @@
 'use server';
 import { prisma } from '@/lib/prisma';
+import { createClient } from '@/lib/supabase/server';
 import type { Question, Option, PublicQuestion, TestCase } from '@/types';
+
+async function getCallerPrismaUser() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  return prisma.user.findUnique({ where: { supabaseId: user.id } });
+}
 
 type PrismaOption = { id: string; text: string; isCorrect: boolean; questionId: string; order: number };
 
@@ -98,6 +106,14 @@ export async function createQuestion(data: Omit<Question, 'id'>): Promise<Questi
 }
 
 export async function updateQuestion(id: string, data: Partial<Question>): Promise<Question | undefined> {
+  const caller = await getCallerPrismaUser();
+  if (!caller) throw new Error('Unauthorized');
+  if (caller.role !== 'admin') {
+    const question = await prisma.question.findUnique({ where: { id }, select: { examId: true } });
+    if (!question) return undefined;
+    const exam = await prisma.exam.findUnique({ where: { id: question.examId }, select: { teacherId: true } });
+    if (!exam || exam.teacherId !== caller.id) throw new Error('Forbidden');
+  }
   const row = await prisma.question.update({
     where: { id },
     data: {
@@ -121,6 +137,14 @@ export async function updateQuestion(id: string, data: Partial<Question>): Promi
 }
 
 export async function deleteQuestion(id: string): Promise<boolean> {
+  const caller = await getCallerPrismaUser();
+  if (!caller) throw new Error('Unauthorized');
+  const question = await prisma.question.findUnique({ where: { id }, select: { examId: true } });
+  if (!question) return false;
+  if (caller.role !== 'admin') {
+    const exam = await prisma.exam.findUnique({ where: { id: question.examId }, select: { teacherId: true } });
+    if (!exam || exam.teacherId !== caller.id) throw new Error('Forbidden');
+  }
   await prisma.question.delete({ where: { id } });
   return true;
 }

@@ -50,7 +50,7 @@ export function CurriculumPicker({ value, onChange, institutionId }: Props) {
   const selectedCLO = clos.find(c => c.id === cloId) ?? null;
 
   useEffect(() => {
-    getCourses(institutionId ?? 'inst-1').then(setCourses);
+    getCourses(institutionId).then(setCourses);
   }, [institutionId]);
 
   useEffect(() => {

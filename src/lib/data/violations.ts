@@ -28,11 +28,13 @@ function mapViolation(v: PrismaViolation): Violation {
   };
 }
 
-export async function getViolations(examId?: string, studentId?: string): Promise<Violation[]> {
+export async function getViolations(examId?: string, studentId?: string, institutionId?: string): Promise<Violation[]> {
   const rows = await prisma.violation.findMany({
     where: {
       ...(examId && { examId }),
       ...(studentId && { studentId }),
+      // Scope to institution when no specific examId/studentId scopes the query
+      ...(!examId && !studentId && institutionId && { exam: { institutionId } }),
     },
     orderBy: { timestamp: 'desc' },
   });

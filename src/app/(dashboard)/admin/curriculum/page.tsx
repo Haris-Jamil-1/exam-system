@@ -50,7 +50,7 @@ export default function CurriculumPage() {
   const [saving, setSaving]                 = useState(false);
 
   useEffect(() => {
-    getCourses('inst-1').then(setCourses);
+    getCourses().then(setCourses);
   }, []);
 
   useEffect(() => {
@@ -76,7 +76,7 @@ export default function CurriculumPage() {
   async function handleAddCourse() {
     if (!newCourseCode.trim() || !newCourseTitle.trim()) return;
     setSaving(true);
-    const c = await createCourse({ code: newCourseCode.trim().toUpperCase(), title: newCourseTitle.trim(), institutionId: 'inst-1' });
+    const c = await createCourse({ code: newCourseCode.trim().toUpperCase(), title: newCourseTitle.trim(), institutionId: '' });
     setCourses(prev => [...prev, c]);
     setNewCourseCode(''); setNewCourseTitle('');
     setShowAddCourse(false);

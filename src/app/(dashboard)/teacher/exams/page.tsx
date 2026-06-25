@@ -65,9 +65,14 @@ function ShareModal({ exam }: { exam: Exam }) {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  function sendIndividual() {
+  async function sendIndividual() {
     const trimmed = email.trim().toLowerCase();
     if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return;
+    await fetch('/api/invites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: trimmed, role: 'student' }),
+    });
     if (!sentEmails.includes(trimmed)) setSentEmails(prev => [...prev, trimmed]);
     setEmail('');
   }
@@ -92,8 +97,16 @@ function ShareModal({ exam }: { exam: Exam }) {
     reader.readAsText(file);
   }
 
-  function sendBulk() {
-    // Phase 2: POST /api/invitations { emails: csvEmails, examId: exam.id, link: examLink }
+  async function sendBulk() {
+    await Promise.all(
+      csvEmails.map(email =>
+        fetch('/api/invites', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, role: 'student' }),
+        })
+      )
+    );
     setCsvSent(true);
   }
 

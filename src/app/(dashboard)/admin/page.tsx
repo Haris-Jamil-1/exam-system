@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import type { StatValue } from '@/types';
 import { getAdminStats, getTeachersList, getPendingExams, getApprovedExams } from '@/lib/data';
+import { getMyInstitution } from '@/lib/data/users';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import type { PendingExam } from '@/types';
 
@@ -43,21 +44,37 @@ export default function AdminDashboard() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
   const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
+  const [institutionName, setInstitutionName] = useState('');
 
   useEffect(() => {
-    Promise.all([getAdminStats(), getPendingExams(), getApprovedExams(), getTeachersList()]).then(([s, p, a, t]) => {
+    Promise.all([getAdminStats(), getPendingExams(), getApprovedExams(), getTeachersList(), getMyInstitution()]).then(([s, p, a, t, inst]) => {
       setStats(s);
       setPending(p as PendingExam[]);
       setApproved(a as ApprovedExam[]);
       setTeachers(t as Teacher[]);
+      setInstitutionName(inst?.name ?? '');
     });
   }, []);
 
   const firstName = currentUser?.name?.split(' ').slice(-1)[0] ?? 'Admin';
   const visiblePending = pending.filter(e => !approvedIds.has(e.id) && !rejectedIds.has(e.id));
 
-  function approve(id: string) { setApprovedIds(prev => new Set([...prev, id])); }
-  function reject(id: string)  { setRejectedIds(prev => new Set([...prev, id])); }
+  async function approve(id: string) {
+    await fetch(`/api/exams/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approvalStatus: 'approved', status: 'scheduled' }),
+    });
+    setApprovedIds(prev => new Set([...prev, id]));
+  }
+  async function reject(id: string) {
+    await fetch(`/api/exams/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approvalStatus: 'rejected' }),
+    });
+    setRejectedIds(prev => new Set([...prev, id]));
+  }
 
   const statusStyle: Record<string, { chip: string; icon: React.ElementType; pulse?: boolean }> = {
     live:      { chip: 'bg-red-50 text-red-600 border-red-100', icon: Radio, pulse: true },
@@ -75,7 +92,7 @@ export default function AdminDashboard() {
           </div>
           <div>
             <h1 className="text-[22px] font-extrabold tracking-[-0.01em] text-[#1A1D23]">
-              University of Technology
+              {institutionName}
             </h1>
             <p className="text-[13px] text-[#6B7280]">{h('welcome')}, {firstName}</p>
           </div>

@@ -24,7 +24,7 @@ export function FileUploadQuestion({ question, value, onChange }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
-  const allowedTypes = question.allowedFileTypes ?? ['.pdf'];
+  const allowedTypes = question.allowedFileTypes ?? ['.pdf', '.doc', '.docx', '.md', '.txt'];
   const maxMB = question.maxFileSizeMB ?? 10;
   const maxBytes = maxMB * 1024 * 1024;
 

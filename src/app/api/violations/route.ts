@@ -20,8 +20,11 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const examId = searchParams.get('examId') ?? undefined;
-  const studentId = searchParams.get('studentId') ?? undefined;
-  const violations = await getViolations(examId, studentId);
+  // Scope to only the caller's own violations when no examId is supplied
+  const studentId = user.role === 'student'
+    ? user.id
+    : (searchParams.get('studentId') ?? undefined);
+  const violations = await getViolations(examId, studentId, user.institutionId);
   return NextResponse.json(violations);
 }
 

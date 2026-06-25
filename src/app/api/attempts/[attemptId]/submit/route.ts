@@ -7,7 +7,7 @@ import type { Question } from '@/types';
 const submitSchema = z.object({
   examId: z.string(),
   answers: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
-  trustScore: z.number().min(0).max(100).default(100),
+  // trustScore is NOT accepted from client — calculated server-side from violation count
 });
 
 function scoreAnswers(questions: Question[], answers: Record<string, string | string[]>) {
@@ -18,7 +18,7 @@ function scoreAnswers(questions: Question[], answers: Record<string, string | st
   for (const q of questions) {
     const answer = answers[q.id];
     const response = answer ?? '';
-    if (!answer || !q.correctAnswer) {
+    if (!answer) {
       perQuestion.push({ questionId: q.id, response, isCorrect: false, marksAwarded: 0 });
       continue;
     }
@@ -26,9 +26,12 @@ function scoreAnswers(questions: Question[], answers: Record<string, string | st
     let correct = false;
     switch (q.type) {
       case 'mcq':
-      case 'true_false':
-        correct = answer === q.correctAnswer;
+      case 'true_false': {
+        // answer is the selected option ID; use isCorrect flag from the option
+        const selectedOpt = q.options?.find(o => o.id === (answer as string));
+        correct = selectedOpt?.isCorrect === true;
         break;
+      }
       case 'fill_blank':
       case 'short_answer':
         correct =
@@ -36,21 +39,38 @@ function scoreAnswers(questions: Question[], answers: Record<string, string | st
           typeof q.correctAnswer === 'string' &&
           answer.trim().toLowerCase() === q.correctAnswer.trim().toLowerCase();
         break;
-      case 'mrq':
-      case 'matching':
-        if (Array.isArray(answer) && Array.isArray(q.correctAnswer)) {
+      case 'mrq': {
+        // answer is array of selected option IDs; correct if selected IDs == all correct option IDs
+        if (Array.isArray(answer) && q.options) {
+          const correctIds = q.options.filter(o => o.isCorrect).map(o => o.id).sort();
+          const selectedIds = [...answer].sort();
           correct =
-            answer.length === q.correctAnswer.length &&
-            [...answer].sort().join(',') === [...q.correctAnswer].sort().join(',');
+            selectedIds.length === correctIds.length &&
+            selectedIds.join(',') === correctIds.join(',');
         }
         break;
-      case 'ordering':
-        if (Array.isArray(answer) && Array.isArray(q.correctAnswer)) {
+      }
+      case 'matching': {
+        // answer is array of selected option IDs; match sorted against sorted correct IDs
+        if (Array.isArray(answer) && q.options) {
+          const correctIds = q.options.filter(o => o.isCorrect).map(o => o.id).sort();
+          const selectedIds = [...answer].sort();
           correct =
-            answer.length === q.correctAnswer.length &&
-            answer.join(',') === q.correctAnswer.join(',');
+            selectedIds.length === correctIds.length &&
+            selectedIds.join(',') === correctIds.join(',');
         }
         break;
+      }
+      case 'ordering': {
+        // answer is array of option IDs in student's order; compare texts in order against correctAnswer texts
+        if (Array.isArray(answer) && Array.isArray(q.correctAnswer) && q.options) {
+          const studentTexts = (answer as string[]).map(id => q.options?.find(o => o.id === id)?.text ?? '');
+          correct =
+            studentTexts.length === q.correctAnswer.length &&
+            studentTexts.join(',') === (q.correctAnswer as string[]).join(',');
+        }
+        break;
+      }
       case 'essay':
       case 'coding':
       case 'file_upload':
@@ -81,12 +101,14 @@ export async function POST(
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { examId, answers, trustScore } = parsed.data;
+  const { examId, answers } = parsed.data;
 
   // Verify attempt belongs to this student
   const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId } });
   if (!attempt) return notFound('Attempt not found');
   if (attempt.studentId !== user.id) return forbidden();
+  // Verify the examId in the body matches the attempt's actual exam
+  if (attempt.examId !== examId) return forbidden();
   if (attempt.status !== 'in_progress') {
     return NextResponse.json({ error: 'Attempt already submitted' }, { status: 409 });
   }
@@ -114,8 +136,10 @@ export async function POST(
 
   const { score, totalMarks, perQuestion } = scoreAnswers(questions, answers);
 
-  // Get real violation count from DB
+  // Get real violation count from DB — never trust client value
   const violationCount = await prisma.violation.count({ where: { attemptId } });
+  // Calculate trustScore server-side — 15 points deducted per violation, floor 0
+  const trustScore = Math.max(0, 100 - violationCount * 15);
   const scorePercentage = totalMarks > 0 ? Math.round((score / totalMarks) * 100) : 0;
 
   // Persist answers + update attempt atomically
