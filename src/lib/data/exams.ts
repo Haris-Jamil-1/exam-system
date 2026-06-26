@@ -140,9 +140,16 @@ export async function updateExam(id: string, data: Partial<Exam>): Promise<Exam 
 
 export async function deleteExam(id: string): Promise<boolean> {
   try {
-    await prisma.exam.delete({ where: { id } });
+    // Delete in FK-safe order: violations reference both examId and attemptId,
+    // so delete them first; attempts then cascade their answers.
+    await prisma.$transaction([
+      prisma.violation.deleteMany({ where: { examId: id } }),
+      prisma.examAttempt.deleteMany({ where: { examId: id } }),
+      prisma.exam.delete({ where: { id } }),
+    ]);
     return true;
-  } catch {
+  } catch (err) {
+    console.error('[deleteExam] error:', err);
     return false;
   }
 }

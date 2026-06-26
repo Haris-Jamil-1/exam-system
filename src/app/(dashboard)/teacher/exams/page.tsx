@@ -221,9 +221,14 @@ export default function ExamsPage() {
     getExams().then(data => { setExams(data); setLoading(false); });
   }, []);
 
-  function handleDelete(id: string) {
+  async function handleDelete(id: string) {
     if (!confirm('Delete this exam? This action cannot be undone.')) return;
-    setExams(prev => prev.filter(e => e.id !== id));
+    const res = await fetch(`/api/exams/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      setExams(prev => prev.filter(e => e.id !== id));
+    } else {
+      alert('Failed to delete exam. Please try again.');
+    }
   }
 
   const filtered = exams.filter(e => {
