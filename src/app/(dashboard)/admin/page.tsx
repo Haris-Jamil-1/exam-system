@@ -320,7 +320,15 @@ export default function AdminDashboard() {
             {conflictModal.conflicts.map((c, i) => (
               <div key={i} className="rounded-xl border border-amber-100 bg-amber-50 p-4 space-y-3">
                 <div>
-                  <p className="text-xs font-medium text-amber-700 uppercase tracking-wide mb-1">Conflicting exam</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="text-xs font-medium text-amber-700 uppercase tracking-wide">Conflicting exam</p>
+                    {c.conflictingExam.status === 'live' && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-red-100 border border-red-200 px-2 py-0.5 text-xs font-semibold text-red-600">
+                        <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
+                        Live
+                      </span>
+                    )}
+                  </div>
                   <p className="font-semibold text-gray-900 text-sm">{c.conflictingExam.title}</p>
                   <p className="text-xs text-gray-500">by {c.conflictingExam.teacher}</p>
                   <p className="text-xs text-gray-500 mt-0.5">
@@ -345,7 +353,11 @@ export default function AdminDashboard() {
 
           {/* Footer */}
           <div className="px-5 pb-5">
-            <p className="text-xs text-gray-400 mb-3">Reschedule the exam to a different time slot to resolve the conflict, then try approving again.</p>
+            <p className="text-xs text-gray-400 mb-3">
+              {conflictModal.conflicts.some(c => c.conflictingExam.status === 'live')
+                ? 'One or more conflicting exams are currently in progress and cannot be rescheduled. Wait for them to finish, then try approving again.'
+                : 'Reschedule the exam to a different time slot to resolve the conflict, then try approving again.'}
+            </p>
             <button
               onClick={() => setConflictModal(null)}
               className="w-full rounded-lg bg-gray-900 text-white text-sm font-medium py-2 hover:bg-gray-700 transition-colors"

@@ -238,6 +238,12 @@ export type PublicOption = Omit<Option, 'isCorrect'>;
 
 export type PublicQuestion = Omit<Question, 'correctAnswer' | 'explanation' | 'options'> & {
   options?: PublicOption[];
+  /**
+   * Matching questions only. Shuffled right-column labels sent to the student.
+   * The correct pairing (which right label belongs to which left option) is
+   * NOT included — that stays on the server in `correctAnswer`.
+   */
+  matchingChoices?: string[];
 };
 
 export interface Invitation {

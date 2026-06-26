@@ -1,16 +1,26 @@
 'use client';
 // Phase 2: held=1 state comes from exam.settings.resultsVisibility stored in DB
 // Teacher publishes via PATCH /api/exams/[id]/publish-results → sets resultsPublishedAt
-import { useSearchParams } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { CheckCircle, Shield, AlertTriangle, Trophy, Clock } from 'lucide-react';
+import { CheckCircle, Shield, AlertTriangle, Trophy, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { useProctoringStore } from '@/store/proctoringStore';
 import { DesktopGuard } from '@/components/shared/DesktopGuard';
 
+type PerQuestionResult = {
+  questionId: string;
+  stem: string;
+  type: string;
+  marks: number;
+  marksAwarded: number;
+};
+
 export default function ExamCompletePage() {
+  const { examId } = useParams<{ examId: string }>();
   const params = useSearchParams();
   const score = Number(params.get('score') ?? 0);
   const total = Number(params.get('total') ?? 0);
@@ -18,8 +28,20 @@ export default function ExamCompletePage() {
   const held  = params.get('held') === '1';
 
   const { violationCount, trustScore } = useProctoringStore();
+  const [perQuestion, setPerQuestion] = useState<PerQuestionResult[]>([]);
+  const [showBreakdown, setShowBreakdown] = useState(false);
+
+  useEffect(() => {
+    const key = `exam_result_${examId}`;
+    const stored = sessionStorage.getItem(key);
+    if (stored) {
+      setPerQuestion(JSON.parse(stored) as PerQuestionResult[]);
+      sessionStorage.removeItem(key);
+    }
+  }, [examId]);
 
   const scoreColor = pct >= 70 ? 'text-green-600' : pct >= 50 ? 'text-yellow-600' : 'text-red-600';
+  const needsGrading = perQuestion.some(q => q.type === 'essay' || q.type === 'coding' || q.type === 'file_upload');
 
   return (
     <DesktopGuard>
@@ -36,7 +58,7 @@ export default function ExamCompletePage() {
           </p>
         </div>
 
-        {/* Held results banner — replaces score card when results are held */}
+        {/* Held results banner */}
         {held && (
           <Card className="border-amber-200 bg-amber-50">
             <CardContent className="pt-6 space-y-3 text-center">
@@ -51,7 +73,7 @@ export default function ExamCompletePage() {
           </Card>
         )}
 
-        {/* Score card — only shown when not held */}
+        {/* Score card */}
         {!held && total > 0 && (
           <Card>
             <CardContent className="pt-6 space-y-4">
@@ -68,11 +90,61 @@ export default function ExamCompletePage() {
               <p className="text-xs text-muted-foreground text-center">
                 {pct}% — {pct >= 70 ? 'Pass' : 'Needs improvement'}
               </p>
-              <p className="text-xs text-muted-foreground text-center bg-yellow-50 rounded p-2">
-                Note: Essay questions require manual grading by your teacher.
-                Final score may be higher once essays are graded.
-              </p>
+              {needsGrading && (
+                <p className="text-xs text-muted-foreground text-center bg-yellow-50 rounded p-2">
+                  Essay / coding questions require manual grading. Final score may be higher once graded.
+                </p>
+              )}
             </CardContent>
+          </Card>
+        )}
+
+        {/* Per-question breakdown */}
+        {!held && perQuestion.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <button
+                onClick={() => setShowBreakdown(b => !b)}
+                className="flex items-center justify-between w-full text-start"
+              >
+                <CardTitle className="text-sm font-semibold">Question Breakdown</CardTitle>
+                {showBreakdown
+                  ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                  : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+              </button>
+            </CardHeader>
+            {showBreakdown && (
+              <CardContent className="pt-0 space-y-2 max-h-80 overflow-y-auto">
+                {perQuestion.map((q, i) => {
+                  const earned = q.marksAwarded;
+                  const full = q.marks;
+                  const isPending = (q.type === 'essay' || q.type === 'coding' || q.type === 'file_upload');
+                  const pctQ = full > 0 ? Math.round((earned / full) * 100) : 0;
+                  return (
+                    <div key={q.questionId} className="flex items-start gap-3 py-2 border-b last:border-0">
+                      <span className="text-xs font-bold text-muted-foreground w-5 shrink-0 mt-0.5">Q{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-gray-700 leading-snug line-clamp-2">{q.stem}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs capitalize text-muted-foreground">{q.type.replace('_', ' ')}</span>
+                          {!isPending && (
+                            <div className="h-1.5 flex-1 rounded-full bg-gray-100 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${pctQ >= 70 ? 'bg-green-500' : pctQ >= 40 ? 'bg-yellow-500' : 'bg-red-400'}`}
+                                style={{ width: `${pctQ}%` }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <span className={`text-xs font-semibold shrink-0 ${isPending ? 'text-muted-foreground' : pctQ === 100 ? 'text-green-600' : pctQ > 0 ? 'text-yellow-600' : 'text-red-500'}`}>
+                        {isPending ? 'Pending' : `${earned} / ${full}`}
+                      </span>
+                    </div>
+                  );
+                })}
+              </CardContent>
+            )}
           </Card>
         )}
 

@@ -311,21 +311,18 @@ export function generateQuestions(input: GenerateInput): GeneratedQuestion[] {
     },
   ];
 
+  // New matching format: options = left-side terms only; correctAnswer = ordered right-side labels.
+  // options[i] pairs with correctAnswer[i]. Students see right labels shuffled and must map them.
   const mockMatching: GeneratedQuestion[] = [
     {
       stem: 'Match each term from the material with its correct definition:',
       type: 'matching',
-      options: [
-        'Initialization — Setting up the system prior to first use',
-        'Processing — Transforming input data into desired output',
-        'Persistence — Storing state across multiple sessions',
-        'Validation — Verifying correctness of input or output',
-      ],
+      options: ['Initialization', 'Processing', 'Persistence', 'Validation'],
       correctAnswer: [
-        'Initialization — Setting up the system prior to first use',
-        'Processing — Transforming input data into desired output',
-        'Persistence — Storing state across multiple sessions',
-        'Validation — Verifying correctness of input or output',
+        'Setting up the system prior to first use',
+        'Transforming input data into desired output',
+        'Storing state across multiple sessions',
+        'Verifying correctness of input or output',
       ],
       difficulty,
       marks: 8,
@@ -333,17 +330,12 @@ export function generateQuestions(input: GenerateInput): GeneratedQuestion[] {
     {
       stem: 'Match each phase of the described lifecycle to its primary goal:',
       type: 'matching',
-      options: [
-        'Analysis — Understanding requirements and constraints',
-        'Design — Architecting the solution structure',
-        'Implementation — Writing and testing code',
-        'Deployment — Releasing to production environment',
-      ],
+      options: ['Analysis', 'Design', 'Implementation', 'Deployment'],
       correctAnswer: [
-        'Analysis — Understanding requirements and constraints',
-        'Design — Architecting the solution structure',
-        'Implementation — Writing and testing code',
-        'Deployment — Releasing to production environment',
+        'Understanding requirements and constraints',
+        'Architecting the solution structure',
+        'Writing and testing code',
+        'Releasing to production environment',
       ],
       difficulty,
       marks: 8,
@@ -351,35 +343,20 @@ export function generateQuestions(input: GenerateInput): GeneratedQuestion[] {
     {
       stem: 'Match each concept with the layer of the architecture it belongs to:',
       type: 'matching',
-      options: [
-        'Authentication — Security layer',
-        'Routing — Network layer',
-        'Caching — Performance layer',
-        'Logging — Observability layer',
-      ],
-      correctAnswer: [
-        'Authentication — Security layer',
-        'Routing — Network layer',
-        'Caching — Performance layer',
-        'Logging — Observability layer',
-      ],
+      options: ['Authentication', 'Routing', 'Caching', 'Logging'],
+      correctAnswer: ['Security layer', 'Network layer', 'Performance layer', 'Observability layer'],
       difficulty,
       marks: 8,
     },
     {
-      stem: 'Match each error type described in the document with its cause:',
+      stem: 'Match each error type with its cause:',
       type: 'matching',
-      options: [
-        'Timeout error — Response not received within allotted time',
-        'Validation error — Input does not meet schema requirements',
-        'Auth error — Missing or invalid credentials provided',
-        'Rate limit error — Too many requests in a given window',
-      ],
+      options: ['Timeout error', 'Validation error', 'Auth error', 'Rate limit error'],
       correctAnswer: [
-        'Timeout error — Response not received within allotted time',
-        'Validation error — Input does not meet schema requirements',
-        'Auth error — Missing or invalid credentials provided',
-        'Rate limit error — Too many requests in a given window',
+        'Response not received within allotted time',
+        'Input does not meet schema requirements',
+        'Missing or invalid credentials provided',
+        'Too many requests in a given window',
       ],
       difficulty,
       marks: 8,
@@ -387,17 +364,12 @@ export function generateQuestions(input: GenerateInput): GeneratedQuestion[] {
     {
       stem: 'Match each tool category with its purpose in the described workflow:',
       type: 'matching',
-      options: [
-        'Linter — Enforcing code style and catching errors early',
-        'Test runner — Executing automated test suites',
-        'Bundler — Packaging source code for deployment',
-        'Monitor — Tracking runtime metrics and alerts',
-      ],
+      options: ['Linter', 'Test runner', 'Bundler', 'Monitor'],
       correctAnswer: [
-        'Linter — Enforcing code style and catching errors early',
-        'Test runner — Executing automated test suites',
-        'Bundler — Packaging source code for deployment',
-        'Monitor — Tracking runtime metrics and alerts',
+        'Enforcing code style and catching errors early',
+        'Executing automated test suites',
+        'Packaging source code for deployment',
+        'Tracking runtime metrics and alerts',
       ],
       difficulty,
       marks: 8,

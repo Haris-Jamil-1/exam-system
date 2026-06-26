@@ -81,7 +81,19 @@ function QuestionPreview({ q, index, added, onAdd }: {
             </button>
           )}
 
-          {expanded && hasOptions && (
+          {expanded && hasOptions && q.type === 'matching' && (
+            <ul className="mt-2 space-y-1">
+              {q.options!.map((opt, j) => (
+                <li key={j} className="text-xs px-2.5 py-1.5 rounded bg-gray-50 flex items-center gap-2">
+                  <span className="font-semibold w-4">{j + 1}.</span>
+                  <span className="font-medium">{opt}</span>
+                  <span className="text-gray-400 mx-1">→</span>
+                  <span>{Array.isArray(q.correctAnswer) ? (q.correctAnswer as string[])[j] : ''}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {expanded && hasOptions && q.type !== 'matching' && (
             <ul className="mt-2 space-y-1">
               {q.options!.map((opt, j) => {
                 const isCorrect = Array.isArray(q.correctAnswer)
@@ -215,7 +227,19 @@ function ItemBankPicker({ selectedIds, onToggle }: {
                         {isExpanded ? 'Hide options' : `Show ${item.options!.length} options`}
                       </button>
                     )}
-                    {isExpanded && hasOptions && (
+                    {isExpanded && hasOptions && item.type === 'matching' && (
+                      <ul className="mt-2 space-y-1">
+                        {item.options!.map((opt, j) => (
+                          <li key={opt.id} className="text-xs px-2.5 py-1.5 rounded bg-gray-50 flex items-center gap-2">
+                            <span className="font-semibold w-4">{j + 1}.</span>
+                            <span className="font-medium">{opt.text}</span>
+                            <span className="text-gray-400 mx-1">→</span>
+                            <span>{Array.isArray(item.correctAnswer) ? (item.correctAnswer as string[])[j] : ''}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {isExpanded && hasOptions && item.type !== 'matching' && (
                       <ul className="mt-2 space-y-1">
                         {item.options!.map((opt, j) => (
                           <li

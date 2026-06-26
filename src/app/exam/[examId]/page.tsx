@@ -39,6 +39,10 @@ export default function ExamPage() {
   const [submitting, setSubmitting] = useState(false);
   const [attemptId, setAttemptId] = useState('');
   const [initialSeconds, setInitialSeconds] = useState(0);
+  // serverOffset: (serverNow - clientNow) in ms. Positive means client clock is behind.
+  const [serverOffset, setServerOffset] = useState(0);
+  // Waiting state: seconds until exam startTime; null = not in waiting phase
+  const [waitSeconds, setWaitSeconds] = useState<number | null>(null);
 
   // Biometric gate — shown before exam if proctoring level is strict
   const [biometricDone, setBiometricDone] = useState(false);
@@ -68,15 +72,34 @@ export default function ExamPage() {
   const autoAdvance  = !!settings?.autoAdvance;
   const allowPause   = settings?.allowPause !== false; // default true
 
-  // Load exam + questions + start/rehydrate attempt
+  // Load exam + questions; check start time before creating attempt
   useEffect(() => {
     async function load() {
-      const [e, q] = await Promise.all([getExamById(examId), getQuestionsForStudent(examId)]);
+      const [[e, q], timeRes] = await Promise.all([
+        Promise.all([getExamById(examId), getQuestionsForStudent(examId)]),
+        fetch('/api/time').then(r => r.json() as Promise<{ now: number }>),
+      ]);
       if (!e) return;
+
+      const offset = timeRes.now - Date.now(); // positive = client behind server
+      setServerOffset(offset);
       setExam(e);
       setCurrentExam(e);
       setQuestions(q);
 
+      const serverNow = Date.now() + offset;
+      const startMs = new Date(e.startTime).getTime();
+
+      // If exam hasn't started yet, show countdown — don't create attempt yet
+      if (startMs > serverNow) {
+        setWaitSeconds(Math.ceil((startMs - serverNow) / 1000));
+        return;
+      }
+
+      await beginAttempt(e, offset);
+    }
+
+    async function beginAttempt(e: Exam, offset: number) {
       const stored = sessionStorage.getItem(SESSION_KEY(examId));
       let session: AttemptSession;
 
@@ -94,11 +117,13 @@ export default function ExamPage() {
       }
 
       setAttemptId(session.attemptId);
-      const elapsedSeconds = Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 1000);
-      const remaining = Math.max(0, e.duration * 60 - elapsedSeconds);
+
+      // Use endTime - serverNow so the timer is anchored to the scheduled end, not duration
+      const serverNow = Date.now() + offset;
+      const endMs = new Date(e.endTime).getTime();
+      const remaining = Math.max(0, Math.floor((endMs - serverNow) / 1000));
       setInitialSeconds(remaining);
 
-      // Skip biometric gate if not strict proctoring
       if (e.settings.proctoringLevel !== 'strict') {
         setBiometricDone(true);
       }
@@ -106,7 +131,21 @@ export default function ExamPage() {
 
     load();
     return () => { resetExam(); };
-  }, [examId, resetExam, setCurrentExam, user?.id]);
+  }, [examId, resetExam, setCurrentExam, user?.id]); // eslint-disable-line
+
+  // Waiting-room countdown: tick down and auto-start when startTime is reached
+  useEffect(() => {
+    if (waitSeconds === null) return;
+    if (waitSeconds <= 0) {
+      setWaitSeconds(null);
+      // Re-run beginAttempt by triggering a load via state (simpler: reload the component)
+      // We reload the page so the full load() path runs cleanly once startTime has passed.
+      window.location.reload();
+      return;
+    }
+    const id = setInterval(() => setWaitSeconds(s => (s !== null ? Math.max(0, s - 1) : null)), 1000);
+    return () => clearInterval(id);
+  }, [waitSeconds]);
 
   // Auto-advance effect: when MCQ answer is set in autoAdvance mode, move to next
   useEffect(() => {
@@ -139,7 +178,7 @@ export default function ExamPage() {
             return { questionId, path };
           })
       );
-      const mergedAnswers: Record<string, string | string[]> = { ...answers };
+      const mergedAnswers: Record<string, string | string[] | Record<string, string>> = { ...answers };
       for (const result of fileUploads) {
         if (result.status === 'fulfilled') {
           mergedAnswers[result.value.questionId] = result.value.path;
@@ -151,8 +190,15 @@ export default function ExamPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ examId, answers: mergedAnswers, violationCount, trustScore }),
       });
-      const submitResult = await res.json() as { score: number; totalMarks: number; scorePercentage: number };
+      const submitResult = await res.json() as {
+        score: number; totalMarks: number; scorePercentage: number;
+        perQuestion: Array<{ questionId: string; stem: string; type: string; marks: number; marksAwarded: number }>;
+      };
       sessionStorage.removeItem(SESSION_KEY(examId));
+      // Store per-question breakdown for the completion page
+      if (submitResult.perQuestion) {
+        sessionStorage.setItem(`exam_result_${examId}`, JSON.stringify(submitResult.perQuestion));
+      }
       const heldParam = exam.settings.resultsVisibility === 'held' ? '&held=1' : '';
       router.push(
         `/exam/${examId}/complete?score=${submitResult.score}&total=${submitResult.totalMarks}&pct=${submitResult.scorePercentage}${heldParam}`
@@ -169,6 +215,39 @@ export default function ExamPage() {
   function handleSubmitConfirm() {
     setShowSubmitModal(false);
     void doSubmit();
+  }
+
+  // ── Pre-exam waiting room ─────────────────────────────────────────────────────
+  if (waitSeconds !== null && exam) {
+    const wm = Math.floor(waitSeconds / 60);
+    const ws = waitSeconds % 60;
+    return (
+      <DesktopGuard>
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+          <div className="max-w-sm w-full text-center space-y-6">
+            <div className="inline-flex h-20 w-20 rounded-full bg-blue-100 items-center justify-center mx-auto">
+              <Clock className="h-10 w-10 text-blue-600" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">{exam.title}</h1>
+              <p className="text-muted-foreground mt-1">Exam hasn&apos;t started yet</p>
+            </div>
+            <div className="rounded-2xl border bg-white p-6 shadow-sm space-y-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Starts in</p>
+              <p className="text-5xl font-mono font-bold text-blue-600">
+                {String(wm).padStart(2, '0')}:{String(ws).padStart(2, '0')}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {new Date(exam.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              The exam will open automatically when the timer reaches zero. Keep this page open.
+            </p>
+          </div>
+        </div>
+      </DesktopGuard>
+    );
   }
 
   // ── Biometric gate ────────────────────────────────────────────────────────────
@@ -400,8 +479,42 @@ export default function ExamPage() {
               />
             )}
 
-            {/* Matching */}
-            {q.type === 'matching' && q.options && (
+            {/* Matching — new format: left column + shuffled right dropdown */}
+            {q.type === 'matching' && q.options && q.matchingChoices && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-[1fr_auto_1fr] gap-x-3 items-center text-xs font-medium text-muted-foreground mb-1 px-1">
+                  <span>Term</span><span /><span>Match</span>
+                </div>
+                {q.options.map(opt => {
+                  const matchMap = (answers[q.id] as unknown as Record<string, string> | undefined) ?? {};
+                  const selected = matchMap[opt.id] ?? '';
+                  return (
+                    <div key={opt.id} className="grid grid-cols-[1fr_auto_1fr] gap-x-3 items-center">
+                      <div className="rounded-lg border bg-gray-50 px-4 py-3 text-sm font-medium truncate">{opt.text}</div>
+                      <span className="text-gray-400 text-xs">→</span>
+                      <select
+                        value={selected}
+                        onChange={e => {
+                          const cur = (answers[q.id] as unknown as Record<string, string> | undefined) ?? {};
+                          setAnswer(q.id, { ...cur, [opt.id]: e.target.value });
+                        }}
+                        className={cn(
+                          'w-full rounded-lg border px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white',
+                          selected ? 'border-blue-400' : 'border-gray-200 text-muted-foreground',
+                        )}
+                      >
+                        <option value="">— select —</option>
+                        {q.matchingChoices!.map(choice => (
+                          <option key={choice} value={choice}>{choice}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {/* Matching — legacy format (full pair in text, old data) */}
+            {q.type === 'matching' && q.options && !q.matchingChoices && (
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">Select all correct matches</p>
                 {q.options.map(opt => {
@@ -553,8 +666,8 @@ export default function ExamPage() {
 interface OrderingProps {
   questionId: string;
   options: { id: string; text: string }[];
-  answers: Record<string, string | string[]>;
-  setAnswer: (qId: string, value: string | string[]) => void;
+  answers: Record<string, string | string[] | Record<string, string>>;
+  setAnswer: (qId: string, value: string | string[] | Record<string, string>) => void;
 }
 
 function OrderingQuestion({ questionId, options, answers, setAnswer }: OrderingProps) {

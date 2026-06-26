@@ -4,11 +4,11 @@ import type { Exam } from '@/types';
 interface ExamStore {
   currentExam: Exam | null;
   currentQuestionIndex: number;
-  answers: Record<string, string | string[]>;
+  answers: Record<string, string | string[] | Record<string, string>>;
   flaggedQuestions: Set<string>;
   timeRemaining: number;
   setCurrentExam: (exam: Exam) => void;
-  setAnswer: (questionId: string, response: string | string[]) => void;
+  setAnswer: (questionId: string, response: string | string[] | Record<string, string>) => void;
   nextQuestion: () => void;
   prevQuestion: () => void;
   goToQuestion: (index: number) => void;

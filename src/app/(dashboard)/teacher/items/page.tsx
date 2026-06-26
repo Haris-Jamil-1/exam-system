@@ -55,6 +55,7 @@ function ItemRow({ item, onSubmit, onArchive }: { item: Item; onSubmit: (id: str
   const [submitting, setSubmitting] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const hasOptions = item.options && item.options.length > 0;
+  const hasExpandable = hasOptions || !!item.correctAnswer;
   const flag = psychometricFlag(item);
 
   async function handleSubmit() {
@@ -74,16 +75,16 @@ function ItemRow({ item, onSubmit, onArchive }: { item: Item; onSubmit: (id: str
       <tr className="hover:bg-muted/30 transition-colors">
         <td className="px-4 py-3">
           <div className="flex items-start gap-2">
-            {hasOptions && (
+            {hasExpandable && (
               <button
                 onClick={() => setExpanded(e => !e)}
                 className="mt-0.5 text-muted-foreground hover:text-gray-700 shrink-0"
-                title={expanded ? 'Collapse' : 'Show options'}
+                title={expanded ? 'Collapse' : hasOptions ? 'Show options' : 'Show answer'}
               >
                 {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               </button>
             )}
-            {!hasOptions && <span className="w-4 shrink-0" />}
+            {!hasExpandable && <span className="w-4 shrink-0" />}
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <p className="font-medium text-sm leading-snug line-clamp-2">{item.stem}</p>
@@ -179,6 +180,22 @@ function ItemRow({ item, onSubmit, onArchive }: { item: Item; onSubmit: (id: str
           </div>
         </td>
       </tr>
+
+      {/* Expanded: correct answer for text-based types */}
+      {expanded && !hasOptions && item.correctAnswer && (
+        <tr className="bg-muted/20">
+          <td colSpan={9} className="px-4 pb-3 pt-0">
+            <div className="ms-6 flex items-center gap-2 rounded-lg border bg-green-50 px-3 py-2">
+              <Check className="h-3.5 w-3.5 text-green-600 shrink-0" />
+              <span className="text-xs font-medium text-green-800">Correct answer:</span>
+              <span className="text-xs text-green-700">{String(item.correctAnswer)}</span>
+            </div>
+            {item.explanation && (
+              <p className="ms-6 mt-2 text-xs text-muted-foreground italic border-s-2 border-blue-200 ps-2">{item.explanation}</p>
+            )}
+          </td>
+        </tr>
+      )}
 
       {/* Expanded options row */}
       {expanded && hasOptions && (

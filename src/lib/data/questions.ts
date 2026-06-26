@@ -49,10 +49,60 @@ function mapQuestion(q: PrismaQuestion): Question {
 
 export async function getQuestionsForStudent(examId: string): Promise<PublicQuestion[]> {
   const all = await getQuestions(examId);
-  return all.map(({ correctAnswer: _ca, explanation: _ex, options, ...rest }) => ({
-    ...rest,
-    options: options?.map(({ isCorrect: _ic, ...opt }) => opt),
-  }));
+  return all.map(({ correctAnswer, explanation: _ex, options, type, ...rest }) => {
+    if (type === 'matching' && options?.length) {
+      // ── New format ──────────────────────────────────────────────────────────
+      // correctAnswer is ordered string[] of right-side labels (options[i] ↔ correctAnswer[i]).
+      if (Array.isArray(correctAnswer)) {
+        const rightLabels = correctAnswer as string[];
+        // Detect new vs legacy: new format has actual text, not option IDs.
+        const isNewFormat = !options.some(o => rightLabels.includes(o.id));
+        if (isNewFormat) {
+          return {
+            ...rest, type,
+            options: options.map(({ isCorrect: _ic, ...opt }) => opt),
+            matchingChoices: shuffled(rightLabels),
+          };
+        }
+      }
+      // ── Legacy format ───────────────────────────────────────────────────────
+      // option.text contains the full pair, e.g. "Stack — Function call management".
+      // Split on common separators so students only see the left-side term; the
+      // right-side labels are returned shuffled in matchingChoices.
+      const pairs = options.map(o => splitPair(o.text));
+      if (pairs.every(p => p !== null)) {
+        return {
+          ...rest, type,
+          options: options.map((o, i) => ({ id: o.id, text: pairs[i]!.left })),
+          matchingChoices: shuffled(pairs.map(p => p!.right)),
+        };
+      }
+      // Fallback: can't split — return options without isCorrect (answer still somewhat visible,
+      // but at least the isCorrect flag and correctAnswer are stripped).
+      return { ...rest, type, options: options.map(({ isCorrect: _ic, ...opt }) => opt) };
+    }
+
+    return {
+      ...rest,
+      type,
+      options: options?.map(({ isCorrect: _ic, ...opt }) => opt),
+    };
+  });
+}
+
+function splitPair(text: string): { left: string; right: string } | null {
+  // Matches separators: " — ", " → ", " - ", ": ", " = ", " | "
+  const m = text.match(/^(.+?)\s*(?:—|→|–|-|:|\|)\s*(.+)$/);
+  return m ? { left: m[1].trim(), right: m[2].trim() } : null;
+}
+
+function shuffled<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
 export async function getQuestions(examId: string): Promise<Question[]> {

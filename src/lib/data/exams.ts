@@ -158,18 +158,25 @@ export async function deleteExam(id: string): Promise<boolean> {
 
 export type ConflictingStudent = { id: string; name: string; email: string };
 export type ScheduleConflict = {
-  conflictingExam: { id: string; title: string; teacher: string; startTime: string; endTime: string };
+  conflictingExam: {
+    id: string; title: string; teacher: string;
+    startTime: string; endTime: string;
+    status: 'scheduled' | 'live';
+  };
   affectedStudents: ConflictingStudent[];
 };
+
+// Accepts either the global prisma client or a transaction client
+type DbClient = Pick<typeof prisma, 'teacherStudent' | 'exam'>;
 
 export async function checkScheduleConflicts(
   teacherId: string,
   startTime: Date,
   endTime: Date,
   excludeExamId?: string,
+  db: DbClient = prisma,
 ): Promise<ScheduleConflict[]> {
-  // Which students are in this teacher's class?
-  const teacherStudents = await prisma.teacherStudent.findMany({
+  const teacherStudents = await db.teacherStudent.findMany({
     where: { teacherId },
     select: { studentId: true },
   });
@@ -177,17 +184,20 @@ export async function checkScheduleConflicts(
 
   const studentIds = teacherStudents.map(r => r.studentId);
 
-  // Find all approved/scheduled/live exams that overlap with the given slot
-  const overlapping = await prisma.exam.findMany({
+  const overlapping = await db.exam.findMany({
     where: {
-      id: excludeExamId ? { not: excludeExamId } : undefined,
+      // Exclude the exam being scheduled so it never conflicts with itself
+      ...(excludeExamId && { id: { not: excludeExamId } }),
       approvalStatus: 'approved',
       status: { in: ['scheduled', 'live'] },
-      startTime: { lt: endTime },   // existing starts before new ends
-      endTime:   { gt: startTime }, // existing ends after new starts
+      // Overlap: existing.startTime < newEnd  AND  existing.endTime > newStart
+      // All values are UTC Date objects — Prisma stores/compares in UTC
+      startTime: { lt: endTime },
+      endTime:   { gt: startTime },
     },
     select: {
-      id: true, title: true, startTime: true, endTime: true, teacherId: true,
+      id: true, title: true, status: true,
+      startTime: true, endTime: true, teacherId: true,
       teacher: { select: { name: true } },
     },
   });
@@ -196,8 +206,7 @@ export async function checkScheduleConflicts(
   const conflicts: ScheduleConflict[] = [];
 
   for (const exam of overlapping) {
-    // Which of our teacher's students also belong to the conflicting exam's teacher?
-    const affected = await prisma.teacherStudent.findMany({
+    const affected = await db.teacherStudent.findMany({
       where: { teacherId: exam.teacherId, studentId: { in: studentIds } },
       select: { student: { select: { id: true, name: true, email: true } } },
     });
@@ -207,6 +216,7 @@ export async function checkScheduleConflicts(
           id: exam.id,
           title: exam.title,
           teacher: exam.teacher.name,
+          status: exam.status as 'scheduled' | 'live',
           startTime: exam.startTime.toISOString(),
           endTime: exam.endTime.toISOString(),
         },
@@ -216,6 +226,43 @@ export async function checkScheduleConflicts(
   }
 
   return conflicts;
+}
+
+/**
+ * Atomically checks for schedule conflicts and, if none, applies the update.
+ * Runs inside a SERIALIZABLE transaction so two concurrent approvals cannot
+ * both pass the conflict check and both write.
+ *
+ * Returns { conflicts } if blocked, or { exam } on success.
+ */
+export async function scheduleExamAtomically(
+  examId: string,
+  teacherId: string,
+  startTime: Date,
+  endTime: Date,
+  updateData: Record<string, unknown>,
+): Promise<{ conflicts: ScheduleConflict[] } | { exam: Exam }> {
+  type TxResult = { conflicts: ScheduleConflict[] } | { row: PrismaExam & { _count: { questions: number; enrollments: number } } };
+
+  const result = await prisma.$transaction(async (tx) => {
+    const db = tx as unknown as DbClient;
+    const conflicts = await checkScheduleConflicts(teacherId, startTime, endTime, examId, db);
+    if (conflicts.length > 0) return { conflicts } as TxResult;
+
+    const row = await tx.exam.update({
+      where: { id: examId },
+      data: updateData,
+      include: { _count: { select: COUNT_SELECT } },
+    });
+    return { row } as TxResult;
+  }, {
+    isolationLevel: 'Serializable' as const,
+    maxWait: 5000,
+    timeout: 10000,
+  });
+
+  if ('conflicts' in result) return result;
+  return { exam: mapExam(result.row as PrismaExam) };
 }
 
 export async function getExamStats(examId: string): Promise<StatValue[]> {

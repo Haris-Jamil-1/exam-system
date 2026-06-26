@@ -59,12 +59,15 @@ interface TestCaseRow {
 export default function NewItemPage() {
   const router = useRouter();
   const [qType, setQType] = useState<QuestionType>('mcq');
-  const [options, setOptions] = useState<Option[]>([
+  // matchText is form-only state for matching questions (stored in correctAnswer on save, not in options)
+  const [options, setOptions] = useState<(Option & { matchText?: string })[]>([
     { id: 'opt-1', text: '', isCorrect: false },
     { id: 'opt-2', text: '', isCorrect: false },
     { id: 'opt-3', text: '', isCorrect: false },
     { id: 'opt-4', text: '', isCorrect: false },
   ]);
+  // fill_blank / short_answer correct answer text (no option list for these types)
+  const [correctAnswerText, setCorrectAnswerText] = useState('');
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -124,6 +127,10 @@ export default function NewItemPage() {
     setOptions(prev => prev.map(o => o.id === id ? { ...o, text } : o));
   }
 
+  function updateMatchText(id: string, matchText: string) {
+    setOptions(prev => prev.map(o => o.id === id ? { ...o, matchText } : o));
+  }
+
   // Test case helpers
   function addTestCase() {
     setTestCases(prev => [...prev, { id: `tc-${Date.now()}`, input: '', expectedOutput: '', isHidden: false }]);
@@ -146,13 +153,26 @@ export default function NewItemPage() {
   async function onSubmit(data: FormData) {
     const tags = data.tags ? data.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
     const showOptions = ['mcq', 'mrq', 'true_false', 'matching', 'ordering'].includes(qType);
-    const correct = options.filter(o => o.isCorrect).map(o => o.text);
+    const filledOptions = options.filter(o => o.text.trim());
+
+    // Matching: correctAnswer is ordered array of right-side labels (one per option, same index = same pair).
+    // Options store only the left-side term; isCorrect is irrelevant for matching.
+    let correctAnswer: string | string[] | undefined;
+    if (qType === 'matching') {
+      correctAnswer = filledOptions.map(o => o.matchText?.trim() ?? '');
+    } else if (qType === 'mrq') {
+      correctAnswer = options.filter(o => o.isCorrect).map(o => o.text);
+    } else if (qType === 'fill_blank' || qType === 'short_answer') {
+      correctAnswer = correctAnswerText.trim() || undefined;
+    } else {
+      correctAnswer = options.find(o => o.isCorrect)?.text;
+    }
 
     await createItem({
       type: qType,
       stem: data.stem,
-      options: showOptions ? options.filter(o => o.text.trim()) : undefined,
-      correctAnswer: qType === 'mrq' ? correct : correct[0],
+      options: showOptions ? filledOptions.map(({ matchText: _mt, ...o }) => o) : undefined,
+      correctAnswer,
       marks: data.marks,
       difficulty: data.difficulty,
       order: 0,
@@ -262,35 +282,81 @@ export default function NewItemPage() {
             {/* Options / Alternatives */}
             {showOptions && (
               <Card>
-                <CardHeader><CardTitle>Answer Options</CardTitle></CardHeader>
+                <CardHeader>
+                  <CardTitle>{qType === 'matching' ? 'Matching Pairs' : 'Answer Options'}</CardTitle>
+                </CardHeader>
                 <CardContent className="space-y-2">
+                  {qType === 'matching' && (
+                    <div className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 mb-1 px-1">
+                      <span className="text-xs font-medium text-muted-foreground">Term (left column)</span>
+                      <span />
+                      <span className="text-xs font-medium text-muted-foreground">Match (right column)</span>
+                      <span />
+                    </div>
+                  )}
                   {options.map((opt, i) => (
-                    <div key={opt.id} className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => toggleCorrect(opt.id)}
-                        className={`h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-                          opt.isCorrect ? 'border-green-500 bg-green-500' : 'border-gray-300'
-                        }`}
-                      >
-                        {opt.isCorrect && <Check className="h-3 w-3 text-white" />}
-                      </button>
-                      <span className="text-xs font-medium text-gray-400 w-4">{String.fromCharCode(65 + i)}</span>
+                    <div key={opt.id} className={`flex items-center gap-2 ${qType === 'matching' ? 'grid grid-cols-[1fr_auto_1fr_auto] gap-2' : ''}`}>
+                      {qType !== 'matching' && (
+                        <button
+                          type="button"
+                          onClick={() => toggleCorrect(opt.id)}
+                          className={`h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                            opt.isCorrect ? 'border-green-500 bg-green-500' : 'border-gray-300'
+                          }`}
+                        >
+                          {opt.isCorrect && <Check className="h-3 w-3 text-white" />}
+                        </button>
+                      )}
+                      {qType !== 'matching' && (
+                        <span className="text-xs font-medium text-gray-400 w-4">{String.fromCharCode(65 + i)}</span>
+                      )}
                       <Input
-                        placeholder={`Option ${String.fromCharCode(65 + i)}`}
+                        placeholder={qType === 'matching' ? `Term ${i + 1}` : `Option ${String.fromCharCode(65 + i)}`}
                         value={opt.text}
                         onChange={e => updateOption(opt.id, e.target.value)}
                         className="flex-1"
                       />
+                      {qType === 'matching' && (
+                        <>
+                          <span className="text-gray-400 text-xs">→</span>
+                          <Input
+                            placeholder={`Match ${i + 1}`}
+                            value={opt.matchText ?? ''}
+                            onChange={e => updateMatchText(opt.id, e.target.value)}
+                            className="flex-1"
+                          />
+                        </>
+                      )}
                       <button type="button" onClick={() => removeOption(opt.id)} className="text-red-400 hover:text-red-600">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                   ))}
                   <Button type="button" variant="outline" size="sm" onClick={addOption} className="gap-1">
-                    <Plus className="h-3 w-3" /> Add Option
+                    <Plus className="h-3 w-3" /> {qType === 'matching' ? 'Add Pair' : 'Add Option'}
                   </Button>
-                  <p className="text-xs text-muted-foreground">Click the circle to mark the correct answer(s)</p>
+                  {qType !== 'matching' && (
+                    <p className="text-xs text-muted-foreground">Click the circle to mark the correct answer(s)</p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Correct answer for text-based types */}
+            {(qType === 'fill_blank' || qType === 'short_answer') && (
+              <Card>
+                <CardHeader><CardTitle>Correct Answer</CardTitle></CardHeader>
+                <CardContent className="space-y-2">
+                  <Input
+                    placeholder={qType === 'fill_blank' ? 'Expected answer (exact match, case-insensitive)' : 'Model answer for auto-grading'}
+                    value={correctAnswerText}
+                    onChange={e => setCorrectAnswerText(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {qType === 'fill_blank'
+                      ? 'Student responses are compared case-insensitively.'
+                      : 'Short-answer auto-grading uses exact case-insensitive match. Leave blank for manual grading.'}
+                  </p>
                 </CardContent>
               </Card>
             )}
