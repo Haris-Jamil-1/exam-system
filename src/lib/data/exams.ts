@@ -154,6 +154,70 @@ export async function deleteExam(id: string): Promise<boolean> {
   }
 }
 
+// ── Schedule conflict detection ───────────────────────────────────────────────
+
+export type ConflictingStudent = { id: string; name: string; email: string };
+export type ScheduleConflict = {
+  conflictingExam: { id: string; title: string; teacher: string; startTime: string; endTime: string };
+  affectedStudents: ConflictingStudent[];
+};
+
+export async function checkScheduleConflicts(
+  teacherId: string,
+  startTime: Date,
+  endTime: Date,
+  excludeExamId?: string,
+): Promise<ScheduleConflict[]> {
+  // Which students are in this teacher's class?
+  const teacherStudents = await prisma.teacherStudent.findMany({
+    where: { teacherId },
+    select: { studentId: true },
+  });
+  if (teacherStudents.length === 0) return [];
+
+  const studentIds = teacherStudents.map(r => r.studentId);
+
+  // Find all approved/scheduled/live exams that overlap with the given slot
+  const overlapping = await prisma.exam.findMany({
+    where: {
+      id: excludeExamId ? { not: excludeExamId } : undefined,
+      approvalStatus: 'approved',
+      status: { in: ['scheduled', 'live'] },
+      startTime: { lt: endTime },   // existing starts before new ends
+      endTime:   { gt: startTime }, // existing ends after new starts
+    },
+    select: {
+      id: true, title: true, startTime: true, endTime: true, teacherId: true,
+      teacher: { select: { name: true } },
+    },
+  });
+  if (overlapping.length === 0) return [];
+
+  const conflicts: ScheduleConflict[] = [];
+
+  for (const exam of overlapping) {
+    // Which of our teacher's students also belong to the conflicting exam's teacher?
+    const affected = await prisma.teacherStudent.findMany({
+      where: { teacherId: exam.teacherId, studentId: { in: studentIds } },
+      select: { student: { select: { id: true, name: true, email: true } } },
+    });
+    if (affected.length > 0) {
+      conflicts.push({
+        conflictingExam: {
+          id: exam.id,
+          title: exam.title,
+          teacher: exam.teacher.name,
+          startTime: exam.startTime.toISOString(),
+          endTime: exam.endTime.toISOString(),
+        },
+        affectedStudents: affected.map(r => r.student),
+      });
+    }
+  }
+
+  return conflicts;
+}
+
 export async function getExamStats(examId: string): Promise<StatValue[]> {
   const exam = await prisma.exam.findUnique({
     where: { id: examId },

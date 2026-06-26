@@ -5,10 +5,11 @@ import { useTranslations } from 'next-intl';
 import {
   ClipboardCheck, GraduationCap, Users, ShieldCheck,
   ArrowUpRight, CheckCircle2, XCircle, Clock, Radio,
-  FileText, UserPlus, BarChart3, Building2,
+  FileText, UserPlus, BarChart3, Building2, AlertTriangle, X,
 } from 'lucide-react';
 import type { StatValue } from '@/types';
 import { getAdminDashboardData } from '@/lib/data';
+import type { ScheduleConflict } from '@/lib/data/exams';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import type { PendingExam } from '@/types';
 
@@ -44,6 +45,7 @@ export default function AdminDashboard() {
   const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
   const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
   const [institutionName, setInstitutionName] = useState('');
+  const [conflictModal, setConflictModal] = useState<{ examTitle: string; conflicts: ScheduleConflict[] } | null>(null);
 
   useEffect(() => {
     getAdminDashboardData().then(({ stats: s, pendingExams: p, approvedExams: a, teachers: t, institution: inst }) => {
@@ -59,12 +61,18 @@ export default function AdminDashboard() {
   const visiblePending = pending.filter(e => !approvedIds.has(e.id) && !rejectedIds.has(e.id));
 
   async function approve(id: string) {
-    await fetch(`/api/exams/${id}`, {
+    const examTitle = pending.find(e => e.id === id)?.title ?? 'This exam';
+    const res = await fetch(`/api/exams/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ approvalStatus: 'approved', status: 'scheduled' }),
     });
-    setApprovedIds(prev => new Set([...prev, id]));
+    if (res.status === 409) {
+      const body = await res.json() as { conflicts: ScheduleConflict[] };
+      setConflictModal({ examTitle, conflicts: body.conflicts });
+      return;
+    }
+    if (res.ok) setApprovedIds(prev => new Set([...prev, id]));
   }
   async function reject(id: string) {
     await fetch(`/api/exams/${id}`, {
@@ -82,6 +90,7 @@ export default function AdminDashboard() {
   };
 
   return (
+    <>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -284,5 +293,69 @@ export default function AdminDashboard() {
         </div>
       </div>
     </div>
+
+    {/* ── Schedule conflict modal ─────────────────────────────────────────── */}
+    {/* Schedule conflict modal */}
+    {conflictModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+          {/* Header */}
+          <div className="flex items-start gap-3 p-5 border-b border-gray-100">
+            <div className="flex-shrink-0 w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center">
+              <AlertTriangle className="h-5 w-5 text-amber-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-base font-semibold text-gray-900">Schedule Conflict Detected</h2>
+              <p className="text-sm text-gray-500 mt-0.5">
+                <strong className="text-gray-700">{conflictModal.examTitle}</strong> cannot be approved — some students already have exams at this time.
+              </p>
+            </div>
+            <button onClick={() => setConflictModal(null)} className="flex-shrink-0 text-gray-400 hover:text-gray-600">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {/* Conflicts */}
+          <div className="p-5 space-y-4 max-h-96 overflow-y-auto">
+            {conflictModal.conflicts.map((c, i) => (
+              <div key={i} className="rounded-xl border border-amber-100 bg-amber-50 p-4 space-y-3">
+                <div>
+                  <p className="text-xs font-medium text-amber-700 uppercase tracking-wide mb-1">Conflicting exam</p>
+                  <p className="font-semibold text-gray-900 text-sm">{c.conflictingExam.title}</p>
+                  <p className="text-xs text-gray-500">by {c.conflictingExam.teacher}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {new Date(c.conflictingExam.startTime).toLocaleString()} – {new Date(c.conflictingExam.endTime).toLocaleString()}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-amber-700 uppercase tracking-wide mb-1">
+                    Affected students ({c.affectedStudents.length})
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {c.affectedStudents.map(s => (
+                      <span key={s.id} className="inline-flex items-center rounded-full bg-white border border-amber-200 px-2.5 py-0.5 text-xs text-gray-700">
+                        {s.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Footer */}
+          <div className="px-5 pb-5">
+            <p className="text-xs text-gray-400 mb-3">Reschedule the exam to a different time slot to resolve the conflict, then try approving again.</p>
+            <button
+              onClick={() => setConflictModal(null)}
+              className="w-full rounded-lg bg-gray-900 text-white text-sm font-medium py-2 hover:bg-gray-700 transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
