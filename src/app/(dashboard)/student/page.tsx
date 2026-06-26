@@ -96,7 +96,7 @@ export default function StudentDashboard() {
                 <Play className="h-4 w-4" />
                 {a('startExam')}
               </Link>
-              <span className="text-[13px] text-white/70">Today, {available[0].schedule.split(', ')[1] ?? available[0].schedule}</span>
+              <span className="text-[13px] text-white/70">Today, {new Date(available[0].schedule).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
           </div>
         </div>
@@ -127,7 +127,7 @@ export default function StudentDashboard() {
                       <p className="text-[12px] text-[#9CA3AF]">{exam.course} · {exam.durationMins} min</p>
                     </div>
                     <div className="text-end flex-shrink-0">
-                      <p className="text-[13px] font-semibold text-[#1A1D23]">{exam.schedule}</p>
+                      <p className="text-[13px] font-semibold text-[#1A1D23]">{new Date(exam.schedule).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, {new Date(exam.schedule).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                       <p className="text-[11px] text-[#9CA3AF]">{exam.questions} questions</p>
                     </div>
                   </li>

@@ -282,13 +282,14 @@ function DateTimeField({ onChange }: { onChange: (v: string) => void }) {
   function handleDate(e: React.ChangeEvent<HTMLInputElement>) {
     const d = e.target.value;
     setDate(d);
-    onChange(d && time ? `${d}T${time}` : '');
+    // Convert to UTC ISO using browser timezone so server stores the correct UTC instant
+    onChange(d && time ? new Date(`${d}T${time}`).toISOString() : '');
   }
 
   function handleTime(e: React.ChangeEvent<HTMLInputElement>) {
     const t = e.target.value;
     setTime(t);
-    onChange(date && t ? `${date}T${t}` : '');
+    onChange(date && t ? new Date(`${date}T${t}`).toISOString() : '');
   }
 
   return (

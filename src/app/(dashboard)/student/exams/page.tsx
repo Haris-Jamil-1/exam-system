@@ -137,8 +137,12 @@ export default function StudentExamsPage() {
                     </div>
                   </td>
                   <td className="px-5 py-4">
-                    <p className="text-[13px] font-semibold text-[#1A1D23]">{exam.schedule.split(',')[0]}</p>
-                    <p className="text-[11px] text-[#9CA3AF]">{exam.schedule.split(', ')[1] ?? ''}</p>
+                    <p className="text-[13px] font-semibold text-[#1A1D23]">
+                      {new Date(exam.schedule).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </p>
+                    <p className="text-[11px] text-[#9CA3AF]">
+                      {new Date(exam.schedule).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
                   </td>
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-1 text-[13px] text-[#6B7280]">
@@ -201,7 +205,7 @@ export default function StudentExamsPage() {
                     <p className="text-[14px] font-semibold text-[#1A1D23]">{exam.title}</p>
                     <p className="text-[12px] text-[#9CA3AF]">{exam.course}</p>
                     <div className="mt-2 flex flex-wrap gap-3 text-[12px] text-[#6B7280]">
-                      <span className="flex items-center gap-1"><Calendar className="h-3.5 w-3.5" /> {exam.schedule}</span>
+                      <span className="flex items-center gap-1"><Calendar className="h-3.5 w-3.5" /> {new Date(exam.schedule).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, {new Date(exam.schedule).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                       <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {exam.durationMins} min</span>
                     </div>
                     {exam.status === 'completed' && exam.score !== undefined && (
