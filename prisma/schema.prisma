@@ -118,16 +118,32 @@ model User {
   institutionId String
   createdAt     DateTime @default(now())
 
-  institution Institution      @relation(fields: [institutionId], references: [id])
-  exams       Exam[]           @relation("ExamTeacher")
-  items       Item[]           @relation("ItemAuthor")
-  attempts    ExamAttempt[]
-  violations  Violation[]
-  enrollments ExamEnrollment[]
-  invitesSent InviteToken[]    @relation("InvitedBy")
+  institution     Institution      @relation(fields: [institutionId], references: [id])
+  exams           Exam[]           @relation("ExamTeacher")
+  items           Item[]           @relation("ItemAuthor")
+  attempts        ExamAttempt[]
+  violations      Violation[]
+  enrollments     ExamEnrollment[]
+  invitesSent     InviteToken[]    @relation("InvitedBy")
+  teacherStudents TeacherStudent[] @relation("TeacherStudents")
+  studentTeachers TeacherStudent[] @relation("StudentTeachers")
 
   @@index([institutionId])
   @@index([institutionId, role])
+}
+
+model TeacherStudent {
+  id        String   @id @default(cuid())
+  teacherId String
+  studentId String
+  createdAt DateTime @default(now())
+
+  teacher User @relation("TeacherStudents", fields: [teacherId], references: [id], onDelete: Cascade)
+  student User @relation("StudentTeachers", fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([teacherId, studentId])
+  @@index([teacherId])
+  @@index([studentId])
 }
 
 model InviteToken {

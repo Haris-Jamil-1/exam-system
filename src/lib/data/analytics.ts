@@ -37,7 +37,9 @@ export async function getDashboardStats(): Promise<StatValue[]> {
     : { institutionId };
   const [activeExams, totalStudents, pendingReviews, trustAgg] = await Promise.all([
     prisma.exam.count({ where: { ...examFilter, status: 'live' } }),
-    prisma.user.count({ where: { institutionId, role: 'student' } }),
+    role === 'teacher' && prismaUserId
+      ? prisma.teacherStudent.count({ where: { teacherId: prismaUserId } })
+      : prisma.user.count({ where: { institutionId, role: 'student' } }),
     prisma.violation.count({
       where: { exam: examFilter, severity: 'high' },
     }),
@@ -251,21 +253,25 @@ export async function getRecentAlerts() {
 }
 
 export async function getStudentExams() {
-  const { supabaseId, teacherIds } = await getSession();
+  const { supabaseId } = await getSession();
   if (!supabaseId) return [];
-  const student = await prisma.user.findUnique({ where: { supabaseId } });
+
+  const student = await prisma.user.findUnique({
+    where: { supabaseId },
+    include: { studentTeachers: { select: { teacherId: true } } },
+  });
   if (!student) return [];
 
+  const teacherIds = student.studentTeachers.map(r => r.teacherId);
   const now = new Date();
 
   const [exams, attempts] = await Promise.all([
     prisma.exam.findMany({
-      // Scope to the teacher(s) who invited this student; fall back to all institution exams
       where: {
         institutionId: student.institutionId,
         approvalStatus: 'approved',
         status: { in: ['scheduled', 'live', 'completed'] },
-        ...(teacherIds?.length ? { teacherId: { in: teacherIds } } : {}),
+        ...(teacherIds.length ? { teacherId: { in: teacherIds } } : {}),
       },
       include: { _count: { select: { questions: true } } },
       orderBy: { startTime: 'asc' },
@@ -393,7 +399,10 @@ export async function getTeacherDashboardData() {
 
   const [activeExams, totalStudents, pendingReviews, trustAgg, examRows, alertRows] = await Promise.all([
     prisma.exam.count({ where: { ...examFilter, status: 'live' } }),
-    prisma.user.count({ where: { institutionId, role: 'student' } }),
+    // Count only this teacher's own students (not all institution students)
+    role === 'teacher' && prismaUserId
+      ? prisma.teacherStudent.count({ where: { teacherId: prismaUserId } })
+      : prisma.user.count({ where: { institutionId, role: 'student' } }),
     prisma.violation.count({ where: { exam: examFilter, severity: 'high' } }),
     prisma.examAttempt.aggregate({ where: { exam: examFilter }, _avg: { trustScore: true } }),
     prisma.exam.findMany({
@@ -438,12 +447,17 @@ export async function getTeacherDashboardData() {
 }
 
 export async function getStudentDashboardData() {
-  const { supabaseId, teacherIds } = await getSession();
+  const { supabaseId } = await getSession();
   if (!supabaseId) return { stats: [] as StatValue[], exams: [] };
 
-  const student = await prisma.user.findUnique({ where: { supabaseId } });
+  // Include TeacherStudent rows to scope exam visibility to this student's teachers
+  const student = await prisma.user.findUnique({
+    where: { supabaseId },
+    include: { studentTeachers: { select: { teacherId: true } } },
+  });
   if (!student) return { stats: [] as StatValue[], exams: [] };
 
+  const teacherIds = student.studentTeachers.map(r => r.teacherId);
   const now = new Date();
 
   const [upcoming, completed, trustAgg, lastAttempt, examRows, attempts] = await Promise.all([
@@ -467,7 +481,7 @@ export async function getStudentDashboardData() {
         institutionId: student.institutionId,
         approvalStatus: 'approved',
         status: { in: ['scheduled', 'live', 'completed'] },
-        ...(teacherIds?.length ? { teacherId: { in: teacherIds } } : {}),
+        ...(teacherIds.length ? { teacherId: { in: teacherIds } } : {}),
       },
       include: { _count: { select: { questions: true } } },
       orderBy: { startTime: 'asc' },

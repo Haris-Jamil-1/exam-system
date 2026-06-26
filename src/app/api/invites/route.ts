@@ -37,16 +37,12 @@ export async function POST(request: Request) {
 
     if (existingStudent?.supabaseId) {
       if (user.role === 'teacher') {
-        const { data: supaUser } = await adminSupabase.auth.admin.getUserById(existingStudent.supabaseId);
-        const currentTeacherIds = (supaUser?.user?.user_metadata?.teacherIds as string[] | undefined) ?? [];
-        if (!currentTeacherIds.includes(user.id)) {
-          await adminSupabase.auth.admin.updateUserById(existingStudent.supabaseId, {
-            user_metadata: {
-              ...supaUser?.user?.user_metadata,
-              teacherIds: [...currentTeacherIds, user.id],
-            },
-          });
-        }
+        // Link student to this teacher in the DB (source of truth for class membership)
+        await prisma.teacherStudent.upsert({
+          where: { teacherId_studentId: { teacherId: user.id, studentId: existingStudent.id } },
+          create: { teacherId: user.id, studentId: existingStudent.id },
+          update: {},
+        });
       }
 
       const { error: emailError } = await resend.emails.send({

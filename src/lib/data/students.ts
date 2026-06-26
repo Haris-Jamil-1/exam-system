@@ -15,19 +15,29 @@ function mapUser(u: {
   };
 }
 
-async function getSessionInstitutionId(): Promise<string | null> {
+async function getSessionContext() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  return (user?.user_metadata?.institutionId as string | undefined) ?? null;
+  const institutionId = (user?.user_metadata?.institutionId as string | undefined) ?? null;
+  const role = (user?.user_metadata?.role as string | undefined) ?? null;
+  const supabaseId = user?.id ?? null;
+  let prismaUserId: string | null = null;
+  if (supabaseId) {
+    const u = await prisma.user.findUnique({ where: { supabaseId }, select: { id: true } });
+    prismaUserId = u?.id ?? null;
+  }
+  return { institutionId, role, prismaUserId };
 }
 
 export async function getStudents(_institutionId?: string): Promise<CurrentUser[]> {
-  const institutionId = await getSessionInstitutionId();
+  const { institutionId, role, prismaUserId } = await getSessionContext();
   if (!institutionId) return [];
-  const rows = await prisma.user.findMany({
-    where: { role: 'student', institutionId },
-    orderBy: { name: 'asc' },
-  });
+
+  const where = role === 'teacher' && prismaUserId
+    ? { role: 'student' as const, institutionId, studentTeachers: { some: { teacherId: prismaUserId } } }
+    : { role: 'student' as const, institutionId };
+
+  const rows = await prisma.user.findMany({ where, orderBy: { name: 'asc' } });
   return rows.map(mapUser);
 }
 

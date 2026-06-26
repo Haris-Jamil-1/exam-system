@@ -65,8 +65,8 @@ export async function POST(
     supabaseUserId = created.user.id;
   }
 
-  // Upsert Prisma user
-  await prisma.user.upsert({
+  // Upsert Prisma user and mark invite accepted
+  const prismaStudent = await prisma.user.upsert({
     where: { supabaseId: supabaseUserId },
     create: {
       supabaseId: supabaseUserId,
@@ -78,7 +78,15 @@ export async function POST(
     update: { name },
   });
 
-  // Mark invite as accepted
+  // Link student to inviting teacher in the DB (source of truth for class membership)
+  if (invite.invitedBy.role === 'teacher') {
+    await prisma.teacherStudent.upsert({
+      where: { teacherId_studentId: { teacherId: invite.invitedById, studentId: prismaStudent.id } },
+      create: { teacherId: invite.invitedById, studentId: prismaStudent.id },
+      update: {},
+    });
+  }
+
   await prisma.inviteToken.update({
     where: { token },
     data: { acceptedAt: new Date() },
