@@ -12,14 +12,20 @@ export function useExamTimer(
   onTimeUp: () => void,
   isPaused?: boolean,
 ): UseExamTimerReturn {
-  // initialSeconds is stable by the time this hook is first called:
-  // the exam page gates on initialSeconds === 0 so we never start with 0.
   const [secondsLeft, setSecondsLeft] = useState(initialSeconds);
   const onTimeUpRef = useRef(onTimeUp);
 
   useEffect(() => {
     onTimeUpRef.current = onTimeUp;
   }, [onTimeUp]);
+
+  // Sync when the parent finally delivers the real value (async load sets it after mount).
+  // Only reset upward (0 → N) so a running timer isn't restarted mid-exam.
+  useEffect(() => {
+    if (initialSeconds > 0) {
+      setSecondsLeft(initialSeconds);
+    }
+  }, [initialSeconds]);
 
   useEffect(() => {
     if (isPaused) return; // interval stopped while paused; resumes on next render

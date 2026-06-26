@@ -90,8 +90,10 @@ export default function ExamPage() {
       const serverNow = Date.now() + offset;
       const startMs = new Date(e.startTime).getTime();
 
-      // If exam hasn't started yet, show countdown — don't create attempt yet
-      if (startMs > serverNow) {
+      // Show waiting room only when the exam hasn't been manually started by the teacher
+      // AND the scheduled startTime hasn't been reached yet.
+      // If status is already 'live', the teacher started it early — let the student in immediately.
+      if (e.status !== 'live' && startMs > serverNow) {
         setWaitSeconds(Math.ceil((startMs - serverNow) / 1000));
         return;
       }
@@ -255,7 +257,7 @@ export default function ExamPage() {
     return <BiometricOnboarding onComplete={() => setBiometricDone(true)} />;
   }
 
-  if (!exam || questions.length === 0 || initialSeconds === 0) {
+  if (!exam || questions.length === 0 || !attemptId) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p className="text-muted-foreground">Loading exam...</p>
