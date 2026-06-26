@@ -263,6 +263,7 @@ export async function getStudentExams() {
   if (!student) return [];
 
   const teacherIds = student.studentTeachers.map(r => r.teacherId);
+  // Strict: if no teachers assigned, student sees no exams (Prisma returns [] for { in: [] })
   const now = new Date();
 
   const [exams, attempts] = await Promise.all([
@@ -271,7 +272,7 @@ export async function getStudentExams() {
         institutionId: student.institutionId,
         approvalStatus: 'approved',
         status: { in: ['scheduled', 'live', 'completed'] },
-        ...(teacherIds.length ? { teacherId: { in: teacherIds } } : {}),
+        teacherId: { in: teacherIds },
       },
       include: { _count: { select: { questions: true } } },
       orderBy: { startTime: 'asc' },
@@ -481,7 +482,7 @@ export async function getStudentDashboardData() {
         institutionId: student.institutionId,
         approvalStatus: 'approved',
         status: { in: ['scheduled', 'live', 'completed'] },
-        ...(teacherIds.length ? { teacherId: { in: teacherIds } } : {}),
+        teacherId: { in: teacherIds },
       },
       include: { _count: { select: { questions: true } } },
       orderBy: { startTime: 'asc' },
