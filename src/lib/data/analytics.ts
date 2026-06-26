@@ -290,7 +290,7 @@ export async function getStudentExams() {
     const submitted = attempt && (attempt.status === 'submitted' || attempt.status === 'auto_submitted');
 
     let status: 'available' | 'upcoming' | 'completed' = 'upcoming';
-    if (submitted) {
+    if (submitted || exam.status === 'completed') {
       status = 'completed';
     } else if (exam.status === 'live' || exam.startTime <= now) {
       status = 'available';
@@ -505,7 +505,7 @@ export async function getStudentDashboardData() {
     const attempt = attemptMap.get(exam.id);
     const submitted = attempt && (attempt.status === 'submitted' || attempt.status === 'auto_submitted');
     let status: 'available' | 'upcoming' | 'completed' = 'upcoming';
-    if (submitted) {
+    if (submitted || exam.status === 'completed') {
       status = 'completed';
     } else if (exam.status === 'live' || exam.startTime <= now) {
       status = 'available';
