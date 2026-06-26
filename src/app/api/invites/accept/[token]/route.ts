@@ -32,13 +32,17 @@ export async function POST(
 
   const { email, role, institutionId } = invite;
 
+  // Store which teacher(s) invited this student so we can scope their data view
+  const teacherIds = invite.invitedBy.role === 'teacher' ? [invite.invitedById] : [];
+  const teacherMeta = teacherIds.length ? { teacherIds } : {};
+
   // Create Supabase user with a password so they can sign in directly
   let supabaseUserId: string;
   const { data: created, error: createErr } = await adminSupabase.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
-    user_metadata: { name, role, institutionId },
+    user_metadata: { name, role, institutionId, ...teacherMeta },
   });
 
   if (createErr) {
@@ -49,9 +53,12 @@ export async function POST(
       console.error('[invites/accept] createUser error:', createErr);
       return NextResponse.json({ error: 'Failed to create account' }, { status: 500 });
     }
+    const existingTeacherIds = (existing.user_metadata?.teacherIds as string[] | undefined) ?? [];
+    const mergedTeacherIds = [...new Set([...existingTeacherIds, ...teacherIds])];
+    const mergedTeacherMeta = mergedTeacherIds.length ? { teacherIds: mergedTeacherIds } : {};
     await adminSupabase.auth.admin.updateUserById(existing.id, {
       password,
-      user_metadata: { name, role, institutionId },
+      user_metadata: { name, role, institutionId, ...mergedTeacherMeta },
     });
     supabaseUserId = existing.id;
   } else {

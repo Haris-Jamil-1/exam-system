@@ -9,12 +9,13 @@ async function getSession() {
   const institutionId = user?.user_metadata?.institutionId as string | undefined;
   const supabaseId = user?.id as string | undefined;
   const role = user?.user_metadata?.role as string | undefined;
+  const teacherIds = user?.user_metadata?.teacherIds as string[] | undefined;
   let prismaUserId: string | null = null;
   if (supabaseId) {
     const u = await prisma.user.findUnique({ where: { supabaseId }, select: { id: true } });
     prismaUserId = u?.id ?? null;
   }
-  return { institutionId: institutionId ?? null, supabaseId: supabaseId ?? null, role: role ?? null, prismaUserId };
+  return { institutionId: institutionId ?? null, supabaseId: supabaseId ?? null, role: role ?? null, prismaUserId, teacherIds: teacherIds ?? null };
 }
 
 function relativeTime(date: Date): string {
@@ -249,20 +250,21 @@ export async function getRecentAlerts() {
 }
 
 export async function getStudentExams() {
-  const { supabaseId } = await getSession();
+  const { supabaseId, teacherIds } = await getSession();
   if (!supabaseId) return [];
   const student = await prisma.user.findUnique({ where: { supabaseId } });
   if (!student) return [];
 
   const now = new Date();
 
-  // Show all approved exams in the student's institution — no enrollment row needed
   const [exams, attempts] = await Promise.all([
     prisma.exam.findMany({
+      // Scope to the teacher(s) who invited this student; fall back to all institution exams
       where: {
         institutionId: student.institutionId,
         approvalStatus: 'approved',
         status: { in: ['scheduled', 'live', 'completed'] },
+        ...(teacherIds?.length ? { teacherId: { in: teacherIds } } : {}),
       },
       include: { _count: { select: { questions: true } } },
       orderBy: { startTime: 'asc' },
