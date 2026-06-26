@@ -8,7 +8,7 @@ import {
   Radio, AlertTriangle, Clock, CheckCircle2, PencilLine,
 } from 'lucide-react';
 import type { ExamStatus, StatValue } from '@/types';
-import { getDashboardStats, getRecentExams, getRecentAlerts } from '@/lib/data';
+import { getTeacherDashboardData } from '@/lib/data';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 const STAT_META: Record<string, { label: string; icon: React.ElementType; iconBg: string; iconColor: string }> = {
@@ -44,7 +44,7 @@ export default function TeacherDashboard() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
 
   useEffect(() => {
-    Promise.all([getDashboardStats(), getRecentExams(), getRecentAlerts()]).then(([s, e, al]) => {
+    getTeacherDashboardData().then(({ stats: s, exams: e, alerts: al }) => {
       setStats(s);
       setExams(e as RecentExam[]);
       setAlerts(al as Alert[]);

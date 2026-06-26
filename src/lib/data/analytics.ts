@@ -1,9 +1,10 @@
 'use server';
+import { cache } from 'react';
 import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';
 import type { StatValue, PendingExam } from '@/types';
 
-async function getSession() {
+const getSession = cache(async () => {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const institutionId = user?.user_metadata?.institutionId as string | undefined;
@@ -16,7 +17,7 @@ async function getSession() {
     prismaUserId = u?.id ?? null;
   }
   return { institutionId: institutionId ?? null, supabaseId: supabaseId ?? null, role: role ?? null, prismaUserId, teacherIds: teacherIds ?? null };
-}
+});
 
 function relativeTime(date: Date): string {
   const diff = Date.now() - date.getTime();
@@ -376,4 +377,220 @@ export async function getApprovedExams() {
     date: e.startTime.toISOString(),
     students: e._count.enrollments,
   }));
+}
+
+// ── Combined dashboard fetchers ───────────────────────────────────────────────
+// Each function makes one getSession() call (cached per-render) and one
+// batched Promise.all to the DB — replacing N separate server-action round-trips.
+
+export async function getTeacherDashboardData() {
+  const { institutionId, role, prismaUserId } = await getSession();
+  if (!institutionId) return { stats: [] as StatValue[], exams: [], alerts: [] };
+
+  const examFilter = role === 'teacher' && prismaUserId
+    ? { institutionId, teacherId: prismaUserId }
+    : { institutionId };
+
+  const [activeExams, totalStudents, pendingReviews, trustAgg, examRows, alertRows] = await Promise.all([
+    prisma.exam.count({ where: { ...examFilter, status: 'live' } }),
+    prisma.user.count({ where: { institutionId, role: 'student' } }),
+    prisma.violation.count({ where: { exam: examFilter, severity: 'high' } }),
+    prisma.examAttempt.aggregate({ where: { exam: examFilter }, _avg: { trustScore: true } }),
+    prisma.exam.findMany({
+      where: examFilter,
+      orderBy: { updatedAt: 'desc' },
+      take: 5,
+      include: { _count: { select: { enrollments: true } } },
+    }),
+    prisma.violation.findMany({
+      where: { exam: examFilter },
+      orderBy: { timestamp: 'desc' },
+      take: 5,
+      include: { student: { select: { name: true } } },
+    }),
+  ]);
+
+  const stats: StatValue[] = [
+    { key: 'activeExams',    label: 'Active Exams',         value: activeExams },
+    { key: 'totalStudents',  label: 'Total Students',        value: totalStudents },
+    { key: 'avgTrust',       label: 'Avg Trust Score',       value: trustAgg._avg.trustScore?.toFixed(1) ?? '—' },
+    { key: 'pendingReviews', label: 'High-Severity Flags',   value: pendingReviews },
+  ];
+
+  const exams = examRows.map(e => ({
+    id: e.id,
+    title: e.title,
+    course: e.subject,
+    detail: `${e.duration} min · ${e._count.enrollments} students`,
+    students: e._count.enrollments,
+    status: e.status as 'draft' | 'scheduled' | 'live' | 'completed',
+  }));
+
+  const alerts = alertRows.map(v => ({
+    id: v.id,
+    student: v.student.name,
+    event: v.description,
+    time: relativeTime(v.timestamp),
+    severity: v.severity as 'low' | 'medium' | 'high',
+  }));
+
+  return { stats, exams, alerts };
+}
+
+export async function getStudentDashboardData() {
+  const { supabaseId, teacherIds } = await getSession();
+  if (!supabaseId) return { stats: [] as StatValue[], exams: [] };
+
+  const student = await prisma.user.findUnique({ where: { supabaseId } });
+  if (!student) return { stats: [] as StatValue[], exams: [] };
+
+  const now = new Date();
+
+  const [upcoming, completed, trustAgg, lastAttempt, examRows, attempts] = await Promise.all([
+    prisma.examEnrollment.count({
+      where: { studentId: student.id, exam: { startTime: { gt: now } } },
+    }),
+    prisma.examAttempt.count({
+      where: { studentId: student.id, status: { not: 'in_progress' } },
+    }),
+    prisma.examAttempt.aggregate({
+      where: { studentId: student.id, status: { not: 'in_progress' } },
+      _avg: { scorePercentage: true, trustScore: true },
+    }),
+    prisma.examAttempt.findFirst({
+      where: { studentId: student.id, status: { not: 'in_progress' } },
+      orderBy: { submittedAt: 'desc' },
+      select: { trustScore: true },
+    }),
+    prisma.exam.findMany({
+      where: {
+        institutionId: student.institutionId,
+        approvalStatus: 'approved',
+        status: { in: ['scheduled', 'live', 'completed'] },
+        ...(teacherIds?.length ? { teacherId: { in: teacherIds } } : {}),
+      },
+      include: { _count: { select: { questions: true } } },
+      orderBy: { startTime: 'asc' },
+    }),
+    prisma.examAttempt.findMany({
+      where: { studentId: student.id },
+      select: { examId: true, score: true, trustScore: true, status: true, scorePercentage: true },
+    }),
+  ]);
+
+  const stats: StatValue[] = [
+    { key: 'upcoming',  label: 'Upcoming Exams',  value: upcoming },
+    { key: 'completed', label: 'Completed',        value: completed },
+    { key: 'avgScore',  label: 'Average Score',    value: trustAgg._avg.scorePercentage ? `${trustAgg._avg.scorePercentage.toFixed(0)}%` : '—' },
+    { key: 'trust',     label: 'Trust Score',      value: lastAttempt?.trustScore ?? 100 },
+  ];
+
+  const attemptMap = new Map(attempts.map(a => [a.examId, a]));
+  const exams = examRows.map(exam => {
+    const attempt = attemptMap.get(exam.id);
+    const submitted = attempt && (attempt.status === 'submitted' || attempt.status === 'auto_submitted');
+    let status: 'available' | 'upcoming' | 'completed' = 'upcoming';
+    if (submitted) {
+      status = 'completed';
+    } else if (exam.status === 'live' || exam.startTime <= now) {
+      status = 'available';
+    }
+    const settings = exam.settings as { resultsVisibility?: string } | null;
+    const resultsHeld = settings?.resultsVisibility === 'held' && !exam.resultsPublishedAt;
+    const scoreValue = submitted && !resultsHeld && attempt?.scorePercentage != null
+      ? Math.round(attempt.scorePercentage) : undefined;
+    return {
+      id: exam.id,
+      title: exam.title,
+      course: exam.subject,
+      status,
+      schedule: exam.startTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      durationMins: exam.duration,
+      questions: exam._count.questions,
+      score: scoreValue,
+      trust: submitted ? attempt?.trustScore : undefined,
+    };
+  });
+
+  return { stats, exams };
+}
+
+export async function getAdminDashboardData() {
+  const { institutionId } = await getSession();
+  if (!institutionId) return { stats: [] as StatValue[], teachers: [], pendingExams: [] as PendingExam[], approvedExams: [], institution: null };
+
+  const [pending, teacherCount, students, trustAgg, teacherRows, pendingExamRows, approvedExamRows, institution] = await Promise.all([
+    prisma.exam.count({ where: { institutionId, approvalStatus: 'pending' } }),
+    prisma.user.count({ where: { institutionId, role: 'teacher' } }),
+    prisma.user.count({ where: { institutionId, role: 'student' } }),
+    prisma.examAttempt.aggregate({ where: { exam: { institutionId } }, _avg: { trustScore: true } }),
+    prisma.user.findMany({
+      where: { institutionId, role: 'teacher' },
+      include: { _count: { select: { exams: true } } },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.exam.findMany({
+      where: { institutionId, approvalStatus: 'pending' },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        teacher: { select: { id: true, name: true } },
+        _count: { select: { questions: true, enrollments: true } },
+      },
+    }),
+    prisma.exam.findMany({
+      where: { institutionId, approvalStatus: 'approved' },
+      orderBy: { startTime: 'desc' },
+      include: {
+        teacher: { select: { name: true } },
+        _count: { select: { enrollments: true } },
+      },
+    }),
+    prisma.institution.findUnique({ where: { id: institutionId } }),
+  ]);
+
+  const studentCounts = await Promise.all(
+    teacherRows.map(t => prisma.examEnrollment.count({ where: { exam: { teacherId: t.id } } }))
+  );
+
+  const stats: StatValue[] = [
+    { key: 'pendingApprovals', label: 'Pending Approvals', value: pending },
+    { key: 'teachers',         label: 'Total Teachers',    value: teacherCount },
+    { key: 'students',         label: 'Total Students',    value: students },
+    { key: 'avgTrust',         label: 'Avg Trust Score',   value: trustAgg._avg.trustScore?.toFixed(1) ?? '—' },
+  ];
+
+  const teachers = teacherRows.map((t, i) => ({
+    id: t.id,
+    name: t.name,
+    email: t.email,
+    department: t.department ?? '—',
+    exams: t._count.exams,
+    students: studentCounts[i],
+    status: 'active' as const,
+  }));
+
+  const pendingExams: PendingExam[] = pendingExamRows.map(e => ({
+    id: e.id,
+    title: e.title,
+    subject: e.subject,
+    teacher: e.teacher.name,
+    teacherId: e.teacher.id,
+    questions: e._count.questions,
+    duration: e.duration,
+    students: e._count.enrollments,
+    submittedAt: e.createdAt.toISOString(),
+    proctoringLevel: ((e.settings as { proctoringLevel?: string })?.proctoringLevel ?? 'standard') as PendingExam['proctoringLevel'],
+  }));
+
+  const approvedExams = approvedExamRows.map(e => ({
+    id: e.id,
+    title: e.title,
+    subject: e.subject,
+    teacher: e.teacher.name,
+    status: e.status as 'draft' | 'scheduled' | 'live' | 'completed',
+    date: e.startTime.toISOString(),
+    students: e._count.enrollments,
+  }));
+
+  return { stats, teachers, pendingExams, approvedExams, institution };
 }

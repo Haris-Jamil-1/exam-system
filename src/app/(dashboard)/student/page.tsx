@@ -7,7 +7,7 @@ import {
   Clock, Trophy, ChevronRight, Play,
 } from 'lucide-react';
 import type { StatValue } from '@/types';
-import { getStudentStats, getStudentExams } from '@/lib/data';
+import { getStudentDashboardData } from '@/lib/data';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 
 const STAT_META: Record<string, { label: string; icon: React.ElementType; iconBg: string; iconColor: string }> = {
@@ -38,7 +38,7 @@ export default function StudentDashboard() {
   const [exams, setExams] = useState<StudentExam[]>([]);
 
   useEffect(() => {
-    Promise.all([getStudentStats(), getStudentExams()]).then(([s, e]) => {
+    getStudentDashboardData().then(({ stats: s, exams: e }) => {
       setStats(s);
       setExams(e as StudentExam[]);
     });

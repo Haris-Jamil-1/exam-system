@@ -8,8 +8,7 @@ import {
   FileText, UserPlus, BarChart3, Building2,
 } from 'lucide-react';
 import type { StatValue } from '@/types';
-import { getAdminStats, getTeachersList, getPendingExams, getApprovedExams } from '@/lib/data';
-import { getMyInstitution } from '@/lib/data/users';
+import { getAdminDashboardData } from '@/lib/data';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import type { PendingExam } from '@/types';
 
@@ -47,7 +46,7 @@ export default function AdminDashboard() {
   const [institutionName, setInstitutionName] = useState('');
 
   useEffect(() => {
-    Promise.all([getAdminStats(), getPendingExams(), getApprovedExams(), getTeachersList(), getMyInstitution()]).then(([s, p, a, t, inst]) => {
+    getAdminDashboardData().then(({ stats: s, pendingExams: p, approvedExams: a, teachers: t, institution: inst }) => {
       setStats(s);
       setPending(p as PendingExam[]);
       setApproved(a as ApprovedExam[]);
