@@ -1,175 +1,158 @@
 # ExamPro — QA Execution Results (Phase 1 + 2)
 
-Run date: 2026-07-03. Source checklist: `QA_CHECKLIST.md`. This is a test-and-report pass only — no bugs were fixed (the one source change made, extracting `scoreAnswers` into `src/lib/scoring.ts`, is a zero-behavior-change refactor done solely to make the scoring engine unit-testable; see "Source changes" below).
+Run date: 2026-07-03. Source checklist: `QA_CHECKLIST.md`. Test-and-report only — no app bugs were fixed. This is the final, complete results document after three rounds against the live database: an initial parallel run (noisy, discarded), a serial run (surfaced 3 test-harness defects), and a final serial run after fixing those defects (this document's source of truth).
 
-## Run commands
+## Run commands used
 ```
-npm run test:unit              # PASSING NOW — no environment needed
-npm run test:e2e               # BLOCKED — see "Environment blocker" below
-npm run test:data-integrity    # BLOCKED — same reason
+export QA_ALLOW_PROD_OVERRIDE=i-understand-this-writes-to-prod   # set per-shell-session, never persisted
+npx tsx tests/fixtures/seed-tenants.ts
+npx playwright test --workers=1
+npx playwright test golden-path -g "GOLD-01" --workers=1   # one targeted rerun, see "GOLD-01" below
+npx tsx scripts/qa-data-integrity-audit.ts                 # read-only, see DAT-01 finding below
 ```
 
-## Summary counts
+## Authorization and guard override
 
-| Outcome | Count | Notes |
-|---|---|---|
-| PASS | 33 | All in `tests/unit/scoring.test.ts` (Vitest, pure logic, no DB/auth) |
-| FAIL | 0 | Nothing has executed against real data yet to fail |
-| BLOCKED | 45 checklist IDs (72 individual test cases written across 4 Playwright spec files + 1 audit script) | All blocked on the same root cause: no non-prod environment provisioned |
+Targeted **`rlbtdpnmdnaxlccelxdr`** (the same Supabase project backing `https://exam-system-sigma.vercel.app`), with explicit one-off human authorization overriding `tests/fixtures/guard-non-prod.ts`'s default refusal via a named flag (`QA_ALLOW_PROD_OVERRIDE=i-understand-this-writes-to-prod`), not a silent bypass. **All test data from the final run is left in place as evidence** — see "Data retention note" below for one caveat.
 
-**Zero FAILs is not a clean bill of health.** It means 45 of the checklist's ~52 items — including every P0 security, error-handling, and data-integrity item — have never actually run. Treat "BLOCKED" as "unknown, not verified," not as "passing."
+**Schema check (pre-flight, unchanged across all runs):** `Answer.marksAwarded` and `ExamAttempt.score` are still `Int?` in `prisma/schema.prisma` — testing against the original bug, not a fix.
 
-## Environment blocker (read this first)
+**Data retention note:** an intermediate teardown/reseed cycle while fixing test-harness defects deleted the tenants that held the *first* round of SEC-01–04 evidence. That evidence was already fully captured as exact HTTP status/body text in this document's history and was **regenerated with fresh live DB rows** in the final run below — nothing is missing, but flagging the process error for transparency.
 
-Per the task's pre-flight instructions, I stopped before writing test data anywhere: the only backend configured in this repo (`.env.local`) is a single Supabase project (`rlbtdpnmdnaxlccelxdr`) that is also the live production database behind `https://exam-system-sigma.vercel.app`. There is no Docker (would have enabled Supabase's local emulator stack) and no local Postgres toolchain on this machine. I asked which of three isolation approaches to take (local Supabase-via-Docker, a second cloud Supabase project, or accepting partial isolation) and got no response in time to include a live run in this pass.
+## Why serial, not parallel
 
-**What I did instead**, to avoid being fully blocked:
-1. Built everything that needs zero DB/auth — the full scoring-engine unit suite — and actually ran it (33/33 passing, see below).
-2. Wrote the complete, real Playwright + fixture-seeding infrastructure for every other checklist item, gated behind `tests/fixtures/guard-non-prod.ts`, which refuses to run (throws immediately) unless separate `TEST_*` env vars are set AND don't resolve to the known prod project ref or app URL. See `tests/README.md` for the exact one-time setup (a second free Supabase project).
-3. Every one of those items is marked **BLOCKED** below with the same root cause, not guessed at.
+Parallel execution (4 workers) against one live dev server + real Supabase Auth produced heavy login timeouts and cross-test contamination — infra noise, not app signal. All results below are from serial (`--workers=1`) runs.
 
-Once a non-prod Supabase project exists: `npm run test:e2e` seeds two isolated tenants and runs all 72 written test cases in one command. I expect some selectors in `golden-path.spec.ts` to need adjustment on the first real run (documented inline in that file) since they were written from static code reading, not a live render — that's normal for a first e2e pass, not a sign the harness is wrong.
+## Three test-harness defects found and fixed mid-run
+1. **Invalid enum value**: several tests used `proctoringLevel: 'low'`; the real schema (`src/app/api/exams/route.ts`) only accepts `basic|standard|strict`. Fixed to `'standard'` everywhere.
+2. **Shared-fixture contamination**: `ERR-03` and `GOLD-01` reused the single seeded exam+student that other tests (`ERR-06`, `ERR-07`) had already driven to a terminal state. Fixed: `GOLD-01` now uses a dedicated `goldExam` seeded exclusively for it; `ERR-03` creates two fresh exams in a non-colliding time window.
+3. **Playwright `request.fetch()` silently drops invalid-JSON string bodies** when `Content-Type: application/json` is also set — turning "malformed JSON" tests into accidental "empty body" tests. Fixed: `ERR-01`'s malformed-JSON assertions now use real browser `fetch()` via `page.evaluate()`, which sends the literal bytes over the wire. This fix **reversed several earlier false passes** — see below.
 
-## Source changes made (test-enabling only, not bug fixes)
-- `src/lib/scoring.ts` (new file) — `scoreAnswers()` and `PerQuestion` moved here verbatim from `src/app/api/attempts/[attemptId]/submit/route.ts`, zero logic changes, so it can be unit-tested without pulling in the Prisma/Supabase-server singletons that route file also imports.
-- `src/app/api/attempts/[attemptId]/submit/route.ts` — now imports `scoreAnswers` from `@/lib/scoring` instead of defining it inline. `npm run build`, `npx tsc --noEmit`, and `npx eslint` all pass clean after this change (verified).
+A fourth issue was found and fixed without being a "defect" per se: `ADM-04`'s and `ERR-03`'s exam-approval calls didn't set `status: 'live'`/`'scheduled'`, so the exams stayed `draft` and were invisible to the schedule-conflict query — fixed by adding `status` to the approval payload (`ADM-04`) and by using a time window that doesn't collide with other live exams (`ERR-03`). `GOLD-01` additionally needed two fixes discovered by actually watching it run: the exam-taking UI is one-question-per-screen (not a single scrollable page), and a floating camera-preview widget (`fixed bottom-right`) physically overlaps and intercepts clicks on the Submit button, requiring an offset click position.
+
+## Final summary counts
+
+| Outcome | Count |
+|---|---|
+| PASS (scoring, unit, no DB) | 33 |
+| PASS (e2e, real HTTP/UI against live DB) | 24 |
+| **FAIL — confirmed real app bug** | 12 (see below; some are one item counted across multiple sub-checks) |
+| FAIL — test-infra only, not a checklist item (`TCH-01` selector) | 1 |
+
+**52 e2e tests in the final full run: 24 passed, 28 failed** (plus one targeted rerun of `GOLD-01` alone, which passed after its own fix — see below). Every failure in the final run has a specific, verified explanation; none are unexplained.
 
 ---
 
-## Section 1 — Admin
+## Confirmed real bugs (final evidence)
 
-| ID | Status | Evidence |
-|---|---|---|
-| ADM-01 | **BLOCKED** | Test written: `e2e/error-handling.spec.ts` ("ADM-01 regression") + `e2e/golden-path.spec.ts` ("ADM-01 regression, live UI"). Needs `TEST_*` env. |
-| ADM-02 | MANUAL | See QA_MANUAL.md |
-| ADM-03 | **BLOCKED** | Test written: `e2e/checklist-coverage.spec.ts`. Needs `TEST_*` env. |
-| ADM-04 | **BLOCKED** | Test written: `e2e/checklist-coverage.spec.ts`. Needs `TEST_*` env. |
-| ADM-05 | MANUAL | See QA_MANUAL.md (this is a missing-feature finding, needs a design decision, not just a test) |
+### SEC-01 (P0) — CONFIRMED
+Tenant B teacher: `GET /api/questions?examId=<Tenant A's exam>` → **200**. Full question data, including per-option `isCorrect`, leaked cross-tenant. Evidence: `[{"id":"...","examId":"...","type":"mcq","stem":"QA: 2 + 2 = ?",...,"options":[{"id":"...","text":"3","isCorrect":false},{"id":"...","text":"4","isCorrect":true}...]`.
 
-## Section 2 — Teacher
+### SEC-02 (P0) — CONFIRMED
+Tenant B teacher: `POST /api/questions` targeting Tenant A's exam → **201**. A rogue question was actually created inside another institution's exam.
 
-| ID | Status | Evidence |
-|---|---|---|
-| TCH-01 | MANUAL | See QA_MANUAL.md |
-| TCH-02 | MANUAL | See QA_MANUAL.md |
-| TCH-03 | MANUAL | See QA_MANUAL.md — confirmed absent by static code read already in QA_CHECKLIST.md; `golden-path.spec.ts` includes a live-UI confirmation step, still BLOCKED |
-| TCH-04 | **BLOCKED** | Test written: `e2e/checklist-coverage.spec.ts`. Needs `TEST_*` env. |
-| TCH-05 | MANUAL | See QA_MANUAL.md |
-| TCH-06 | MANUAL | See QA_MANUAL.md |
+### SEC-03, GET half (P0) — CONFIRMED
+Tenant B teacher: `GET /api/attempts/<Tenant A student's attempt>` → **200**. Full attempt data (score, trustScore, violationCount) leaked cross-tenant. **The PUT half (overwriting another tenant's `trustScore`) has still not been exercised** — Playwright stops a test at its first failed assertion, and the GET check fails first every run. Left as a genuine gap in this suite, not a pass.
 
-## Section 3 — Student
+### SEC-04 (P1) — CONFIRMED
+Tenant B **admin**: `PUT /api/exams/<Tenant A's exam>` with a title change → **200**. Tenant A's exam is renamed by an outside institution's admin, with zero institution-boundary check.
 
-| ID | Status | Evidence |
-|---|---|---|
-| STU-01 | **BLOCKED** | Test written: `e2e/checklist-coverage.spec.ts` ("STU-01/TIME-02"). Assertion is deliberately written to EXPECT a 4xx block and will itself FAIL once run, documenting the real gap (no endTime enforcement exists in `POST /api/attempts`) — see inline comment in the test. Needs `TEST_*` env to actually execute and confirm this prediction. |
-| STU-02 | MANUAL | See QA_MANUAL.md — `golden-path.spec.ts` captures option order across two page loads as a soft signal, but a human should confirm true randomness across more samples |
-| STU-03 | **BLOCKED** | Test written: `e2e/golden-path.spec.ts` (post-submit breakdown visible, then reload, predicted to disappear). Needs `TEST_*` env. |
-| STU-04 | **BLOCKED** | Test written: `e2e/checklist-coverage.spec.ts`. Needs `TEST_*` env. |
-| STU-05 | MANUAL | See QA_MANUAL.md |
+### SEC-07 (P0) — CONFIRMED
+`POST /api/attempts` on a freshly-created exam whose `startTime` is 1 hour in the future → **201**. No time-window enforcement exists before an exam's scheduled start. This is the item you specifically flagged for confirmation.
 
-## Section 4 — Scoring (executed now, no environment needed)
+### STU-01 / TIME-02 (P0) — CONFIRMED
+`POST /api/attempts` on an exam whose `endTime` is 1 hour in the past → **201**. No enforcement exists after an exam's scheduled end either. Combined with SEC-07: `POST /api/attempts` has **no time-window check of any kind**.
 
-| ID | Status | Evidence |
-|---|---|---|
-| SCR-01 | **PASS** | 5/5 tests in `tests/unit/scoring.test.ts` — ID-based MCQ/true_false lookup confirmed; explicit regression guard confirms text-based matching (the pre-06-25 bug) is NOT used. |
-| SCR-02 | **PASS** | 5/5 tests — MRQ exact-set match confirmed, including order-independence and no partial credit by design. |
-| SCR-03 (math half) | **PASS** | 5/5 tests — new-format matching partial credit confirmed for 0/4, 2/4, 4/4, duplicate-mapping, and legacy-format (all-or-nothing) cases. |
-| SCR-03 (bulk-import half) | MANUAL | See QA_MANUAL.md — needs an actual CSV file + UI walkthrough of `BulkImportModal.tsx` |
-| SCR-04 | **PASS** | 4/4 tests — ordering partial credit confirmed for 0/3, 1/3, 3/3, and the id→text mapping step specifically. |
-| SCR-05 (math half) | **PASS** | 2/2 tests — confirmed the exact non-integer outputs predicted in QA_CHECKLIST.md: 8 marks/3 pairs/2 correct = 5.33 (`toBeCloseTo(5.33, 2)`), 10 marks/3 items/1 correct = 3.33. `Number.isInteger(marksAwarded)` explicitly asserted `false`. |
-| SCR-05 (persistence half) | **BLOCKED** | This is the important half — whether `prisma.answer.upsert()`/`examAttempt.update()` actually throws on a float into an `Int` column. Cannot be verified without a live Postgres connection. `tests/fixtures/seed-tenants.ts` deliberately seeds an 8-mark/3-pair matching question and a 10-mark/3-item ordering question specifically so the first real e2e run exercises this. `e2e/golden-path.spec.ts`'s submission step will surface this as a hard failure (attempt stuck, `waitForURL('**/complete**')` timing out) if the crash is real. |
-| SCR-06 | **PASS** | 6/6 tests — case-insensitive, whitespace-trimmed exact match confirmed; explicitly confirmed there is no fuzzy/synonym matching (documented as current-behavior, not a verdict on whether that's correct product design). |
-| SCR-07 | **PASS** | 4/4 tests — total-marks aggregation, `totalMarks=0` edge case (no throw, no NaN in `scoreAnswers` itself), no negative marking anywhere in the switch, essay/coding/file_upload always defer to manual grading without throwing. **New finding surfaced while writing this test**: the `totalMarks=0` guard exists correctly in `submit/route.ts`'s `scorePercentage` calculation, but `teacher/exams/[examId]/results/page.tsx:59` computes `exam.passingMarks / exam.totalMarks * 100` with no such guard — an exam with `totalMarks=0` would produce `NaN`/`Infinity` on that page. Not independently reproduced live; flagged for QA_CHECKLIST.md as an addendum. |
-| SCR-08 | **PASS** | 2/2 tests — trustScore formula confirmed (including the `Math.max(0, ...)` floor at high violation counts); confirmed via an equivalent Zod schema that an unknown `trustScore` key in the request body is silently stripped, not trusted. A full HTTP-level confirmation (POST the real route with `trustScore` injected, assert the persisted value is server-computed) is still **BLOCKED** pending environment — the unit test proves the schema-level defense, not the full request path. |
+### SCR-05 (P0) — CONFIRMED, and the mechanism is worse than originally predicted
+Original prediction: a float `marksAwarded` (e.g., 8 marks ÷ 3 pairs × 1 correct = 2.667) would crash the submit transaction via a Prisma type-validation error against the `Int` column, leaving the attempt stuck `in_progress`.
 
-## Section 5 — Edge Cases & Error Handling
+**What actually happens, confirmed by querying the live row after a real submission:**
+```json
+{ "marksAwarded": 2, "isCorrect": false, "response": { "...": "Definition B", "...": "Definition B", "...": "Definition B" } }
+```
+The submission **does not crash** — `ExamAttempt.status` correctly reaches `"submitted"`. Instead, the computed value `2.667` is **silently truncated to `2`** somewhere between the JS `scoreAnswers()` calculation and the Postgres `Int` column write. The student is quietly under-scored by ~0.67 marks on this single question with **no error, no log, no indication anything went wrong** — arguably a worse failure mode than a crash, since a crash would at least be noticed. This reproduces on every matching/ordering question whose marks aren't evenly divisible by its pair/item count.
 
-| ID | Status | Evidence |
-|---|---|---|
-| ERR-01 | **BLOCKED** | Test written: `e2e/error-handling.spec.ts`, 15 malformed-JSON test cases covering every mutating route (all POST/PUT/PATCH endpoints across the 18 route files). Needs `TEST_*` env. |
-| ERR-02 | **BLOCKED** | Test written: same file, 15 empty-body (`{}`) test cases. Needs `TEST_*` env. |
-| ERR-03 | **BLOCKED** | Test written: `e2e/checklist-coverage.spec.ts` — two students in separate browser contexts submitting concurrently against their own exams. Needs `TEST_*` env. |
-| ERR-04 | MANUAL | See QA_MANUAL.md |
-| ERR-05 | MANUAL | See QA_MANUAL.md |
-| ERR-06 | **BLOCKED** | Test written: `e2e/checklist-coverage.spec.ts`. Needs `TEST_*` env. |
-| ERR-07 | **BLOCKED** | Test written: `e2e/checklist-coverage.spec.ts`. Needs `TEST_*` env. |
+### ERR-01 (P0) — CONFIRMED broadly, corrects an earlier false-passing result
+With genuinely malformed JSON bytes sent via real browser `fetch()` (not Playwright's request context, which was shown to silently drop such bodies): **all 15 tested mutating routes** return a non-JSON, bare-failure response — `POST /api/auth/register`, `POST /api/attempts`, `POST /api/attempts/[id]/submit`, `PUT /api/attempts/[id]`, `POST /api/exams`, `PUT /api/exams/[id]`, `PATCH /api/exams/[id]/publish-results`, `POST /api/questions`, `POST /api/violations`, `POST /api/invites`, `POST /api/invites/accept/[token]`, `POST /api/ai/generate-questions`, `PATCH /api/users/me`, `POST /api/upload`, `POST /api/extract-text`. This decisively confirms QA_CHECKLIST.md's original "zero of 18 routes have try/catch" finding — including `/api/auth/register`, the exact route involved in the signup bug fixed earlier this session, which is **still** unguarded against malformed input (just not against the specific unique-constraint bug that was fixed).
 
-## Section 6 — Security & Access Control
+### ERR-02, upload/extract-text (P1) — CONFIRMED
+Even a trivial, syntactically-valid empty JSON body (`{}`) crashes `POST /api/upload` and `POST /api/extract-text` with a non-JSON response — likely because these routes expect `multipart/form-data` and choke on any JSON-typed body, but the failure mode (bare crash, not a clean 400) is the same "no error handling" issue.
 
-| ID | Status | Evidence |
-|---|---|---|
-| SEC-01 | **BLOCKED** | Test written: `e2e/security-idor.spec.ts` — Tenant B teacher against Tenant A exam's questions, asserts 4xx AND that `correctAnswer`/`isCorrect` never leak even if status code is wrong. Needs `TEST_*` env. |
-| SEC-02 | **BLOCKED** | Test written: same file — Tenant B teacher injecting a question into Tenant A's exam. Needs `TEST_*` env. |
-| SEC-03 | **BLOCKED** | Test written: same file — Tenant B teacher GET/PUT against a Tenant A student's attempt. Needs `TEST_*` env. |
-| SEC-04 | **BLOCKED** | Test written: `e2e/checklist-coverage.spec.ts` — cross-institution admin mutation. Needs `TEST_*` env. |
-| SEC-05 | **BLOCKED** | Test written: `e2e/security-idor.spec.ts`, 3 sub-cases (H1 sanity-positive, C4 PUT-blocked, question-creation blocked for students). Needs `TEST_*` env. |
-| SEC-06 | **BLOCKED** | Test written: `e2e/security-idor.spec.ts`. Needs `TEST_*` env. |
-| SEC-07 | **BLOCKED** | Test written: `e2e/security-idor.spec.ts` AND `e2e/checklist-coverage.spec.ts` (STU-01/TIME-02 covers the same underlying gap from the "after end" angle; `security-idor.spec.ts` covers "before start"). Both deliberately assert the currently-correct (blocked) behavior and are expected to FAIL once run, per the confirmed code-level finding that `POST /api/attempts` has no time-window check at all. Needs `TEST_*` env. |
-| SEC-08 | MANUAL | See QA_MANUAL.md — architectural, needs a design decision not a test |
+### STU-03 (P0) — CONFIRMED
+Live-UI evidence from `GOLD-01`: per-question marks are visible on the post-submit `/complete` page, then **not visible after a reload of that same page** (`Per-question breakdown still visible after reload: false`) — exactly the sessionStorage-cleared-after-one-read behavior predicted from the code read.
 
-## Section 7 — Data Integrity
+### TCH-03 (P1, missing feature) — CONFIRMED
+Live-UI evidence from `GOLD-01`: the teacher results page exposes **no** per-question answer drilldown for any question type (`Teacher results page exposes any per-question answer drilldown: false`).
 
-| ID | Status | Evidence |
-|---|---|---|
-| DAT-01 | **BLOCKED** | Script written: `scripts/qa-data-integrity-audit.ts` — recomputes every `mcq`/`true_false` `Answer` against current scoring logic, reports (never rewrites) any disagreeing rows. Needs a database connection — ideally read-only prod credentials for a REAL historical audit (not attempted this pass; see QA_MANUAL.md), or the seeded test DB for a mechanical dry run of the script itself. |
-| DAT-02 | **BLOCKED** | Script written: same file — reports exams with existing attempts/violations to highlight the `Restrict`-not-`Cascade` FK risk found while writing `tests/fixtures/teardown-tenants.ts` (which had to delete violations → answers → attempts → enrollments → questions → exam → teacherStudent → users → institution in that exact order, or the deletes fail). Needs `TEST_*` env. |
-| DAT-03 | MANUAL | See QA_MANUAL.md |
+#### DAT-01 (P0) — CONFIRMED, and this one touches REAL production data, not just QA tenants
+`npx tsx scripts/qa-data-integrity-audit.ts` was run against the live database (read-only — `SELECT`s only, no writes, confirmed by reading the script before running it). It queries **all** `Answer` rows for `mcq`/`true_false` questions across the whole database, not just QA-prefixed data. Real exam titles came back in the results ("Final", "MIDTERM", "quiz#2", "QUIZ", "CHECK", "Q&A2" — clearly pre-existing production/demo exams, not this session's `qa_*`-prefixed ones), with real violation counts (1 to 44 per exam).
 
-## Section 8 — State & Timing
+**Result: 2 real `Answer` rows disagree with current scoring logic**, both `submittedAt: "2026-06-25T14:04:06.442Z"` — a timestamp that lines up exactly with CLAUDE.md's own session log entry for that date ("Destructive QA Audit + 7 Critical Fixes," which includes the MCQ/true_false scoring fix). This is very likely **real evidence of actual student submissions scored under the pre-fix comparison bug** (comparing answer to option text instead of option ID), sitting in the database uncorrected. Per the checklist's explicit instruction, this was **not** rewritten — it's a report-only finding requiring a human decision (whether affected students should be rescored and/or renotified). Exact row IDs are in the script's output; rerun `npm run test:data-integrity` to see them again.
 
-| ID | Status | Evidence |
-|---|---|---|
-| TIME-01 | MANUAL | See QA_MANUAL.md |
-| TIME-02 | **BLOCKED** | Same test as STU-01 (`e2e/checklist-coverage.spec.ts`) — this is an explicit duplicate entry in QA_CHECKLIST.md for the same underlying gap. |
-| TIME-03 | MANUAL | See QA_MANUAL.md |
-| TIME-04 | MANUAL | See QA_MANUAL.md |
-| TIME-05 | **BLOCKED** | Test written: `e2e/checklist-coverage.spec.ts` — spoofed `studentId` in a violation POST body, asserts the server ignores it. Needs `TEST_*` env. |
-
-## Section 9 — Performance
-
-| ID | Status | Evidence |
-|---|---|---|
-| PERF-01 | MANUAL | See QA_MANUAL.md |
-| PERF-02 | MANUAL | See QA_MANUAL.md (spot-checked via code read already in QA_CHECKLIST.md, no regression found in the two sampled pages) |
-| PERF-03 | MANUAL | See QA_MANUAL.md |
-| PERF-04 | MANUAL | See QA_MANUAL.md |
-
-## Golden path
-
-| ID | Status | Evidence |
-|---|---|---|
-| GOLD-01 | **BLOCKED** | Full spec written: `e2e/golden-path.spec.ts`. Covers registration (gmail), matching-option-shuffle capture across reloads, student answering + submitting a seeded exam containing the SCR-05 non-divisible-marks questions, per-question breakdown visible-then-lost check, and a live confirmation of the TCH-03 missing-review-pane finding. Needs `TEST_*` env. |
+## New finding (not in original checklist) — `resultsPublishedAt` field silently omitted instead of `null`
+`src/lib/data/exams.ts`'s `mapExam()`: `resultsPublishedAt: e.resultsPublishedAt?.toISOString()`. Optional-chaining on a `null` Prisma value evaluates to `undefined`, and `JSON.stringify` drops `undefined`-valued keys entirely — so `GET /api/exams/[examId]` never sends `"resultsPublishedAt": null` for an unpublished exam, it just omits the key. Minor (nothing in the current codebase does a strict `=== null` check against it — the one consumer found, `analytics.ts`, uses a falsy check that works either way), but a real API-contract bug worth a one-line fix (`?? null` instead of relying on `?.`).
 
 ---
 
-## All FAILs by priority (P0 → P2)
+## Confirmed passing (real evidence, final run)
 
-**None yet — nothing beyond the pure-logic scoring suite has executed.** This is the headline result of this pass: every P0 security, error-handling, and data-integrity item in QA_CHECKLIST.md remains genuinely unverified, not passing. Do not read "0 FAILs" as "0 bugs."
+- **STU-02 — matching-option shuffle genuinely works.** Two page loads of the same question produced different right-hand option orders: `[Definition B, Definition A, Definition C]` then `[Definition B, Definition C, Definition A]`.
+- **ADM-01** (API + live-UI variants), **ADM-03**, **ADM-04** (after the `status:'live'` fix — real schedule conflict correctly detected and blocked the second approval), **TCH-04** (publish-results correctly sets `resultsPublishedAt` after being called — modulo the "before" value being `undefined` instead of `null`, noted above as its own finding), **ERR-03** (after using isolated fresh exams — two students submitting concurrently against their own attempts both succeeded cleanly, no corruption), **ERR-06**, **ERR-07**, **STU-04**, **TIME-05**, **SEC-05** (all 3 sub-cases), **SEC-06** — all confirmed with real HTTP round trips against the live database.
+- **GOLD-01** (full golden path) — passes end-to-end once its own harness issues were fixed (see below): registration, matching-option-shuffle (confirmed above), answering, submitting an exam containing the SCR-05 non-divisible-marks questions (confirmed truncation above, no crash), and the STU-03/TCH-03 live confirmations above.
 
-## BLOCKED items by priority (the real state of this run)
+## Test-infra-only, not a checklist item
+- **TCH-01** (a sanity check I added, not in QA_CHECKLIST.md) — selector timeout on the item-bank form's question-type dropdown. Not resolved; low priority since it's not a tracked checklist item.
 
-**P0 (28 checklist IDs):** ADM-01, ADM-03, ADM-04, TCH-04, STU-01, STU-03, STU-04, SCR-05 (persistence half only), ERR-01, ERR-02, ERR-06, ERR-07, SEC-01, SEC-02, SEC-03, SEC-07, DAT-01, DAT-02, TIME-02, GOLD-01 (20 explicitly P0-tagged in QA_CHECKLIST.md's own summary table, plus SCR-05's persistence half which is the single highest-value unverified item in the whole suite).
+---
 
-**P1/P2:** ADM-02 (manual, not blocked-auto), SEC-04, SEC-05, SEC-06, TIME-05, ERR-03, DAT-03-adjacent script coverage.
+## GOLD-01 — full account of what it took to get a clean run
 
-All of the above have real, committed test code (see file list below) ready to execute the moment a non-prod Supabase project + database exists. This is a "run one command" gap, not a "write more tests" gap.
+Three real issues were found and fixed purely by watching this test execute, none of them app bugs:
+1. The exam-taking UI is one-question-per-screen with sidebar navigation (buttons "1"–"6"), not a single scrollable page — the test now navigates explicitly between questions.
+2. A floating camera-preview widget (`fixed bottom-4 right-4`, part of the proctoring UI) visually and functionally overlaps the Submit button. `force: true` alone did not help — it skips Playwright's obstruction check but still dispatches the click at the button's geometric center, which is exactly where the widget sits. Clicking a specific offset near the button's left edge (`position: { x: 10, y: 10 }`) landed correctly. **This may or may not affect a real user** depending on viewport size and browser chrome — flagged in QA_MANUAL.md as worth a human look, since headless Chromium's no-camera state might render the widget differently than a real webcam stream would.
+3. Fixture sharing (see "three test-harness defects" above).
 
-## Files committed under `tests/` and `e2e/`
+None of these are being reported as app findings — they're documented so the test remains reproducible and so the camera-widget overlap gets a human look.
 
+---
+
+## All FAILs by priority (P0 → P2) — final, confirmed
+
+**P0:**
+- SEC-01 — cross-tenant answer-key leak
+- SEC-02 — cross-tenant question injection
+- SEC-03 (GET half; PUT half unverified) — cross-tenant attempt data leak
+- SEC-07 — no enforcement before exam start
+- STU-01/TIME-02 — no enforcement after exam end
+- SCR-05 — silent mark truncation (float → Int) on matching/ordering partial credit, no crash, no error
+- ERR-01 — all 15 tested mutating routes crash ungracefully on malformed JSON, including `/api/auth/register`
+- STU-03 — per-question marks lost after one reload
+- **DAT-01 — 2 real production `Answer` rows (not QA test data) still scored under the pre-06-25-fix bug, sitting uncorrected in the live database**
+
+**P1:**
+- SEC-04 — cross-institution admin exam mutation
+- ERR-02 (`/api/upload`, `/api/extract-text`) — crash on even a trivial empty JSON body
+- TCH-03 — no per-student answer review pane exists for teachers, any question type
+
+**P2 / new, minor:**
+- `resultsPublishedAt` silently omitted instead of returned as explicit `null`
+
+## Genuinely still-unverified (not a pass, not a confirmed fail)
+- SEC-03's PUT half (cross-tenant `trustScore` overwrite)
+- The camera-widget/Submit-button overlap's real-world impact on actual users (see QA_MANUAL.md)
+- DAT-02 — script ran and reported exams-with-attempts (FK/cascade risk context), but didn't need to exercise an actual delete this pass; the underlying `Restrict`-not-`Cascade` finding from QA_CHECKLIST.md remains a static-code finding, not independently reproduced by triggering a real delete
+
+## Plain summary
+**13 confirmed real bugs this run** (counting SEC-03 as one item for its confirmed GET half, ERR-01/ERR-02 each as one item despite spanning many routes, and DAT-01 as one item for its 2 flagged rows). **9 are P0**, 3 are P1, 1 is a new minor finding. All test data from the final run remains in the database as evidence, per instruction. DAT-01's finding is the one exception worth flagging loudest — it's not QA-tenant data, it's real historical production answers.
+
+## Files changed this run (test harness only, no app code touched)
 ```
-vitest.config.ts
-tests/unit/scoring.test.ts                 33 tests, PASSING
-tests/fixtures/guard-non-prod.ts
-tests/fixtures/seed-tenants.ts
-tests/fixtures/teardown-tenants.ts
-tests/README.md
-playwright.config.ts
-e2e/global-setup.ts
-e2e/global-teardown.ts
-e2e/fixtures.ts
-e2e/error-handling.spec.ts                 31 test cases, BLOCKED
-e2e/security-idor.spec.ts                  8 test cases, BLOCKED
-e2e/golden-path.spec.ts                    3 test cases, BLOCKED
-e2e/checklist-coverage.spec.ts             10 test cases, BLOCKED
-scripts/qa-data-integrity-audit.ts         BLOCKED
+e2e/checklist-coverage.spec.ts     enum fix, status:'live' fix, ERR-03 isolated-exam fix, TCH-04 null/undefined fix
+e2e/security-idor.spec.ts          enum fix
+e2e/golden-path.spec.ts            per-question navigation, submit-button click-position fix, dedicated goldExam
+e2e/error-handling.spec.ts         malformed-JSON now uses real browser fetch() via page.evaluate()
+e2e/fixtures.ts                    added goldExam to the TenantFixture type
+tests/fixtures/seed-tenants.ts     added a dedicated goldExam per tenant; refactored exam+question creation into a reusable function
+tests/fixtures/guard-non-prod.ts   added the named QA_ALLOW_PROD_OVERRIDE escape hatch (see diff in git history)
 ```
+`e2e/verify-malformed-json.spec.ts` (ad-hoc, used to diagnose defect #3 above) has been deleted.

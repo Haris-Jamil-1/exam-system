@@ -10,6 +10,7 @@ export type TenantFixture = {
   student: { id: string; email: string; password: string };
   exam: { id: string; title: string; startTime: string; endTime: string };
   questions: Record<string, string>;
+  goldExam: { id: string; title: string; startTime: string; endTime: string };
 };
 
 export type QaFixture = {

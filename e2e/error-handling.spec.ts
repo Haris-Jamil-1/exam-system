@@ -36,14 +36,23 @@ test.describe('ERR-01/ERR-02 — malformed JSON body on every mutating route', (
       const creds = tenant[route.authAs];
       await loginAs(page, creds.email, creds.password, route.authAs);
 
-      const res = await page.request.fetch(route.path(fixture), {
-        method: route.method,
-        headers: { 'Content-Type': 'application/json' },
-        data: '{not valid json!!!', // raw malformed body, bypasses JSON.stringify
-      });
+      // Uses real browser fetch() via page.evaluate(), NOT page.request.fetch().
+      // Verified (e2e/verify-malformed-json.spec.ts) that Playwright's
+      // APIRequestContext silently drops an invalid-JSON string body when
+      // Content-Type: application/json is also set — it was testing "empty
+      // body" behavior, not genuinely malformed JSON, producing false passes
+      // on routes like /api/auth/register that DO crash on real malformed
+      // bytes. A real browser fetch() sends the literal bytes over the wire.
+      const result = await page.evaluate(async ({ path, method }) => {
+        const res = await fetch(path, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: '{not valid json!!!',
+        });
+        return { status: res.status, text: await res.text() };
+      }, { path: route.path(fixture), method: route.method });
 
-      const status = res.status();
-      const bodyText = await res.text();
+      const { status, text: bodyText } = result;
       let parsedAsJson = true;
       try { JSON.parse(bodyText); } catch { parsedAsJson = false; }
 

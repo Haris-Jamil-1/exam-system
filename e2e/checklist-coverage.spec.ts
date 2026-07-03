@@ -15,7 +15,7 @@ test('ADM-03 — approve persists via PUT, survives reload (not UI-only state)',
       title: `${fixture.prefix}ADM-03 exam`, subject: 'QA', duration: 30, totalMarks: 10, passingMarks: 5,
       startTime: new Date(Date.now() + 3_600_000).toISOString(),
       endTime: new Date(Date.now() + 7_200_000).toISOString(),
-      settings: { navigationMode: 'free', proctoringLevel: 'low' },
+      settings: { navigationMode: 'free', proctoringLevel: 'standard' },
     },
   });
   expect(createRes.status(), await createRes.text()).toBe(201);
@@ -44,10 +44,10 @@ test('ADM-04 — schedule conflict on approval returns conflicts, blocks the wri
   // Two overlapping exams from the SAME teacher (who shares the seeded student) —
   // sufficient to trigger checkScheduleConflicts's overlap-window logic.
   const examAId = await page.request.post('/api/exams', {
-    data: { title: `${fixture.prefix}Conflict A`, subject: 'QA', duration: 30, totalMarks: 10, passingMarks: 5, startTime: start, endTime: end, settings: { navigationMode: 'free', proctoringLevel: 'low' } },
+    data: { title: `${fixture.prefix}Conflict A`, subject: 'QA', duration: 30, totalMarks: 10, passingMarks: 5, startTime: start, endTime: end, settings: { navigationMode: 'free', proctoringLevel: 'standard' } },
   }).then(r => r.json()).then((e: { id: string }) => e.id);
   const examBId = await page.request.post('/api/exams', {
-    data: { title: `${fixture.prefix}Conflict B`, subject: 'QA', duration: 30, totalMarks: 10, passingMarks: 5, startTime: start, endTime: end, settings: { navigationMode: 'free', proctoringLevel: 'low' } },
+    data: { title: `${fixture.prefix}Conflict B`, subject: 'QA', duration: 30, totalMarks: 10, passingMarks: 5, startTime: start, endTime: end, settings: { navigationMode: 'free', proctoringLevel: 'standard' } },
   }).then(r => r.json()).then((e: { id: string }) => e.id);
 
   await page.request.put(`/api/exams/${examAId}`, { data: { approvalStatus: 'pending' } });
@@ -55,10 +55,15 @@ test('ADM-04 — schedule conflict on approval returns conflicts, blocks the wri
 
   await page.context().clearCookies();
   await loginAs(page, fixture.tenantA.admin.email, fixture.tenantA.admin.password, 'admin');
-  const firstApproval = await page.request.put(`/api/exams/${examAId}`, { data: { approvalStatus: 'approved' } });
-  expect(firstApproval.status()).toBe(200);
+  // status must move to 'live'/'scheduled' too — checkScheduleConflicts only
+  // considers status: {in: ['scheduled','live']} exams; approvalStatus alone
+  // isn't enough (confirmed: an earlier run of this test left status:'draft'
+  // and the conflict query silently excluded both exams, producing a false
+  // "no conflict" result that was a test defect, not a real app finding).
+  const firstApproval = await page.request.put(`/api/exams/${examAId}`, { data: { approvalStatus: 'approved', status: 'live' } });
+  expect(firstApproval.status(), await firstApproval.text()).toBe(200);
 
-  const secondApproval = await page.request.put(`/api/exams/${examBId}`, { data: { approvalStatus: 'approved' } });
+  const secondApproval = await page.request.put(`/api/exams/${examBId}`, { data: { approvalStatus: 'approved', status: 'live' } });
   const body = await secondApproval.json() as { error?: string; conflicts?: unknown[] };
   expect(body.error, `expected schedule_conflict, got: ${JSON.stringify(body)}`).toBe('schedule_conflict');
   expect(Array.isArray(body.conflicts) && body.conflicts.length > 0).toBe(true);
@@ -127,7 +132,7 @@ test('STU-01/TIME-02 — starting an attempt after the exam\'s endTime should be
       title: `${fixture.prefix}Already-ended exam`, subject: 'QA', duration: 5, totalMarks: 10, passingMarks: 5,
       startTime: new Date(Date.now() - 2 * 3_600_000).toISOString(),
       endTime: new Date(Date.now() - 3_600_000).toISOString(), // ended an hour ago
-      settings: { navigationMode: 'free', proctoringLevel: 'low' },
+      settings: { navigationMode: 'free', proctoringLevel: 'standard' },
     },
   });
   const exam = await createRes.json() as { id: string };
@@ -150,15 +155,26 @@ test('TCH-04 — publish-results PATCH gates resultsPublishedAt correctly', asyn
       title: `${fixture.prefix}Held-results exam`, subject: 'QA', duration: 30, totalMarks: 10, passingMarks: 5,
       startTime: new Date(Date.now() - 60_000).toISOString(),
       endTime: new Date(Date.now() + 3_600_000).toISOString(),
-      settings: { navigationMode: 'free', proctoringLevel: 'low', resultsVisibility: 'held' },
+      settings: { navigationMode: 'free', proctoringLevel: 'standard', resultsVisibility: 'held' },
     },
   });
+  expect(createRes.status(), await createRes.text()).toBe(201);
   const exam = await createRes.json() as { id: string };
+  // publish-results doesn't require approval/live status (confirmed by reading
+  // the route — it only checks ownership), so not asserting on this PUT's
+  // result here; it's fine if it 409s on a schedule conflict with the
+  // tenant's other live exams, unrelated to what this test verifies.
   await page.request.put(`/api/exams/${exam.id}`, { data: { approvalStatus: 'approved', status: 'live' } });
 
   const beforeRes = await page.request.get(`/api/exams/${exam.id}`);
-  const before = await beforeRes.json() as { resultsPublishedAt: string | null };
-  expect(before.resultsPublishedAt, 'results must be held (null) before the teacher publishes').toBeNull();
+  const before = await beforeRes.json() as { resultsPublishedAt: string | null | undefined };
+  // REAL FINDING (confirmed, minor): src/lib/data/exams.ts's mapExam does
+  // `e.resultsPublishedAt?.toISOString()` — optional chaining on a `null`
+  // Prisma value evaluates to `undefined`, not `null`, so JSON.stringify
+  // drops the key entirely instead of sending `"resultsPublishedAt": null`.
+  // Accepting either here so the actual publish-results behavior below can
+  // still be verified; see QA_RESULTS.md for this as its own finding.
+  expect([null, undefined]).toContain(before.resultsPublishedAt);
 
   const publishRes = await page.request.patch(`/api/exams/${exam.id}/publish-results`);
   expect(publishRes.status(), await publishRes.text()).toBe(200);
@@ -170,22 +186,54 @@ test('TCH-04 — publish-results PATCH gates resultsPublishedAt correctly', asyn
 
 test('ERR-03 — two students submitting concurrently does not corrupt either attempt (each isolated by [examId,studentId])', async ({ browser }) => {
   const fixture = loadFixture();
-  // Tenant A student + Tenant B student submitting concurrently against their OWN exams —
-  // proves no shared mutable state races, not that two students can share one exam attempt
-  // (the unique constraint already prevents that scenario from being reachable).
+  // Each side gets its OWN freshly-created, approved exam — NOT fixture.tenantA/B.exam,
+  // which several other tests in this suite (ERR-06, ERR-07, SEC-*) also start/submit
+  // attempts against. Reusing that shared exam caused a false failure in an earlier run:
+  // ERR-07 had already driven that attempt to status:"submitted" before this test got to
+  // it, so the "concurrent submit" call correctly 409'd for a reason unrelated to
+  // concurrency. A dedicated exam per test avoids any cross-test attempt-state collision.
+  async function createFreshLiveExam(page: import('@playwright/test').Page, teacher: { email: string; password: string }, admin: { email: string; password: string }, label: string) {
+    await loginAs(page, teacher.email, teacher.password, 'teacher');
+    // Window deliberately far outside the seed script's ~[-60s, +3600s] range
+    // so this doesn't collide with the tenant's other already-live exams
+    // (exam, goldExam) via the real, correctly-functioning schedule-conflict
+    // check — confirmed in an earlier run: POST /api/attempts has no
+    // time-window enforcement at all (see STU-01/TIME-02, SEC-07), so a
+    // future-dated window here doesn't prevent the student from starting
+    // and submitting an attempt immediately.
+    const createRes = await page.request.post('/api/exams', {
+      data: {
+        title: `${fixture.prefix}ERR-03 ${label}`, subject: 'QA', duration: 30, totalMarks: 10, passingMarks: 5,
+        startTime: new Date(Date.now() + 3 * 3_600_000).toISOString(),
+        endTime: new Date(Date.now() + 4 * 3_600_000).toISOString(),
+        settings: { proctoringLevel: 'standard' },
+      },
+    });
+    if (createRes.status() !== 201) throw new Error(`ERR-03 setup: exam creation failed: ${await createRes.text()}`);
+    const exam = await createRes.json() as { id: string };
+    await page.context().clearCookies();
+    await loginAs(page, admin.email, admin.password, 'admin');
+    const approveRes = await page.request.put(`/api/exams/${exam.id}`, { data: { approvalStatus: 'approved', status: 'live' } });
+    if (approveRes.status() !== 200) throw new Error(`ERR-03 setup: exam approval failed: ${await approveRes.text()}`);
+    await page.context().clearCookies();
+    return exam.id;
+  }
+
   const contextA = await browser.newContext();
   const pageA = await contextA.newPage();
+  const examAId = await createFreshLiveExam(pageA, fixture.tenantA.teacher, fixture.tenantA.admin, 'Tenant A');
   await loginAs(pageA, fixture.tenantA.student.email, fixture.tenantA.student.password, 'student');
-  const attemptA = await pageA.request.post('/api/attempts', { data: { examId: fixture.tenantA.exam.id } }).then(r => r.json()) as { id: string };
+  const attemptA = await pageA.request.post('/api/attempts', { data: { examId: examAId } }).then(r => r.json()) as { id: string };
 
   const contextB = await browser.newContext();
   const pageB = await contextB.newPage();
+  const examBId = await createFreshLiveExam(pageB, fixture.tenantB.teacher, fixture.tenantB.admin, 'Tenant B');
   await loginAs(pageB, fixture.tenantB.student.email, fixture.tenantB.student.password, 'student');
-  const attemptB = await pageB.request.post('/api/attempts', { data: { examId: fixture.tenantB.exam.id } }).then(r => r.json()) as { id: string };
+  const attemptB = await pageB.request.post('/api/attempts', { data: { examId: examBId } }).then(r => r.json()) as { id: string };
 
   const [resA, resB] = await Promise.all([
-    pageA.request.post(`/api/attempts/${attemptA.id}/submit`, { data: { examId: fixture.tenantA.exam.id, answers: {} } }),
-    pageB.request.post(`/api/attempts/${attemptB.id}/submit`, { data: { examId: fixture.tenantB.exam.id, answers: {} } }),
+    pageA.request.post(`/api/attempts/${attemptA.id}/submit`, { data: { examId: examAId, answers: {} } }),
+    pageB.request.post(`/api/attempts/${attemptB.id}/submit`, { data: { examId: examBId, answers: {} } }),
   ]);
 
   expect(resA.status(), await resA.text()).toBe(200);

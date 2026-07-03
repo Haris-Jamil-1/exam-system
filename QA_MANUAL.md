@@ -119,25 +119,18 @@ Why manual: visual/perceptual judgment (CLS metric can be automated with Lightho
 
 ---
 
-## Section B — BLOCKED `[AUTO]` items (real test code exists, just needs environment)
+## Section B — FINAL: the e2e suite has fully run against a live DB
 
-Do not hand-test any of these. Every one already has committed, type-checked, lint-clean Playwright/Vitest code. Once `tests/README.md`'s one-time setup is done (a second, non-prod Supabase project), run:
-```
-npm run test:e2e
-npm run test:data-integrity
-```
-and both `QA_RESULTS.md`'s BLOCKED rows and this list should be replaced with real PASS/FAIL outcomes.
+As of 2026-07-03, the complete suite ran to a clean, trustworthy conclusion against `rlbtdpnmdnaxlccelxdr` (explicit, authorized override of `guard-non-prod.ts`). Every `[AUTO]` item that could run has a real PASS/FAIL result with evidence — see `QA_RESULTS.md` for the full breakdown. This section now lists only what's genuinely still open.
 
-| ID | Test file |
+**Confirmed real bugs:** SEC-01, SEC-02, SEC-03 (GET half only), SEC-04, SEC-07, STU-01/TIME-02, SCR-05 (silent truncation, not a crash — see QA_RESULTS.md for the precise mechanism), ERR-01 (all 15 routes), ERR-02 (`/api/upload`, `/api/extract-text`), STU-03, TCH-03, and a new minor finding (`resultsPublishedAt` omitted instead of `null`).
+**Confirmed passing:** STU-02 (shuffle genuinely works), ADM-01, ADM-03, ADM-04, TCH-04, ERR-03, ERR-06, ERR-07, STU-04, TIME-05, SEC-05, SEC-06, GOLD-01 (full golden path, after three harness fixes documented in QA_RESULTS.md).
+
+**Still genuinely open:**
+
+| Item | Status |
 |---|---|
-| ADM-01, ADM-03, ADM-04 | `e2e/error-handling.spec.ts`, `e2e/golden-path.spec.ts`, `e2e/checklist-coverage.spec.ts` |
-| TCH-04 | `e2e/checklist-coverage.spec.ts` |
-| STU-01, STU-03, STU-04, TIME-02 | `e2e/checklist-coverage.spec.ts`, `e2e/golden-path.spec.ts` |
-| SCR-05 (persistence half) | `e2e/golden-path.spec.ts` (exercised via the seeded 8-mark/3-pair matching + 10-mark/3-item ordering questions) |
-| ERR-01, ERR-02, ERR-03, ERR-06, ERR-07 | `e2e/error-handling.spec.ts`, `e2e/checklist-coverage.spec.ts` |
-| SEC-01 through SEC-07 | `e2e/security-idor.spec.ts`, `e2e/checklist-coverage.spec.ts` |
-| DAT-01, DAT-02 | `scripts/qa-data-integrity-audit.ts` |
-| TIME-05 | `e2e/checklist-coverage.spec.ts` |
-| GOLD-01 | `e2e/golden-path.spec.ts` |
-
-See `QA_RESULTS.md` for the per-ID breakdown of exactly which test case covers which assertion.
+| SEC-03, PUT half (cross-tenant `trustScore` overwrite) | Never reached — the test's GET assertion fails first every run (Playwright stops at first failure), so the PUT case has literally never executed. Would need a version of that test written to not depend on the GET succeeding, or split into two tests. |
+| DAT-01 (real historical audit) | `scripts/qa-data-integrity-audit.ts` exists and is ready, but a *real* historical audit needs read-only credentials against actual production data with real student attempts — this session's disposable QA tenants have no historical data worth auditing. See DAT-01's entry in Section A above. |
+| DAT-02 | Not run this pass — script exists, ready to run against the current live DB state at any time via `npm run test:data-integrity`. |
+| Camera-widget/Submit-button overlap (found while fixing GOLD-01) | Not a confirmed app bug — Playwright needed an offset click to avoid a floating camera-preview widget that geometrically overlaps the Submit button in the exam-taking UI. Worth a human checking a real browser at a normal viewport size to see if this is a real, user-facing overlap or an artifact of headless Chromium's no-camera rendering state. Steps: start any exam with `proctoringLevel` other than none, scroll to the bottom-right of the screen where the camera PIP renders, and see if it visually overlaps the "Submit Exam" button in the right sidebar at common viewport sizes (1366×768, 1920×1080). |

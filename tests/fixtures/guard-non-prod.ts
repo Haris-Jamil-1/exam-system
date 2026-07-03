@@ -39,10 +39,20 @@ export function assertNonProd() {
 
   const offenders = Object.entries(required).filter(([, v]) => containsProdMarker(v));
   if (offenders.length > 0) {
+    if (process.env.QA_ALLOW_PROD_OVERRIDE === 'i-understand-this-writes-to-prod') {
+      console.warn(
+        `\n[guard-non-prod] ⚠️  OVERRIDE ACTIVE — QA_ALLOW_PROD_OVERRIDE is set. ` +
+        `Proceeding to run against the PRODUCTION project/app despite: ${offenders.map(([k]) => k).join(', ')}. ` +
+        `This was an explicit, one-off human authorization for a single run (see QA_RESULTS.md) — ` +
+        `this flag must not be left set in any persisted env config.\n`
+      );
+      return;
+    }
     throw new Error(
       `[guard-non-prod] Refusing to run: the following TEST_* env vars resolve to the ` +
       `known PRODUCTION project/app: ${offenders.map(([k]) => k).join(', ')}. ` +
-      `Never point this suite at prod.`
+      `Never point this suite at prod. (If this is an explicit, authorized one-off exception, ` +
+      `set QA_ALLOW_PROD_OVERRIDE=i-understand-this-writes-to-prod for that run only.)`
     );
   }
 }

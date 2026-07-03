@@ -50,34 +50,24 @@ type TenantFixture = {
   student: { id: string; email: string; password: string };
   exam: { id: string; title: string; startTime: string; endTime: string };
   questions: Record<string, string>; // type -> questionId
+  // Reserved exclusively for the golden-path spec — NOT touched by any other
+  // test. `exam` above is shared across error-handling/IDOR/checklist-coverage
+  // tests, several of which start+submit a real attempt against it; an
+  // earlier run had golden-path.spec.ts collide with that shared attempt
+  // already being in status:"submitted" by the time it ran.
+  goldExam: { id: string; title: string; startTime: string; endTime: string };
 };
 
-async function buildTenant(label: 'A' | 'B'): Promise<TenantFixture> {
-  const institution = await prisma.institution.create({
-    data: { name: `${prefix}Tenant ${label}`, domain: `${prefix}tenant-${label.toLowerCase()}.qa` },
-  });
-
-  const adminEmail = `${prefix}admin-${label.toLowerCase()}@qa.exampro.test`;
-  const teacherEmail = `${prefix}teacher-${label.toLowerCase()}@qa.exampro.test`;
-  const studentEmail = `${prefix}student-${label.toLowerCase()}@qa.exampro.test`;
-
-  const adminAuthId = await createAuthUser(adminEmail, `QA Admin ${label}`, 'admin', institution.id);
-  const teacherAuthId = await createAuthUser(teacherEmail, `QA Teacher ${label}`, 'teacher', institution.id);
-  const studentAuthId = await createAuthUser(studentEmail, `QA Student ${label}`, 'student', institution.id);
-
-  const admin = await prisma.user.create({ data: { supabaseId: adminAuthId, name: `QA Admin ${label}`, email: adminEmail, role: 'admin', institutionId: institution.id } });
-  const teacher = await prisma.user.create({ data: { supabaseId: teacherAuthId, name: `QA Teacher ${label}`, email: teacherEmail, role: 'teacher', institutionId: institution.id } });
-  const student = await prisma.user.create({ data: { supabaseId: studentAuthId, name: `QA Student ${label}`, email: studentEmail, role: 'student', institutionId: institution.id } });
-
-  await prisma.teacherStudent.create({ data: { teacherId: teacher.id, studentId: student.id } });
-
+async function createExamWithQuestions(
+  institutionId: string, teacherId: string, studentId: string, title: string,
+): Promise<{ id: string; title: string; startTime: string; endTime: string; questions: Record<string, string> }> {
   const now = Date.now();
   const startTime = new Date(now - 60_000); // started 1 min ago -> immediately available
   const endTime = new Date(now + 60 * 60_000); // ends in 1 hour
 
   const exam = await prisma.exam.create({
     data: {
-      title: `${prefix}Exam ${label}`,
+      title,
       subject: 'QA Subject',
       duration: 60,
       totalMarks: 0, // updated below once question marks are known
@@ -86,13 +76,13 @@ async function buildTenant(label: 'A' | 'B'): Promise<TenantFixture> {
       approvalStatus: 'approved',
       startTime,
       endTime,
-      settings: { navigationMode: 'free', proctoringLevel: 'low', resultsVisibility: 'immediate' },
-      institutionId: institution.id,
-      teacherId: teacher.id,
+      settings: { proctoringLevel: 'standard', resultsVisibility: 'immediate' },
+      institutionId,
+      teacherId,
     },
   });
 
-  await prisma.examEnrollment.create({ data: { examId: exam.id, studentId: student.id } });
+  await prisma.examEnrollment.create({ data: { examId: exam.id, studentId } });
 
   // One question per type relevant to the checklist, in the *current* (non-legacy) data shapes.
   const mcq = await prisma.question.create({
@@ -156,13 +146,44 @@ async function buildTenant(label: 'A' | 'B'): Promise<TenantFixture> {
   await prisma.exam.update({ where: { id: exam.id }, data: { totalMarks, passingMarks: Math.round(totalMarks * 0.5) } });
 
   return {
+    id: exam.id, title: exam.title,
+    startTime: startTime.toISOString(), endTime: endTime.toISOString(),
+    questions: { mcq: mcq.id, mrq: mrq.id, fill_blank: fillBlank.id, matching: matching.id, ordering: ordering.id, essay: essay.id },
+  };
+}
+
+async function buildTenant(label: 'A' | 'B'): Promise<TenantFixture> {
+  const institution = await prisma.institution.create({
+    data: { name: `${prefix}Tenant ${label}`, domain: `${prefix}tenant-${label.toLowerCase()}.qa` },
+  });
+
+  const adminEmail = `${prefix}admin-${label.toLowerCase()}@qa.exampro.test`;
+  const teacherEmail = `${prefix}teacher-${label.toLowerCase()}@qa.exampro.test`;
+  const studentEmail = `${prefix}student-${label.toLowerCase()}@qa.exampro.test`;
+
+  const adminAuthId = await createAuthUser(adminEmail, `QA Admin ${label}`, 'admin', institution.id);
+  const teacherAuthId = await createAuthUser(teacherEmail, `QA Teacher ${label}`, 'teacher', institution.id);
+  const studentAuthId = await createAuthUser(studentEmail, `QA Student ${label}`, 'student', institution.id);
+
+  const admin = await prisma.user.create({ data: { supabaseId: adminAuthId, name: `QA Admin ${label}`, email: adminEmail, role: 'admin', institutionId: institution.id } });
+  const teacher = await prisma.user.create({ data: { supabaseId: teacherAuthId, name: `QA Teacher ${label}`, email: teacherEmail, role: 'teacher', institutionId: institution.id } });
+  const student = await prisma.user.create({ data: { supabaseId: studentAuthId, name: `QA Student ${label}`, email: studentEmail, role: 'student', institutionId: institution.id } });
+
+  await prisma.teacherStudent.create({ data: { teacherId: teacher.id, studentId: student.id } });
+
+  const exam = await createExamWithQuestions(institution.id, teacher.id, student.id, `${prefix}Exam ${label}`);
+  // Only Tenant A runs the golden path, but seed it for both tenants for symmetry/future use.
+  const goldExam = await createExamWithQuestions(institution.id, teacher.id, student.id, `${prefix}GoldExam ${label}`);
+
+  return {
     institutionId: institution.id,
     institutionName: institution.name,
     admin: { id: admin.id, email: adminEmail, password: PASSWORD },
     teacher: { id: teacher.id, email: teacherEmail, password: PASSWORD },
     student: { id: student.id, email: studentEmail, password: PASSWORD },
-    exam: { id: exam.id, title: exam.title, startTime: startTime.toISOString(), endTime: endTime.toISOString() },
-    questions: { mcq: mcq.id, mrq: mrq.id, fill_blank: fillBlank.id, matching: matching.id, ordering: ordering.id, essay: essay.id },
+    exam: { id: exam.id, title: exam.title, startTime: exam.startTime, endTime: exam.endTime },
+    questions: exam.questions,
+    goldExam: { id: goldExam.id, title: goldExam.title, startTime: goldExam.startTime, endTime: goldExam.endTime },
   };
 }
 

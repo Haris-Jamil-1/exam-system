@@ -115,7 +115,7 @@ test.describe('SEC-07 — attempt-start time-window enforcement', () => {
         subject: 'QA', duration: 30, totalMarks: 10, passingMarks: 5,
         startTime: new Date(Date.now() + 60 * 60_000).toISOString(),
         endTime: new Date(Date.now() + 2 * 60 * 60_000).toISOString(),
-        settings: { navigationMode: 'free', proctoringLevel: 'low' },
+        settings: { navigationMode: 'free', proctoringLevel: 'standard' },
       },
     });
     expect(createRes.status(), await createRes.text()).toBe(201);

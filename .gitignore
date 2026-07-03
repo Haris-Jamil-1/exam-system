@@ -41,3 +41,8 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# playwright / e2e QA suite artifacts
+/test-results/
+/e2e/.results.json
+/tests/fixtures/.qa-fixture.json

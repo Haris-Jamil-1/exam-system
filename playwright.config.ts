@@ -26,7 +26,14 @@ export default defineConfig({
   webServer: {
     command: 'npx next dev -p ' + PORT,
     url: baseURL,
-    reuseExistingServer: false,
+    // Next.js only allows one dev server per project directory regardless of
+    // port. When TEST_BASE_URL is pointed at an already-running instance
+    // whose own env resolves to the same target as TEST_*, reuse it instead
+    // of failing to spawn a second one — this is what happened when running
+    // against rlbtdpnmdnaxlccelxdr with a pre-existing `npm run dev` up on
+    // :3001 from the same .env.local. Set via env, not hardcoded true, so a
+    // genuinely separate non-prod project still gets a guaranteed-clean spawn.
+    reuseExistingServer: process.env.TEST_REUSE_EXISTING_SERVER === 'true',
     timeout: 60_000,
     env: {
       // Map TEST_* -> the real var names the app reads, so the dev server
