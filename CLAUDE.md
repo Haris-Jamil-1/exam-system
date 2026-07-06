@@ -13,12 +13,18 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 - **ERR-01 / ERR-02** (`63c2d19`) — all 15 mutating routes crashed with a bare non-JSON response on malformed JSON or wrong Content-Type. Added `withErrorHandling()` in `src/lib/api-auth.ts` and applied it to every mutating handler; malformed input now returns structured 4xx JSON.
 - **SEC-03 PUT half + DAT-02** (`3ae2d16`, docs only) — both were already safe (PUT institution check landed with the GET fix in `cde294b`; `deleteExam`'s FK-safe transaction already handles cascade correctly) but had never been independently exercised. Verified live, no code change needed; closed out in `QA_MANUAL.md`.
 
-**Explicitly deferred (not silently dropped — flagged for a human decision):**
-- **DAT-01** — live read-only audit confirmed 2 real production `Answer` rows still scored under the pre-06-25 MCQ text-vs-ID bug (rows `cmqtkpdw5000d04jmmhdco49a` / `cmqtkpe2e000e04jm9ra7gfkk`, both submitted `2026-06-25T14:04:06.442Z`). **Not auto-corrected** per instruction — awaiting a recalculate-vs-flag decision.
-- **STU-03** (per-question marks lost after one reload), **TCH-03** (no per-student answer review pane — missing feature), and the minor `resultsPublishedAt` omitted-instead-of-`null` finding — all pre-existing, confirmed bugs from the 2026-07-03 audit, but **out of this session's assigned fix scope** (not in the priority list given). Still open.
-- Camera-widget/Submit-button overlap — needs a human in a real browser at a normal viewport; not scriptable.
+**Round 2 — DAT-01 correction + remaining scope cleanup, same day, after user sign-off:**
+- **DAT-01** (`a7d6fe4`) — per explicit user decision, recalculated and corrected the 2 flagged production `Answer` rows (both belonged to the same `ExamAttempt`, exam "MIDTERM"): `isCorrect` false→true and `marksAwarded` 0→4 on each, parent attempt `score`/`scorePercentage` recomputed 0/0%→8/67%. A 3rd answer in the same attempt was independently checked and confirmed genuinely wrong (left untouched). Full before/after values and root cause logged in new `CORRECTIONS.md`. Re-ran the read-only audit afterward: 0 rows now flagged (down from 2).
+- **STU-03** (`5f55451`) — per-question breakdown was read once from `sessionStorage` then deleted, so a hard reload of `/exam/[examId]/complete` lost it permanently. Moved the source of truth server-side: `GET /api/attempts/[attemptId]` now returns a `perQuestion` array; the exam page passes `attemptId` in the redirect URL instead of stashing data in `sessionStorage`, so the completion page re-fetches fresh on every load.
+- **resultsPublishedAt** (`58f60e1`) — `mapExam()` used `?.toISOString()` with no `?? null` fallback, so `JSON.stringify` silently dropped the key for unpublished exams instead of sending `null`. One-line fix + widened the `Exam` type.
+- **TCH-03** (`16feb07`) — added the missing per-student answer review pane: new `getStudentSubmissionDetail()` in `lib/data/students.ts` (all 10 question types, resolves option IDs to readable text, mirrors `scoring.ts`'s matching/ordering index alignment) backing a new `teacher/exams/[examId]/results/[studentId]` page, linked from a new "View answers" column on the results table. Scoped with the same institution/ownership pattern as this session's other IDOR fixes.
 
-**Build status**: `npm run build` → PASSES (0 errors, 50 routes) · `npm run lint` → same 7 pre-existing problems as before this session (confirmed via `git stash` diff, none introduced) · `npx tsc --noEmit` → clean.
+**Camera-widget/Submit-button overlap** — user will check this themselves in a real browser per `QA_MANUAL.md`'s steps; not blocking, not further action needed from here.
+
+**Known Accepted Risk (user sign-off, revisit after Phase 3's shape settles):**
+- **SEC-08 — no database-level RLS.** All authorization is enforced at the application layer (API routes / `lib/data` functions) — there is no Postgres RLS backstop on `Question`, `ExamAttempt`, `Answer`, or `Exam`. App-layer checks are now solid everywhere touched this session, but a future route/function that forgets a check has no defense-in-depth. Accepted as a known risk for now rather than a blocking gap.
+
+**Build status (final, both rounds)**: `npm run build` → PASSES (0 errors, 51 routes) · `npm run lint` → 6 pre-existing baseline problems (down from 7 — one incidentally resolved by the STU-03 fix; confirmed via `git stash` diff that none were introduced by this session) · `npx tsc --noEmit` → clean.
 
 ### 2026-06-25 — Destructive QA Audit + 7 Critical Fixes ✅
 
@@ -59,20 +65,20 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ## Current Status
 - **Phase 1** ✅ — Full mock UI across all 3 dashboards (2026-06-21)
 - **Phase 2** ✅ — Supabase Auth + Prisma DB + all API routes wired to real data (2026-06-25, commit `1cfda61`)
-- **Phase 2 hardening** ✅ — All P0/P1 security, scoring, and reliability gaps found by the 2026-07-03 QA audit are now fixed and independently verified against live prod DB (2026-07-06, see Session Log). Cross-tenant IDOR gaps closed (SEC-01–04), exam time-window enforced server-side (SEC-07/STU-01/TIME-02), silent score truncation fixed (SCR-05), all mutating routes return clean JSON on malformed input (ERR-01/02). Three items remain open by deliberate deferral, not oversight — see Session Log's "Explicitly deferred" list (DAT-01's 2 flagged production rows, STU-03, TCH-03, the `resultsPublishedAt` minor finding, and the camera-widget overlap).
-- **Phase 3** — Next: AI grading, face detection, Supabase Realtime (see Phase 3 Next Steps below)
+- **Phase 2 hardening** ✅ **COMPLETE** — every P0/P1 finding from the 2026-07-03 QA audit is now fixed, independently verified against live prod DB, and either shipped or explicitly resolved with user sign-off (2026-07-06, see Session Log, both rounds). Cross-tenant IDOR gaps closed (SEC-01–04), exam time-window enforced server-side (SEC-07/STU-01/TIME-02), silent score truncation fixed (SCR-05), all mutating routes return clean JSON on malformed input (ERR-01/02), the 2 real production rows affected by the pre-06-25 scoring bug were recalculated and logged in `CORRECTIONS.md` (DAT-01), the per-question-marks-lost-on-reload bug is fixed (STU-03), a full per-student answer review pane now exists for teachers (TCH-03), and the `resultsPublishedAt` API-contract nit is fixed. Nothing from that audit remains open except the camera-widget overlap (user checking it themselves in a real browser — not code) and RLS/SEC-08 (accepted as a known risk, see below).
+- **Phase 3** — Not started yet, explicitly held pending a separate kickoff from the user. Next: AI grading, face detection, Supabase Realtime, psychometrics (see Phase 3 Next Steps below).
 
 **Pending manual action**: Supabase dashboard → Authentication → URL Configuration → set Site URL to `https://exam-system-sigma.vercel.app` and add it to Additional Redirect URLs (without this, invite emails redirect to localhost).
 
-**Pending human decision**: DAT-01's 2 flagged production `Answer` rows (see Session Log, 2026-07-06) — recalculate or leave flagged?
+**Known Accepted Risk**: no database-level RLS (SEC-08) — app-layer checks are the sole enforcement mechanism. Accepted by the user 2026-07-06; revisit after Phase 3's shape settles. See Session Log for detail.
 
 ---
 
 ## Build Status
-- `npm run build` → **PASSES** (0 errors, 50 routes)
-- `npm run lint` → 7 pre-existing problems (4 errors/3 warnings in `useExamTimer.ts`, `invite/[token]/page.tsx`, etc. — predate this session, confirmed via `git stash` diff, not introduced by any fix here)
+- `npm run build` → **PASSES** (0 errors, 51 routes)
+- `npm run lint` → 6 pre-existing baseline problems (3 errors/3 warnings in `useExamTimer.ts`, `invite/[token]/page.tsx`, etc. — predate this session, confirmed via `git stash` diff, not introduced by any fix here)
 - `npx tsc --noEmit` → clean
-- Last verified: 2026-07-06 (QA_RESULTS.md priority fix pass)
+- Last verified: 2026-07-06 (QA_RESULTS.md priority fix pass, both rounds)
 - Live: https://exam-system-sigma.vercel.app
 
 ---
@@ -172,12 +178,13 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Phase 3 Next Steps
+Not started — awaiting a separate kickoff from the user (Phase 2 hardening is fully closed as of 2026-07-06, nothing carried over).
 - **AI grading**: `POST /api/grade` via Claude API (`claude-sonnet-4-6`) for essay + coding questions
 - **Face detection**: replace `FaceDetector.tsx` mock with `face-api.js` (load models from `/public/models/`)
 - **Supabase Realtime**: replace 10s polling in `teacher/monitor` with channel subscriptions
 - **Trust score**: violation-count formula (`Math.max(0, 100 - violationCount * 15)`) is already computed and persisted server-side in `ExamAttempt.trustScore` on submit (fixed 2026-06-25); this item is about revisiting whether that formula itself is the right one, not about wiring persistence (already done)
 - **Psychometrics**: replace random FI%/DI% in `teacher/items` with real answer-based calculation
-- **Carried over from Phase 2 hardening (deliberately deferred, not Phase 3-blocking but worth picking up early)**: STU-03 (per-question marks lost after one reload), TCH-03 (per-student answer review pane, missing feature), `resultsPublishedAt` omitted instead of `null`, DAT-01's 2 flagged production rows (pending human decision)
+- **Worth considering alongside Phase 3**: RLS policies for `Question`/`ExamAttempt`/`Answer`/`Exam` (currently an accepted risk, see Current Status), and a human check of the camera-widget/Submit-button overlap (`QA_MANUAL.md`)
 
 ---
 
