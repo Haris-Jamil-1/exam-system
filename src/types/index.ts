@@ -69,7 +69,7 @@ export interface Exam {
   maxViolations: number;
   settings: ExamSettings;
   createdAt: string;
-  resultsPublishedAt?: string;
+  resultsPublishedAt?: string | null;
   _count?: {
     questions: number;
     enrollments: number;

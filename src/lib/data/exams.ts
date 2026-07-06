@@ -26,7 +26,7 @@ function mapExam(e: PrismaExam): Exam {
     endTime: e.endTime.toISOString(),
     maxViolations: e.maxViolations,
     settings: e.settings as ExamSettings,
-    resultsPublishedAt: e.resultsPublishedAt?.toISOString(),
+    resultsPublishedAt: e.resultsPublishedAt?.toISOString() ?? null,
     institutionId: e.institutionId,
     teacherId: e.teacherId,
     createdAt: e.createdAt.toISOString(),
