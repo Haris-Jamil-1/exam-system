@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getQuestions, createQuestion } from '@/lib/data';
+import { getQuestions, createQuestion, getExamById } from '@/lib/data';
 import { getQuestionsForStudent } from '@/lib/data/questions';
-import { getAuthUser, unauthorized, forbidden } from '@/lib/api-auth';
+import { getAuthUser, unauthorized, notFound, forbidden } from '@/lib/api-auth';
 
 const createQuestionSchema = z.object({
   examId: z.string(),
@@ -23,6 +23,15 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const examId = searchParams.get('examId');
   if (!examId) return NextResponse.json({ error: 'examId required' }, { status: 400 });
+
+  // Teachers/admins may only read questions for exams in their own institution
+  // (teachers additionally restricted to exams they own).
+  if (user.role !== 'student') {
+    const exam = await getExamById(examId);
+    if (!exam || exam.institutionId !== user.institutionId) return notFound();
+    if (user.role === 'teacher' && exam.teacherId !== user.id) return forbidden();
+  }
+
   // Students must not receive correct answers or explanations
   const questions = user.role === 'student'
     ? await getQuestionsForStudent(examId)
@@ -40,6 +49,13 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
+
+  // Only allow adding questions to exams within the caller's institution
+  // (teachers additionally restricted to exams they own).
+  const exam = await getExamById(parsed.data.examId);
+  if (!exam || exam.institutionId !== user.institutionId) return notFound();
+  if (user.role === 'teacher' && exam.teacherId !== user.id) return forbidden();
+
   const question = await createQuestion(parsed.data);
   return NextResponse.json(question, { status: 201 });
 }

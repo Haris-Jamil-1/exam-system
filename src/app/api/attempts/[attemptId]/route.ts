@@ -11,8 +11,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ attempt
   const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId } });
   if (!attempt) return notFound();
 
-  // Students can only read their own attempts; teachers/admins can read any
-  if (user.role === 'student' && attempt.studentId !== user.id) return notFound();
+  // Students can only read their own attempts; teachers/admins are scoped to
+  // their own institution (teachers additionally to exams they own).
+  if (user.role === 'student') {
+    if (attempt.studentId !== user.id) return notFound();
+  } else {
+    const exam = await prisma.exam.findUnique({ where: { id: attempt.examId }, select: { institutionId: true, teacherId: true } });
+    if (!exam || exam.institutionId !== user.institutionId) return notFound();
+    if (user.role === 'teacher' && exam.teacherId !== user.id) return forbidden();
+  }
 
   return NextResponse.json({
     id: attempt.id,
@@ -49,6 +56,12 @@ export async function PUT(request: Request, { params }: { params: Promise<{ atte
 
   const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId } });
   if (!attempt) return notFound();
+
+  // Teachers/admins are scoped to their own institution (teachers additionally
+  // to exams they own) — prevents cross-tenant trustScore/violationCount tampering.
+  const exam = await prisma.exam.findUnique({ where: { id: attempt.examId }, select: { institutionId: true, teacherId: true } });
+  if (!exam || exam.institutionId !== user.institutionId) return notFound();
+  if (user.role === 'teacher' && exam.teacherId !== user.id) return forbidden();
 
   const updated = await prisma.examAttempt.update({
     where: { id: attemptId },
