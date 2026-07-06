@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getAuthUser, unauthorized, notFound, forbidden } from '@/lib/api-auth';
+import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } from '@/lib/api-auth';
 
-export async function PATCH(_req: Request, { params }: { params: Promise<{ examId: string }> }) {
+export const PATCH = withErrorHandling(async (_req: Request, { params }: { params: Promise<{ examId: string }> }) => {
   const user = await getAuthUser();
   if (!user) return unauthorized();
   if (user.role !== 'teacher' && user.role !== 'admin') return forbidden();
@@ -23,4 +23,4 @@ export async function PATCH(_req: Request, { params }: { params: Promise<{ examI
     id: updated.id,
     resultsPublishedAt: updated.resultsPublishedAt?.toISOString(),
   });
-}
+});

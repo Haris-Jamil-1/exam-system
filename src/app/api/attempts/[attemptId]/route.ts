@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { getAuthUser, unauthorized, notFound, forbidden } from '@/lib/api-auth';
+import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } from '@/lib/api-auth';
 
 export async function GET(_req: Request, { params }: { params: Promise<{ attemptId: string }> }) {
   const user = await getAuthUser();
@@ -41,7 +41,7 @@ const updateSchema = z.object({
   violationCount: z.number().min(0).optional(),
 });
 
-export async function PUT(request: Request, { params }: { params: Promise<{ attemptId: string }> }) {
+export const PUT = withErrorHandling(async (request: Request, { params }: { params: Promise<{ attemptId: string }> }) => {
   const user = await getAuthUser();
   if (!user) return unauthorized();
   // Only teachers and admins may update trustScore/violationCount (e.g. manual review)
@@ -72,4 +72,4 @@ export async function PUT(request: Request, { params }: { params: Promise<{ atte
   });
 
   return NextResponse.json({ id: updated.id, trustScore: updated.trustScore, violationCount: updated.violationCount });
-}
+});

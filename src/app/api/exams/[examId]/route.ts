@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getExamById, updateExam, deleteExam, scheduleExamAtomically } from '@/lib/data';
-import { getAuthUser, unauthorized, notFound, forbidden } from '@/lib/api-auth';
+import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } from '@/lib/api-auth';
 
 /**
  * Ensures a datetime string is treated as UTC when parsed to a Date.
@@ -24,7 +24,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ examId:
   return NextResponse.json(exam);
 }
 
-export async function PUT(request: Request, { params }: { params: Promise<{ examId: string }> }) {
+export const PUT = withErrorHandling(async (request: Request, { params }: { params: Promise<{ examId: string }> }) => {
   const user = await getAuthUser();
   if (!user) return unauthorized();
 
@@ -105,9 +105,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ exam
   const updated = await updateExam(examId, body);
   if (!updated) return notFound();
   return NextResponse.json(updated);
-}
+});
 
-export async function DELETE(_req: Request, { params }: { params: Promise<{ examId: string }> }) {
+export const DELETE = withErrorHandling(async (_req: Request, { params }: { params: Promise<{ examId: string }> }) => {
   const user = await getAuthUser();
   if (!user) return unauthorized();
 
@@ -121,4 +121,4 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ exam
   const ok = await deleteExam(examId);
   if (!ok) return notFound();
   return NextResponse.json({ success: true });
-}
+});

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
+import { withErrorHandling } from '@/lib/api-auth';
 
 async function getSupabaseUser() {
   const supabase = await createClient();
@@ -32,7 +33,7 @@ const patchSchema = z.object({
   avatarUrl: z.string().url().optional(),
 });
 
-export async function PATCH(request: Request) {
+export const PATCH = withErrorHandling(async (request: Request) => {
   const user = await getSupabaseUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -51,4 +52,4 @@ export async function PATCH(request: Request) {
   });
 
   return userResponse(prismaUser);
-}
+});

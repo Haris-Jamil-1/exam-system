@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { getAuthUser, unauthorized } from '@/lib/api-auth';
+import { getAuthUser, unauthorized, withErrorHandling } from '@/lib/api-auth';
 import { adminSupabase } from '@/lib/supabase/admin';
 
 const BUCKET = 'exam-uploads';
@@ -16,7 +16,7 @@ async function ensureBucket() {
   }
 }
 
-export async function POST(request: Request) {
+export const POST = withErrorHandling(async (request: Request) => {
   const user = await getAuthUser();
   if (!user) return unauthorized();
 
@@ -52,4 +52,4 @@ export async function POST(request: Request) {
     path,
     url: signed?.signedUrl ?? null,
   }, { status: 201 });
-}
+});

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Resend } from 'resend';
 import { prisma } from '@/lib/prisma';
 import { adminSupabase } from '@/lib/supabase/admin';
-import { getAuthUser, unauthorized, forbidden } from '@/lib/api-auth';
+import { getAuthUser, unauthorized, forbidden, withErrorHandling } from '@/lib/api-auth';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -12,7 +12,7 @@ const inviteSchema = z.object({
   role: z.enum(['teacher', 'student']),
 });
 
-export async function POST(request: Request) {
+export const POST = withErrorHandling(async (request: Request) => {
   const user = await getAuthUser();
   if (!user) return unauthorized();
 
@@ -128,7 +128,7 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ id: invite.id, email, role }, { status: 201 });
-}
+});
 
 export async function GET(request: Request) {
   const user = await getAuthUser();

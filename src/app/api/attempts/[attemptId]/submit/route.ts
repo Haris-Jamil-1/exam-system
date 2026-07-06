@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { getAuthUser, unauthorized, notFound, forbidden } from '@/lib/api-auth';
+import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } from '@/lib/api-auth';
 import { scoreAnswers } from '@/lib/scoring';
 import type { Question } from '@/types';
 
@@ -12,10 +12,10 @@ const submitSchema = z.object({
   // trustScore is NOT accepted from client — calculated server-side from violation count
 });
 
-export async function POST(
+export const POST = withErrorHandling(async (
   request: Request,
   { params }: { params: Promise<{ attemptId: string }> }
-) {
+) => {
   const user = await getAuthUser();
   if (!user) return unauthorized();
 
@@ -110,4 +110,4 @@ export async function POST(
       questionId, stem, type, marks, marksAwarded,
     })),
   });
-}
+});

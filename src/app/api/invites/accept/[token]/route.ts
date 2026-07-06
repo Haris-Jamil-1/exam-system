@@ -2,16 +2,17 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { adminSupabase } from '@/lib/supabase/admin';
+import { withErrorHandling } from '@/lib/api-auth';
 
 const schema = z.object({
   name: z.string().min(2),
   password: z.string().min(8),
 });
 
-export async function POST(
+export const POST = withErrorHandling(async (
   request: Request,
   { params }: { params: Promise<{ token: string }> },
-) {
+) => {
   const { token } = await params;
 
   const body = await request.json();
@@ -93,4 +94,4 @@ export async function POST(
   });
 
   return NextResponse.json({ email, role });
-}
+});

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getQuestions, createQuestion, getExamById } from '@/lib/data';
 import { getQuestionsForStudent } from '@/lib/data/questions';
-import { getAuthUser, unauthorized, notFound, forbidden } from '@/lib/api-auth';
+import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } from '@/lib/api-auth';
 
 const createQuestionSchema = z.object({
   examId: z.string(),
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
   return NextResponse.json(questions);
 }
 
-export async function POST(request: Request) {
+export const POST = withErrorHandling(async (request: Request) => {
   const user = await getAuthUser();
   if (!user) return unauthorized();
   if (user.role === 'student') return forbidden();
@@ -58,4 +58,4 @@ export async function POST(request: Request) {
 
   const question = await createQuestion(parsed.data);
   return NextResponse.json(question, { status: 201 });
-}
+});

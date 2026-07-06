@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getViolations, logViolation } from '@/lib/data';
-import { getAuthUser, unauthorized } from '@/lib/api-auth';
+import { getAuthUser, unauthorized, withErrorHandling } from '@/lib/api-auth';
 
 const violationSchema = z.object({
   attemptId: z.string(),
@@ -28,7 +28,7 @@ export async function GET(request: Request) {
   return NextResponse.json(violations);
 }
 
-export async function POST(request: Request) {
+export const POST = withErrorHandling(async (request: Request) => {
   const user = await getAuthUser();
   if (!user) return unauthorized();
 
@@ -44,4 +44,4 @@ export async function POST(request: Request) {
     timestamp: parsed.data.timestamp,
   });
   return NextResponse.json(violation, { status: 201 });
-}
+});

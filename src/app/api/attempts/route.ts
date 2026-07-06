@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { getAuthUser, unauthorized, notFound, forbidden } from '@/lib/api-auth';
+import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } from '@/lib/api-auth';
 
 const startSchema = z.object({ examId: z.string() });
 
-export async function POST(request: Request) {
+export const POST = withErrorHandling(async (request: Request) => {
   const user = await getAuthUser();
   if (!user) return unauthorized();
   // Only students take exams
@@ -65,4 +65,4 @@ export async function POST(request: Request) {
     trustScore: attempt.trustScore,
     violationCount: attempt.violationCount,
   }, { status: 201 });
-}
+});

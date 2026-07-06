@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getExams, createExam } from '@/lib/data';
-import { getAuthUser, unauthorized, forbidden } from '@/lib/api-auth';
+import { getAuthUser, unauthorized, forbidden, withErrorHandling } from '@/lib/api-auth';
 
 const examSettingsSchema = z.object({
   shuffleQuestions: z.boolean().default(true),
@@ -32,7 +32,7 @@ export async function GET() {
   return NextResponse.json(exams);
 }
 
-export async function POST(request: Request) {
+export const POST = withErrorHandling(async (request: Request) => {
   const user = await getAuthUser();
   if (!user) return unauthorized();
   if (user.role === 'student') return forbidden();
@@ -50,4 +50,4 @@ export async function POST(request: Request) {
   } as Parameters<typeof createExam>[0]);
 
   return NextResponse.json(exam, { status: 201 });
-}
+});

@@ -1,7 +1,8 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
 import { adminSupabase } from '@/lib/supabase/admin';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
+import { withErrorHandling } from '@/lib/api-auth';
 
 const schema = z.object({
   institutionName: z.string().min(2),
@@ -10,7 +11,7 @@ const schema = z.object({
   password: z.string().min(8),
 });
 
-export async function POST(request: NextRequest) {
+export const POST = withErrorHandling(async (request: Request) => {
   const body = await request.json() as unknown;
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
@@ -62,4 +63,4 @@ export async function POST(request: NextRequest) {
     role: prismaUser.role,
     institutionId: prismaUser.institutionId,
   });
-}
+});

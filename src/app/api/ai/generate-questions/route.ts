@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { generateQuestions } from '@/lib/ai/question-generator';
-import { getAuthUser, unauthorized } from '@/lib/api-auth';
+import { getAuthUser, unauthorized, withErrorHandling } from '@/lib/api-auth';
 import type { QuestionType } from '@/types';
 
 const schema = z.object({
@@ -11,7 +11,7 @@ const schema = z.object({
   type: z.enum(['mcq', 'mrq', 'true_false', 'short_answer', 'essay', 'fill_blank', 'matching', 'ordering']).default('mcq'),
 });
 
-export async function POST(request: Request) {
+export const POST = withErrorHandling(async (request: Request) => {
   const user = await getAuthUser();
   if (!user) return unauthorized();
 
@@ -26,4 +26,4 @@ export async function POST(request: Request) {
   // const response = await client.messages.create({ model: 'claude-sonnet-4-6', ... });
   const questions = generateQuestions(parsed.data as { text: string; count: number; difficulty: 'easy' | 'medium' | 'hard'; type: QuestionType });
   return NextResponse.json({ questions });
-}
+});
