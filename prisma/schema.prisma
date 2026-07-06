@@ -292,7 +292,7 @@ model ExamAttempt {
   status            AttemptStatus @default(in_progress)
   startedAt         DateTime      @default(now())
   submittedAt       DateTime?
-  score             Int?
+  score             Float?
   totalMarks        Int?
   scorePercentage   Float?
   trustScore        Int           @default(100)
@@ -317,7 +317,7 @@ model Answer {
   response     Json?
   fileUrl      String?
   isCorrect    Boolean?
-  marksAwarded Int?
+  marksAwarded Float?
   gradedAt     DateTime?
   createdAt    DateTime  @default(now())
 
