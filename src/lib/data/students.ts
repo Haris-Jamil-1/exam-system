@@ -103,6 +103,155 @@ export async function getStudentResults(examId: string): Promise<StudentResult[]
   });
 }
 
+type QuestionWithOptions = {
+  id: string; type: string; stem: string; marks: number; correctAnswer: unknown;
+  options: { id: string; text: string; isCorrect: boolean }[];
+};
+
+function formatResponse(q: QuestionWithOptions, response: unknown): string {
+  if (response === null || response === undefined || response === '') return '(no answer)';
+  switch (q.type) {
+    case 'mcq':
+    case 'true_false': {
+      const opt = q.options.find(o => o.id === response);
+      return opt ? opt.text : String(response);
+    }
+    case 'mrq': {
+      if (!Array.isArray(response)) return String(response);
+      const texts = response.map(id => q.options.find(o => o.id === id)?.text ?? String(id));
+      return texts.length ? texts.join(', ') : '(no answer)';
+    }
+    case 'matching': {
+      if (typeof response !== 'object' || response === null || Array.isArray(response)) return '(no answer)';
+      const map = response as Record<string, string>;
+      return q.options.map(o => `${o.text} → ${map[o.id] ?? '(unmatched)'}`).join('; ');
+    }
+    case 'ordering': {
+      if (!Array.isArray(response)) return String(response);
+      const texts = response.map(id => q.options.find(o => o.id === id)?.text ?? String(id));
+      return texts.length ? texts.join(' → ') : '(no answer)';
+    }
+    default:
+      // short_answer, fill_blank, essay, coding, file_upload
+      return typeof response === 'string' ? response : JSON.stringify(response);
+  }
+}
+
+function formatCorrectAnswer(q: QuestionWithOptions): string {
+  switch (q.type) {
+    case 'mcq':
+    case 'true_false': {
+      const correct = q.options.find(o => o.isCorrect);
+      return correct?.text ?? '(not set)';
+    }
+    case 'mrq': {
+      const texts = q.options.filter(o => o.isCorrect).map(o => o.text);
+      return texts.length ? texts.join(', ') : '(not set)';
+    }
+    case 'matching': {
+      const labels = q.correctAnswer as string[] | undefined;
+      if (!Array.isArray(labels)) return '(not set)';
+      return q.options.map((o, i) => `${o.text} → ${labels[i] ?? ''}`).join('; ');
+    }
+    case 'ordering': {
+      const labels = q.correctAnswer as string[] | undefined;
+      return Array.isArray(labels) ? labels.join(' → ') : '(not set)';
+    }
+    case 'short_answer':
+    case 'fill_blank':
+      return typeof q.correctAnswer === 'string' ? q.correctAnswer : '(not set)';
+    default:
+      // essay, coding, file_upload
+      return '(manually graded)';
+  }
+}
+
+export type StudentSubmissionAnswer = {
+  questionId: string;
+  stem: string;
+  type: string;
+  marks: number;
+  marksAwarded: number | null;
+  isCorrect: boolean | null;
+  studentAnswer: string;
+  correctAnswer: string;
+};
+
+export type StudentSubmissionDetail = {
+  student: { id: string; name: string; email: string };
+  exam: { id: string; title: string; totalMarks: number };
+  attempt: {
+    id: string; status: string; score: number | null; totalMarks: number | null;
+    scorePercentage: number | null; submittedAt: string | null;
+  } | null;
+  answers: StudentSubmissionAnswer[];
+};
+
+/**
+ * Full per-question answer review for one student's submission to one exam
+ * — backs the TCH-03 review pane (previously no such view existed for any
+ * question type). Scoped the same way as the rest of this session's
+ * IDOR fixes: caller must be in the exam's institution, and a teacher must
+ * own the exam.
+ */
+export async function getStudentSubmissionDetail(examId: string, studentId: string): Promise<StudentSubmissionDetail | undefined> {
+  const { institutionId, role, prismaUserId } = await getSessionContext();
+  if (!institutionId || (role !== 'teacher' && role !== 'admin')) return undefined;
+
+  const exam = await prisma.exam.findUnique({
+    where: { id: examId },
+    select: { id: true, title: true, totalMarks: true, institutionId: true, teacherId: true },
+  });
+  if (!exam || exam.institutionId !== institutionId) return undefined;
+  if (role === 'teacher' && exam.teacherId !== prismaUserId) return undefined;
+
+  const student = await prisma.user.findUnique({ where: { id: studentId } });
+  if (!student || student.role !== 'student' || student.institutionId !== institutionId) return undefined;
+
+  const [questions, attempt] = await Promise.all([
+    prisma.question.findMany({
+      where: { examId },
+      orderBy: { order: 'asc' },
+      include: { options: { orderBy: { order: 'asc' } } },
+    }),
+    prisma.examAttempt.findUnique({
+      where: { examId_studentId: { examId, studentId } },
+      include: { answers: true },
+    }),
+  ]);
+
+  const answerByQuestionId = new Map((attempt?.answers ?? []).map(a => [a.questionId, a]));
+
+  const answers: StudentSubmissionAnswer[] = questions.map(q => {
+    const a = answerByQuestionId.get(q.id);
+    const response = a ? (a.response as unknown) : null;
+    return {
+      questionId: q.id,
+      stem: q.stem,
+      type: q.type,
+      marks: q.marks,
+      marksAwarded: a?.marksAwarded ?? null,
+      isCorrect: a?.isCorrect ?? null,
+      studentAnswer: formatResponse(q, response),
+      correctAnswer: formatCorrectAnswer(q),
+    };
+  });
+
+  return {
+    student: { id: student.id, name: student.name, email: student.email },
+    exam: { id: exam.id, title: exam.title, totalMarks: exam.totalMarks },
+    attempt: attempt ? {
+      id: attempt.id,
+      status: attempt.status,
+      score: attempt.score,
+      totalMarks: attempt.totalMarks,
+      scorePercentage: attempt.scorePercentage,
+      submittedAt: attempt.submittedAt?.toISOString() ?? null,
+    } : null,
+    answers,
+  };
+}
+
 export async function getMonitorStudents(examId: string): Promise<MonitorStudent[]> {
   const [enrollments, attempts, violations] = await Promise.all([
     prisma.examEnrollment.findMany({

@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { getExamById, getScoreDistribution, getQuestionDifficulty } from '@/lib/data';
 import { getStudentResults } from '@/lib/data/students';
 import type { Exam } from '@/types';
@@ -166,6 +167,7 @@ export default function ResultsPage() {
                   <th className="text-start px-4 py-3 font-medium text-muted-foreground">Trust Score</th>
                   <th className="text-start px-4 py-3 font-medium text-muted-foreground">Violations</th>
                   <th className="text-start px-4 py-3 font-medium text-muted-foreground">Result</th>
+                  <th className="text-start px-4 py-3 font-medium text-muted-foreground"></th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -192,12 +194,19 @@ export default function ResultsPage() {
                           ? <Badge variant={pass ? 'success' : 'danger'}>{pass ? 'Pass' : 'Fail'}</Badge>
                           : <Badge variant="outline">Pending</Badge>}
                       </td>
+                      <td className="px-4 py-3">
+                        {s.submitted && (
+                          <Link href={`/teacher/exams/${examId}/results/${s.id}`} className="text-[#1E88E5] hover:text-[#1976D2] font-medium">
+                            View answers
+                          </Link>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
                 {studentResults.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No students enrolled yet.</td>
+                    <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No students enrolled yet.</td>
                   </tr>
                 )}
               </tbody>
