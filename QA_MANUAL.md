@@ -123,14 +123,21 @@ Why manual: visual/perceptual judgment (CLS metric can be automated with Lightho
 
 As of 2026-07-03, the complete suite ran to a clean, trustworthy conclusion against `rlbtdpnmdnaxlccelxdr` (explicit, authorized override of `guard-non-prod.ts`). Every `[AUTO]` item that could run has a real PASS/FAIL result with evidence — see `QA_RESULTS.md` for the full breakdown. This section now lists only what's genuinely still open.
 
-**Confirmed real bugs:** SEC-01, SEC-02, SEC-03 (GET half only), SEC-04, SEC-07, STU-01/TIME-02, SCR-05 (silent truncation, not a crash — see QA_RESULTS.md for the precise mechanism), ERR-01 (all 15 routes), ERR-02 (`/api/upload`, `/api/extract-text`), STU-03, TCH-03, and a new minor finding (`resultsPublishedAt` omitted instead of `null`).
+**Confirmed real bugs (as of 2026-07-03 run, since fixed — see below):** SEC-01, SEC-02, SEC-03, SEC-04, SEC-07, STU-01/TIME-02, SCR-05, ERR-01 (all 15 routes), ERR-02 (`/api/upload`, `/api/extract-text`). **Still open, not yet fixed:** STU-03, TCH-03, and a new minor finding (`resultsPublishedAt` omitted instead of `null`).
 **Confirmed passing:** STU-02 (shuffle genuinely works), ADM-01, ADM-03, ADM-04, TCH-04, ERR-03, ERR-06, ERR-07, STU-04, TIME-05, SEC-05, SEC-06, GOLD-01 (full golden path, after three harness fixes documented in QA_RESULTS.md).
+
+**2026-07-06 fix pass — all P0/P1 items above (SEC-01/02/03/04/07, STU-01/TIME-02, SCR-05, ERR-01/ERR-02) are now fixed and independently verified against live DB.** See QA_RESULTS.md's "Post-fix follow-up" section and the corresponding commits (`cde294b`, `251f0f1`, `397be86`, `82c6bd5`, `63c2d19`).
 
 **Still genuinely open:**
 
 | Item | Status |
 |---|---|
-| SEC-03, PUT half (cross-tenant `trustScore` overwrite) | Never reached — the test's GET assertion fails first every run (Playwright stops at first failure), so the PUT case has literally never executed. Would need a version of that test written to not depend on the GET succeeding, or split into two tests. |
-| DAT-01 (real historical audit) | `scripts/qa-data-integrity-audit.ts` exists and is ready, but a *real* historical audit needs read-only credentials against actual production data with real student attempts — this session's disposable QA tenants have no historical data worth auditing. See DAT-01's entry in Section A above. |
-| DAT-02 | Not run this pass — script exists, ready to run against the current live DB state at any time via `npm run test:data-integrity`. |
+| DAT-01 (real historical audit) | Run against live prod DB on 2026-07-06 (read-only) — confirmed 2 real pre-existing production `Answer` rows still affected by the pre-06-25 MCQ scoring bug. **Awaiting human decision** on recalculate vs. flag (see QA_RESULTS.md for exact row IDs) — not auto-corrected per instruction. |
 | Camera-widget/Submit-button overlap (found while fixing GOLD-01) | Not a confirmed app bug — Playwright needed an offset click to avoid a floating camera-preview widget that geometrically overlaps the Submit button in the exam-taking UI. Worth a human checking a real browser at a normal viewport size to see if this is a real, user-facing overlap or an artifact of headless Chromium's no-camera rendering state. Steps: start any exam with `proctoringLevel` other than none, scroll to the bottom-right of the screen where the camera PIP renders, and see if it visually overlaps the "Submit Exam" button in the right sidebar at common viewport sizes (1366×768, 1920×1080). |
+| STU-03 (per-question marks lost after one reload) | Not yet fixed — `sessionStorage`-cleared-after-one-read behavior, confirmed live. |
+| TCH-03 (no per-student answer review pane) | Not yet fixed — missing feature, needs product scoping (see Section A above). |
+| `resultsPublishedAt` omitted instead of `null` | Not yet fixed — one-line `?? null` fix, low priority. |
+
+**Resolved this pass (previously listed here as open):**
+- SEC-03, PUT half (cross-tenant `trustScore` overwrite) — confirmed fixed and independently verified 2026-07-06 (was already code-fixed in `cde294b`, just never independently exercised by the e2e suite).
+- DAT-02 — confirmed fixed 2026-07-06: `deleteExam`'s FK-safe transaction (violations → attempts → exam) was exercised for real via several disposable-exam-with-attempt deletions during this session's verification scripts, all clean. The schema still has no `onDelete` on `ExamAttempt.exam`/`Violation.exam` (a raw-SQL delete bypassing the app layer would still fail/orphan), but the actual product code path is safe.

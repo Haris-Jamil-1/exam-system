@@ -138,9 +138,11 @@ None of these are being reported as app findings — they're documented so the t
 - `resultsPublishedAt` silently omitted instead of returned as explicit `null`
 
 ## Genuinely still-unverified (not a pass, not a confirmed fail)
-- SEC-03's PUT half (cross-tenant `trustScore` overwrite)
-- The camera-widget/Submit-button overlap's real-world impact on actual users (see QA_MANUAL.md)
-- DAT-02 — script ran and reported exams-with-attempts (FK/cascade risk context), but didn't need to exercise an actual delete this pass; the underlying `Restrict`-not-`Cascade` finding from QA_CHECKLIST.md remains a static-code finding, not independently reproduced by triggering a real delete
+- The camera-widget/Submit-button overlap's real-world impact on actual users (see QA_MANUAL.md) — requires a real browser at a normal viewport, not scriptable.
+
+## Post-fix follow-up (2026-07-06, this session)
+- **SEC-03's PUT half — now CONFIRMED FIXED.** The GET+PUT institution-scoping fix landed together in commit `cde294b`, but the e2e suite never independently exercised the PUT case (Playwright stops at the first failed assertion, which was always the GET check). Verified directly against live DB with a disposable script: Tenant B admin `PUT /api/attempts/[id]` on Tenant A's attempt → 404, `trustScore`/`violationCount` left untouched (100/0), and Tenant A's own teacher can still legitimately update it (200). No longer an open gap.
+- **DAT-02 — now CONFIRMED FIXED, not just a static finding.** `deleteExam` (`src/lib/data/exams.ts`) already deletes violations → attempts → exam in one FK-safe transaction. This session independently exercised real deletes of disposable exams that had live attempts attached (during SEC-04/SCR-05/SEC-07/SEC-03 verification scripts) — every one succeeded cleanly (200), no orphaned rows, no FK errors. The underlying schema still has no `onDelete` on `ExamAttempt.exam`/`Violation.exam`, so a delete that bypasses the app layer (raw SQL) would still fail/orphan — that architectural note stands — but the actual product code path is confirmed safe.
 
 ## Plain summary
 **13 confirmed real bugs this run** (counting SEC-03 as one item for its confirmed GET half, ERR-01/ERR-02 each as one item despite spanning many routes, and DAT-01 as one item for its 2 flagged rows). **9 are P0**, 3 are P1, 1 is a new minor finding. All test data from the final run remains in the database as evidence, per instruction. DAT-01's finding is the one exception worth flagging loudest — it's not QA-tenant data, it's real historical production answers.
