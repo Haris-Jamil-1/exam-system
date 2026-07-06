@@ -97,7 +97,7 @@ enum LearningDomain {
 model Institution {
   id        String   @id @default(cuid())
   name      String
-  domain    String   @unique
+  domain    String
   joinCode  String   @unique @default(cuid())
   createdAt DateTime @default(now())
 
