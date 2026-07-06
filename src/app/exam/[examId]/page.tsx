@@ -197,13 +197,13 @@ export default function ExamPage() {
         perQuestion: Array<{ questionId: string; stem: string; type: string; marks: number; marksAwarded: number }>;
       };
       sessionStorage.removeItem(SESSION_KEY(examId));
-      // Store per-question breakdown for the completion page
-      if (submitResult.perQuestion) {
-        sessionStorage.setItem(`exam_result_${examId}`, JSON.stringify(submitResult.perQuestion));
-      }
       const heldParam = exam.settings.resultsVisibility === 'held' ? '&held=1' : '';
+      // attemptId lets the completion page re-fetch the per-question
+      // breakdown from the server on every load (including reloads),
+      // instead of a one-time sessionStorage read that vanished after
+      // the first render.
       router.push(
-        `/exam/${examId}/complete?score=${submitResult.score}&total=${submitResult.totalMarks}&pct=${submitResult.scorePercentage}${heldParam}`
+        `/exam/${examId}/complete?score=${submitResult.score}&total=${submitResult.totalMarks}&pct=${submitResult.scorePercentage}&attemptId=${attemptId}${heldParam}`
       );
     } catch {
       sessionStorage.removeItem(SESSION_KEY(examId));

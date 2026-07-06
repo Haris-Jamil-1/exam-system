@@ -8,7 +8,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ attempt
   if (!user) return unauthorized();
 
   const { attemptId } = await params;
-  const attempt = await prisma.examAttempt.findUnique({ where: { id: attemptId } });
+  const attempt = await prisma.examAttempt.findUnique({
+    where: { id: attemptId },
+    include: { answers: { include: { question: { select: { stem: true, type: true, marks: true } } } } },
+  });
   if (!attempt) return notFound();
 
   // Students can only read their own attempts; teachers/admins are scoped to
@@ -33,6 +36,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ attempt
     scorePercentage: attempt.scorePercentage,
     trustScore: attempt.trustScore,
     violationCount: attempt.violationCount,
+    // Safe to return: no correctAnswer/isCorrect leakage, only what was earned —
+    // mirrors the shape already returned by POST /api/attempts/[id]/submit.
+    perQuestion: attempt.answers.map(a => ({
+      questionId: a.questionId,
+      stem: a.question.stem,
+      type: a.question.type,
+      marks: a.question.marks,
+      marksAwarded: a.marksAwarded,
+    })),
   });
 }
 

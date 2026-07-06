@@ -2,7 +2,7 @@
 // Phase 2: held=1 state comes from exam.settings.resultsVisibility stored in DB
 // Teacher publishes via PATCH /api/exams/[id]/publish-results → sets resultsPublishedAt
 import { useState, useEffect } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { CheckCircle, Shield, AlertTriangle, Trophy, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -20,25 +20,30 @@ type PerQuestionResult = {
 };
 
 export default function ExamCompletePage() {
-  const { examId } = useParams<{ examId: string }>();
   const params = useSearchParams();
   const score = Number(params.get('score') ?? 0);
   const total = Number(params.get('total') ?? 0);
   const pct   = Number(params.get('pct')   ?? 0);
   const held  = params.get('held') === '1';
+  const attemptId = params.get('attemptId');
 
   const { violationCount, trustScore } = useProctoringStore();
   const [perQuestion, setPerQuestion] = useState<PerQuestionResult[]>([]);
   const [showBreakdown, setShowBreakdown] = useState(false);
 
+  // Fetched fresh from the server on every load (including reloads) instead
+  // of a one-time sessionStorage read, so the breakdown survives a refresh.
   useEffect(() => {
-    const key = `exam_result_${examId}`;
-    const stored = sessionStorage.getItem(key);
-    if (stored) {
-      setPerQuestion(JSON.parse(stored) as PerQuestionResult[]);
-      sessionStorage.removeItem(key);
-    }
-  }, [examId]);
+    if (!attemptId) return;
+    let cancelled = false;
+    fetch(`/api/attempts/${attemptId}`)
+      .then(r => r.json())
+      .then((data: { perQuestion?: PerQuestionResult[] }) => {
+        if (!cancelled && data.perQuestion) setPerQuestion(data.perQuestion);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [attemptId]);
 
   const scoreColor = pct >= 70 ? 'text-green-600' : pct >= 50 ? 'text-yellow-600' : 'text-red-600';
   const needsGrading = perQuestion.some(q => q.type === 'essay' || q.type === 'coding' || q.type === 'file_upload');
