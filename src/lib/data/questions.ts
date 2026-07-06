@@ -158,11 +158,12 @@ export async function createQuestion(data: Omit<Question, 'id'>): Promise<Questi
 export async function updateQuestion(id: string, data: Partial<Question>): Promise<Question | undefined> {
   const caller = await getCallerPrismaUser();
   if (!caller) throw new Error('Unauthorized');
-  if (caller.role !== 'admin') {
+  {
     const question = await prisma.question.findUnique({ where: { id }, select: { examId: true } });
     if (!question) return undefined;
-    const exam = await prisma.exam.findUnique({ where: { id: question.examId }, select: { teacherId: true } });
-    if (!exam || exam.teacherId !== caller.id) throw new Error('Forbidden');
+    const exam = await prisma.exam.findUnique({ where: { id: question.examId }, select: { teacherId: true, institutionId: true } });
+    if (!exam || exam.institutionId !== caller.institutionId) throw new Error('Forbidden');
+    if (caller.role === 'teacher' && exam.teacherId !== caller.id) throw new Error('Forbidden');
   }
   const row = await prisma.question.update({
     where: { id },
@@ -191,10 +192,9 @@ export async function deleteQuestion(id: string): Promise<boolean> {
   if (!caller) throw new Error('Unauthorized');
   const question = await prisma.question.findUnique({ where: { id }, select: { examId: true } });
   if (!question) return false;
-  if (caller.role !== 'admin') {
-    const exam = await prisma.exam.findUnique({ where: { id: question.examId }, select: { teacherId: true } });
-    if (!exam || exam.teacherId !== caller.id) throw new Error('Forbidden');
-  }
+  const exam = await prisma.exam.findUnique({ where: { id: question.examId }, select: { teacherId: true, institutionId: true } });
+  if (!exam || exam.institutionId !== caller.institutionId) throw new Error('Forbidden');
+  if (caller.role === 'teacher' && exam.teacherId !== caller.id) throw new Error('Forbidden');
   await prisma.question.delete({ where: { id } });
   return true;
 }

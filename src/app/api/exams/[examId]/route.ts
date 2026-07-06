@@ -32,7 +32,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ exam
   const exam = await getExamById(examId);
   if (!exam) return notFound();
 
-  if (user.role !== 'admin' && exam.teacherId !== user.id) return forbidden();
+  if (exam.institutionId !== user.institutionId) return notFound();
+  if (user.role === 'teacher' && exam.teacherId !== user.id) return forbidden();
 
   const body = await request.json();
 
@@ -114,7 +115,8 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ exam
   const exam = await getExamById(examId);
   if (!exam) return notFound();
 
-  if (user.role !== 'admin' && exam.teacherId !== user.id) return forbidden();
+  if (exam.institutionId !== user.institutionId) return notFound();
+  if (user.role === 'teacher' && exam.teacherId !== user.id) return forbidden();
 
   const ok = await deleteExam(examId);
   if (!ok) return notFound();
