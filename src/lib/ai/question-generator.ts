@@ -5,6 +5,9 @@ interface GenerateInput {
   count: number;
   difficulty: 'easy' | 'medium' | 'hard';
   type: QuestionType;
+  // Resolved CLO text (not the ID) — the API route resolves learningObjectiveId -> text before
+  // calling in here, matching where a real prompt-construction step would inject it too.
+  cloText?: string;
 }
 
 // Phase 3: replace this body with a real Claude API call using @anthropic-ai/sdk
@@ -481,5 +484,24 @@ export function generateQuestions(input: GenerateInput): GeneratedQuestion[] {
   };
 
   const base = typeMap[type] ?? mockMcq;
-  return base.slice(0, Math.min(input.count, 5));
+
+  // Honor the full requested count rather than silently truncating to the canned pool size —
+  // cycle through the pool with a "(variant N)" suffix once exhausted, so batch-size requests
+  // above the pool length still return exactly `count` distinguishable items. A real LLM call
+  // (Phase 3) wouldn't need this; it generates fresh content per item instead of cycling.
+  const requested = Math.max(1, input.count);
+  const result: GeneratedQuestion[] = [];
+  for (let i = 0; i < requested; i++) {
+    const cycle = Math.floor(i / base.length);
+    const source = base[i % base.length];
+    const stem = cycle === 0 ? source.stem : `${source.stem} (variant ${cycle + 1})`;
+    result.push({
+      ...source,
+      stem,
+      explanation: input.cloText
+        ? `${source.explanation ? source.explanation + ' ' : ''}[Aligned to CLO: ${input.cloText}]`
+        : source.explanation,
+    });
+  }
+  return result;
 }

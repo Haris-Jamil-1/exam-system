@@ -1,7 +1,10 @@
 'use client';
 import { useState, useRef } from 'react';
 import type { QuestionType, Item } from '@/types';
+import { MAX_BATCH_SIZE } from '@/lib/ai/constants';
+import { CurriculumPicker, type CurriculumSelection } from '@/components/shared/CurriculumPicker';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,10 +33,14 @@ export function AiGeneratePanel({ bankId, onGenerated, onClose }: AiGeneratePane
   const [fileName, setFileName] = useState('');
   const [genDifficulty, setGenDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [genType, setGenType] = useState<QuestionType>('mcq');
+  const [quantity, setQuantity] = useState(5);
+  const [cloSelection, setCloSelection] = useState<CurriculumSelection | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [generatedCount, setGeneratedCount] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const quantityInvalid = quantity < 1 || quantity > MAX_BATCH_SIZE;
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -61,7 +68,7 @@ export function AiGeneratePanel({ bankId, onGenerated, onClose }: AiGeneratePane
   }
 
   async function handleGenerate() {
-    if (!docText.trim()) return;
+    if (!docText.trim() || quantityInvalid) return;
     setIsGenerating(true);
     setError(null);
     setGeneratedCount(null);
@@ -69,7 +76,14 @@ export function AiGeneratePanel({ bankId, onGenerated, onClose }: AiGeneratePane
       const res = await fetch('/api/ai/generate-questions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: docText, count: 5, difficulty: genDifficulty, type: genType, itemBankId: bankId }),
+        body: JSON.stringify({
+          text: docText,
+          count: quantity,
+          difficulty: genDifficulty,
+          type: genType,
+          itemBankId: bankId,
+          learningObjectiveId: cloSelection?.cloId || undefined,
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -125,7 +139,7 @@ export function AiGeneratePanel({ bankId, onGenerated, onClose }: AiGeneratePane
             <p className="text-xs text-muted-foreground">{docText.length.toLocaleString()} characters loaded</p>
           )}
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           <div className="space-y-2">
             <Label>Question Type</Label>
             <Select value={genType} onValueChange={v => setGenType(v as QuestionType)}>
@@ -148,10 +162,30 @@ export function AiGeneratePanel({ bankId, onGenerated, onClose }: AiGeneratePane
               </SelectContent>
             </Select>
           </div>
+          <div className="space-y-2">
+            <Label>Quantity <span className="text-muted-foreground font-normal">(max {MAX_BATCH_SIZE})</span></Label>
+            <Input
+              type="number"
+              min={1}
+              max={MAX_BATCH_SIZE}
+              value={quantity}
+              onChange={e => setQuantity(Number(e.target.value))}
+              className={quantityInvalid ? 'border-red-400' : undefined}
+            />
+          </div>
         </div>
-        <Button onClick={handleGenerate} disabled={isGenerating || !docText.trim()} className="gap-2">
+
+        <div className="space-y-2">
+          <Label>Target CLO <span className="text-muted-foreground font-normal">(optional)</span></Label>
+          <CurriculumPicker value={cloSelection} onChange={setCloSelection} institutionId={undefined} />
+        </div>
+
+        {quantityInvalid && (
+          <p className="text-xs text-red-600">Quantity must be between 1 and {MAX_BATCH_SIZE}.</p>
+        )}
+        <Button onClick={handleGenerate} disabled={isGenerating || !docText.trim() || quantityInvalid} className="gap-2">
           <Sparkles className="h-4 w-4" />
-          {isGenerating ? 'Generating…' : 'Generate 5 Questions'}
+          {isGenerating ? 'Generating…' : `Generate ${quantity} Question${quantity === 1 ? '' : 's'}`}
         </Button>
         {error && <p className="text-sm text-red-600">{error}</p>}
         {generatedCount !== null && (
