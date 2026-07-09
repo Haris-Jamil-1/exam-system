@@ -70,6 +70,8 @@ export interface Exam {
   settings: ExamSettings;
   createdAt: string;
   resultsPublishedAt?: string | null;
+  instructions?: string;
+  isProctoringEnabled: boolean;
   _count?: {
     questions: number;
     enrollments: number;
@@ -121,6 +123,8 @@ export interface Question {
   // file_upload type
   allowedFileTypes?: string[];
   maxFileSizeMB?: number;
+  // Optional per-question countdown; on expiry, response auto-saves and the student auto-advances
+  timeLimitSeconds?: number;
 }
 
 export type ItemStatus = 'draft' | 'review' | 'approved' | 'archived';
@@ -151,6 +155,7 @@ export interface Item {
   // file_upload type
   allowedFileTypes?: string[];
   maxFileSizeMB?: number;
+  timeLimitSeconds?: number;
   // Phase 2: computed from exam_answers aggregate — facility_index = correct_count / attempt_count
   facilityIndex?: number;
   // Phase 2: point-biserial correlation between item score and total score
@@ -158,6 +163,35 @@ export interface Item {
   // Phase 2: version control — archived original when approved item is edited
   version?: number;
   previousVersionId?: string;
+  bankId?: string;
+}
+
+export type ItemBankLevel = 'institutional' | 'personal';
+export type ItemBankPermissionRole = 'owner' | 'editor' | 'viewer';
+
+export interface ItemBank {
+  id: string;
+  name: string;
+  description?: string;
+  bankLevel: ItemBankLevel;
+  ownerId: string;
+  institutionId: string;
+  createdAt: string;
+  updatedAt: string;
+  itemCount?: number;
+  // The caller's own permission on this bank — resolved server-side, never trust a client value.
+  myRole?: ItemBankPermissionRole;
+}
+
+export interface ItemBankCollaborator {
+  id: string;
+  bankId: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  permissionRole: ItemBankPermissionRole;
+  assignedById: string;
+  createdAt: string;
 }
 
 export type AttemptStatus = 'in_progress' | 'submitted' | 'auto_submitted';

@@ -44,12 +44,13 @@ function parseCSV(text: string): ParsedRow[] {
 }
 
 interface Props {
+  bankId: string;
   open: boolean;
   onClose: () => void;
   onImported: (count: number) => void;
 }
 
-export function BulkImportModal({ open, onClose, onImported }: Props) {
+export function BulkImportModal({ bankId, open, onClose, onImported }: Props) {
   const fileRef  = useRef<HTMLInputElement>(null);
   const [rows, setRows]         = useState<ParsedRow[]>([]);
   const [fileName, setFileName] = useState('');
@@ -86,6 +87,7 @@ export function BulkImportModal({ open, onClose, onImported }: Props) {
         status: 'draft',
         tags: row.tags,
         authorId: '',
+        bankId,
       });
       count++;
     }

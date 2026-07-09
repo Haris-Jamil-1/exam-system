@@ -2,7 +2,7 @@
 // Phase 2: createItem calls prisma.item.create(); cloId stored as learning_objective_id FK
 // Phase 2: codeLanguage, starterCode, testCases, allowedFileTypes, maxFileSizeMB stored in Prisma item row
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -58,6 +58,8 @@ interface TestCaseRow {
 
 export default function NewItemPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const bankId = searchParams.get('bankId');
   const [qType, setQType] = useState<QuestionType>('mcq');
   // matchText is form-only state for matching questions (stored in correctAnswer on save, not in options)
   const [options, setOptions] = useState<(Option & { matchText?: string })[]>([
@@ -151,6 +153,7 @@ export default function NewItemPage() {
   }
 
   async function onSubmit(data: FormData) {
+    if (!bankId) return;
     const tags = data.tags ? data.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
     const showOptions = ['mcq', 'mrq', 'true_false', 'matching', 'ordering'].includes(qType);
     const filledOptions = options.filter(o => o.text.trim());
@@ -179,6 +182,7 @@ export default function NewItemPage() {
       status: data.status,
       tags,
       authorId: '',
+      bankId,
       learningObjectiveId: cloSelection?.cloId || undefined,
       ...(qType === 'coding' ? {
         codeLanguage,
@@ -193,16 +197,29 @@ export default function NewItemPage() {
       } : {}),
     });
     setSaved(true);
-    setTimeout(() => router.push('/teacher/items'), 1000);
+    setTimeout(() => router.push(`/teacher/items/${bankId}`), 1000);
   }
 
   const showOptions = ['mcq', 'mrq', 'true_false', 'matching', 'ordering'].includes(qType);
+
+  if (!bankId) {
+    return (
+      <div className="max-w-md mx-auto text-center py-16 space-y-3">
+        <p className="text-muted-foreground">No item bank selected.</p>
+        <Link href="/teacher/items" className="text-blue-600 hover:underline text-sm">
+          Choose a bank to add a question to
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       {/* Breadcrumb */}
       <div className="flex items-center gap-1.5 text-[13px] text-[#6B7280]">
-        <Link href="/teacher/items" className="hover:text-[#1A1D23] transition-colors">Item Bank</Link>
+        <Link href="/teacher/items" className="hover:text-[#1A1D23] transition-colors">Item Banks</Link>
+        <span className="select-none">›</span>
+        <Link href={`/teacher/items/${bankId}`} className="hover:text-[#1A1D23] transition-colors">Bank</Link>
         <span className="select-none">›</span>
         <span className="font-medium text-[#1A1D23]">Create Item</span>
       </div>

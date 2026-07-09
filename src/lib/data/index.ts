@@ -6,3 +6,4 @@ export * from './violations';
 export * from './analytics';
 export * from './items';
 export * from './curriculum';
+export * from './item-banks';

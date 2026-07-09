@@ -92,6 +92,17 @@ enum LearningDomain {
   Values
 }
 
+enum ItemBankLevel {
+  institutional
+  personal
+}
+
+enum ItemBankPermissionRole {
+  owner
+  editor
+  viewer
+}
+
 // ── Models ───────────────────────────────────────────────────────────────────
 
 model Institution {
@@ -101,10 +112,11 @@ model Institution {
   joinCode  String   @unique @default(cuid())
   createdAt DateTime @default(now())
 
-  users   User[]
-  exams   Exam[]
-  items   Item[]
-  courses Course[]
+  users     User[]
+  exams     Exam[]
+  items     Item[]
+  courses   Course[]
+  itemBanks ItemBank[]
 }
 
 model User {
@@ -118,15 +130,17 @@ model User {
   institutionId String
   createdAt     DateTime @default(now())
 
-  institution     Institution      @relation(fields: [institutionId], references: [id])
-  exams           Exam[]           @relation("ExamTeacher")
-  items           Item[]           @relation("ItemAuthor")
-  attempts        ExamAttempt[]
-  violations      Violation[]
-  enrollments     ExamEnrollment[]
-  invitesSent     InviteToken[]    @relation("InvitedBy")
-  teacherStudents TeacherStudent[] @relation("TeacherStudents")
-  studentTeachers TeacherStudent[] @relation("StudentTeachers")
+  institution         Institution      @relation(fields: [institutionId], references: [id])
+  exams               Exam[]           @relation("ExamTeacher")
+  items               Item[]           @relation("ItemAuthor")
+  attempts            ExamAttempt[]
+  violations          Violation[]
+  enrollments         ExamEnrollment[]
+  invitesSent         InviteToken[]    @relation("InvitedBy")
+  teacherStudents     TeacherStudent[] @relation("TeacherStudents")
+  studentTeachers     TeacherStudent[] @relation("StudentTeachers")
+  itemBankAccess      ItemBankAccess[] @relation("ItemBankAccessUser")
+  itemBankAccessGrant ItemBankAccess[] @relation("ItemBankAccessAssignedBy")
 
   @@index([institutionId])
   @@index([institutionId, role])
@@ -174,6 +188,8 @@ model Exam {
   maxViolations      Int            @default(3)
   settings           Json
   resultsPublishedAt DateTime?
+  instructions       String?
+  isProctoringEnabled Boolean       @default(true)
   institutionId      String
   teacherId          String
   createdAt          DateTime       @default(now())
@@ -223,6 +239,7 @@ model Question {
   testCases           Json?
   allowedFileTypes    String[]
   maxFileSizeMB       Int?
+  timeLimitSeconds    Int?
   createdAt           DateTime     @default(now())
 
   exam              Exam               @relation(fields: [examId], references: [id], onDelete: Cascade)
@@ -259,6 +276,7 @@ model Item {
   testCases           Json?
   allowedFileTypes    String[]
   maxFileSizeMB       Int?
+  timeLimitSeconds    Int?
   facilityIndex       Float?
   discriminationIndex Float?
   version             Int          @default(1)
@@ -266,13 +284,55 @@ model Item {
   institutionId       String
   authorId            String
   learningObjectiveId String?
+  bankId              String?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
   institution       Institution        @relation(fields: [institutionId], references: [id])
   author            User               @relation("ItemAuthor", fields: [authorId], references: [id])
   learningObjective LearningObjective? @relation(fields: [learningObjectiveId], references: [id])
+  bank              ItemBank?          @relation(fields: [bankId], references: [id])
   options           ItemOption[]
+
+  @@index([bankId])
+  @@index([bankId, learningObjectiveId])
+}
+
+model ItemBank {
+  id            String        @id @default(cuid())
+  name          String
+  description   String?
+  bankLevel     ItemBankLevel
+  // INSTITUTIONAL: Institution.id. PERSONAL: the creating User.id.
+  ownerId       String
+  institutionId String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  institution Institution      @relation(fields: [institutionId], references: [id])
+  items       Item[]
+  access      ItemBankAccess[]
+
+  @@index([institutionId])
+  @@index([institutionId, bankLevel])
+  @@index([institutionId, ownerId])
+}
+
+model ItemBankAccess {
+  id             String                  @id @default(cuid())
+  bankId         String
+  userId         String
+  permissionRole ItemBankPermissionRole
+  assignedById   String
+  createdAt      DateTime                @default(now())
+
+  bank       ItemBank @relation(fields: [bankId], references: [id], onDelete: Cascade)
+  user       User     @relation("ItemBankAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy User     @relation("ItemBankAccessAssignedBy", fields: [assignedById], references: [id])
+
+  @@unique([bankId, userId])
+  @@index([userId])
+  @@index([bankId])
 }
 
 model ItemOption {

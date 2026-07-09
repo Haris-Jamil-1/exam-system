@@ -12,12 +12,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { createExam, createQuestion, getItems, updateItem } from '@/lib/data';
-import { generateQuestions } from '@/lib/ai/question-generator';
-import type { GeneratedQuestion, QuestionType, Item } from '@/types';
-import { useRef } from 'react';
-import { Sparkles, Plus, Check, ChevronRight, ChevronLeft, Search, Library, ChevronDown, ChevronUp, Upload } from 'lucide-react';
+import { createExam, createQuestion, getItems, incrementItemUsage } from '@/lib/data';
+import type { QuestionType, Item } from '@/types';
+import { Plus, Check, ChevronRight, ChevronLeft, Search, ChevronDown, ChevronUp } from 'lucide-react';
 
 const step1Schema = z.object({
   title: z.string().min(3, 'Title required'),
@@ -27,11 +24,12 @@ const step1Schema = z.object({
   passingMarks: z.number().min(1),
   startTime: z.string().min(1, 'Start time required'),
   endTime: z.string().min(1, 'End time required'),
+  instructions: z.string().optional(),
 });
 
 type Step1Data = z.infer<typeof step1Schema>;
 
-const STEPS = ['Basic Info', 'AI Generation', 'Questions', 'Settings'];
+const STEPS = ['Basic Info', 'Select Questions', 'Settings'];
 
 const ALL_QUESTION_TYPES: { value: QuestionType; label: string }[] = [
   { value: 'mcq', label: 'Multiple Choice (MCQ)' },
@@ -51,88 +49,6 @@ const TYPE_LABELS: Record<QuestionType, string> = {
 };
 
 const DIFF_VARIANT: Record<string, string> = { easy: 'success', medium: 'warning', hard: 'danger' };
-
-function QuestionPreview({ q, index, added, onAdd }: {
-  q: GeneratedQuestion; index: number; added: boolean; onAdd: () => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const hasOptions = q.options && q.options.length > 0;
-
-  return (
-    <div className={`border rounded-lg p-4 transition-colors ${added ? 'border-blue-200 bg-blue-50' : 'border-gray-200'}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Q{index + 1}</span>
-            <Badge variant="info" className="text-xs">{TYPE_LABELS[q.type]}</Badge>
-            <Badge variant={DIFF_VARIANT[q.difficulty] as 'success' | 'warning' | 'danger'} className="text-xs capitalize">{q.difficulty}</Badge>
-            <Badge variant="outline" className="text-xs">{q.marks} pts</Badge>
-          </div>
-          <p className="text-sm font-medium">{q.stem}</p>
-
-          {hasOptions && (
-            <button
-              type="button"
-              onClick={() => setExpanded(e => !e)}
-              className="flex items-center gap-1 text-xs text-blue-600 mt-2 hover:underline"
-            >
-              {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-              {expanded ? 'Hide options' : `Show ${q.options!.length} options`}
-            </button>
-          )}
-
-          {expanded && hasOptions && q.type === 'matching' && (
-            <ul className="mt-2 space-y-1">
-              {q.options!.map((opt, j) => (
-                <li key={j} className="text-xs px-2.5 py-1.5 rounded bg-gray-50 flex items-center gap-2">
-                  <span className="font-semibold w-4">{j + 1}.</span>
-                  <span className="font-medium">{opt}</span>
-                  <span className="text-gray-400 mx-1">→</span>
-                  <span>{Array.isArray(q.correctAnswer) ? (q.correctAnswer as string[])[j] : ''}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          {expanded && hasOptions && q.type !== 'matching' && (
-            <ul className="mt-2 space-y-1">
-              {q.options!.map((opt, j) => {
-                const isCorrect = Array.isArray(q.correctAnswer)
-                  ? q.correctAnswer.includes(opt)
-                  : opt === q.correctAnswer;
-                return (
-                  <li
-                    key={j}
-                    className={`text-xs px-2.5 py-1.5 rounded flex items-center gap-2 ${
-                      isCorrect ? 'bg-green-100 text-green-800 font-medium' : 'bg-gray-50 text-muted-foreground'
-                    }`}
-                  >
-                    <span className="font-semibold w-4">{String.fromCharCode(65 + j)}.</span>
-                    <span>{opt}</span>
-                    {isCorrect && <Check className="h-3 w-3 ms-auto shrink-0 text-green-600" />}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-
-          {q.explanation && (
-            <p className="text-xs text-muted-foreground mt-2 italic border-s-2 border-blue-200 ps-2">{q.explanation}</p>
-          )}
-        </div>
-
-        <Button
-          size="sm"
-          variant={added ? 'secondary' : 'default'}
-          onClick={onAdd}
-          disabled={added}
-          className="gap-1 shrink-0"
-        >
-          {added ? <><Check className="h-3 w-3" /> Added</> : <><Plus className="h-3 w-3" /> Add</>}
-        </Button>
-      </div>
-    </div>
-  );
-}
 
 function ItemBankPicker({ selectedIds, onToggle }: {
   selectedIds: Set<string>;
@@ -315,20 +231,11 @@ export default function NewExamPage() {
   const [step, setStep] = useState(0);
   const [step1Data, setStep1Data] = useState<Step1Data | null>(null);
 
-  // AI-generated questions
-  const [generatedQuestions, setGeneratedQuestions] = useState<GeneratedQuestion[]>([]);
-  const [addedAIQuestions, setAddedAIQuestions] = useState<GeneratedQuestion[]>([]);
-  const [docText, setDocText] = useState('');
-  const [fileName, setFileName] = useState('');
-  const [genDifficulty, setGenDifficulty] = useState('medium');
-  const [genType, setGenType] = useState<QuestionType>('mcq');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   // Item bank selections
   const [selectedBankItems, setSelectedBankItems] = useState<Map<string, Item>>(new Map());
 
   // Settings — proctoring + shuffle
+  const [isProctoringEnabled, setIsProctoringEnabled] = useState(true);
   const [proctoringLevel, setProctoringLevel] = useState<'basic' | 'standard' | 'strict'>('standard');
   const [maxViolations, setMaxViolations] = useState(3);
   const [shuffleQ, setShuffleQ] = useState(true);
@@ -349,7 +256,7 @@ export default function NewExamPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const totalAdded = addedAIQuestions.length + selectedBankItems.size;
+  const totalAdded = selectedBankItems.size;
 
   const { register, handleSubmit, setValue, formState: { errors } } = useForm<Step1Data>({
     resolver: zodResolver(step1Schema),
@@ -359,54 +266,6 @@ export default function NewExamPage() {
   function onStep1(data: Step1Data) {
     setStep1Data(data);
     setStep(1);
-  }
-
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFileName(file.name);
-    e.target.value = ''; // Reset so re-uploading same file fires onChange
-
-    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-
-    if (ext === 'pdf' || ext === 'doc' || ext === 'docx') {
-      // Server-side extraction for binary formats
-      setDocText('');
-      setIsGenerating(false);
-      const fd = new FormData();
-      fd.append('file', file);
-      try {
-        const res = await fetch('/api/extract-text', { method: 'POST', body: fd });
-        const json = await res.json();
-        if (json.text) setDocText(json.text);
-        else setDocText('');
-      } catch {
-        setDocText('');
-      }
-    } else {
-      // Plain text formats — read directly in browser
-      const reader = new FileReader();
-      reader.onload = ev => {
-        const text = (ev.target?.result as string) ?? '';
-        setDocText(text);
-      };
-      reader.readAsText(file);
-    }
-  }
-
-  async function handleGenerate() {
-    if (!docText.trim()) return;
-    setIsGenerating(true);
-    await new Promise(r => setTimeout(r, 800));
-    const result = generateQuestions({ text: docText, count: 5, difficulty: genDifficulty as 'easy' | 'medium' | 'hard', type: genType });
-    setGeneratedQuestions(result);
-    setIsGenerating(false);
-  }
-
-  function addAIQuestion(q: GeneratedQuestion) {
-    if (!addedAIQuestions.includes(q)) {
-      setAddedAIQuestions(prev => [...prev, q]);
-    }
   }
 
   function toggleBankItem(item: Item) {
@@ -433,6 +292,7 @@ export default function NewExamPage() {
         teacherId: '',
         maxViolations,
         status: 'draft',
+        isProctoringEnabled,
         settings: {
           shuffleQuestions: shuffleQ,
           shuffleOptions: shuffleO,
@@ -450,20 +310,6 @@ export default function NewExamPage() {
 
       let order = 1;
 
-      for (const q of addedAIQuestions) {
-        await createQuestion({
-          examId: exam.id,
-          type: q.type,
-          stem: q.stem,
-          options: q.options?.map((o, idx) => ({ id: `opt-${idx}`, text: o, isCorrect: o === q.correctAnswer || (Array.isArray(q.correctAnswer) && q.correctAnswer.includes(o)) })),
-          correctAnswer: q.correctAnswer,
-          marks: q.marks,
-          difficulty: q.difficulty,
-          order: order++,
-          explanation: q.explanation,
-        });
-      }
-
       for (const item of selectedBankItems.values()) {
         await createQuestion({
           examId: exam.id,
@@ -476,7 +322,7 @@ export default function NewExamPage() {
           order: order++,
           explanation: item.explanation,
         });
-        await updateItem(item.id, { usageCount: item.usageCount + 1 });
+        await incrementItemUsage(item.id);
       }
 
       router.push(`/teacher/exams/${exam.id}/edit`);
@@ -568,6 +414,14 @@ export default function NewExamPage() {
                   {errors.endTime && <p className="text-sm text-red-500">{errors.endTime.message}</p>}
                 </div>
               </div>
+              <div className="space-y-2">
+                <Label>Instructions <span className="text-muted-foreground font-normal">(shown to students before they start)</span></Label>
+                <Textarea
+                  placeholder="e.g. Calculators are prohibited. Ensure your camera is active. Read each question fully before answering."
+                  rows={4}
+                  {...register('instructions')}
+                />
+              </div>
               <div className="flex justify-end">
                 <Button type="submit" className="gap-2">Next <ChevronRight className="h-4 w-4" /></Button>
               </div>
@@ -576,95 +430,54 @@ export default function NewExamPage() {
         </Card>
       )}
 
-      {/* ── Step 2: AI Generation ── */}
+      {/* ── Step 2: Select Questions (cross-bank picker) ── */}
       {step === 1 && (
         <div className="space-y-4">
           <Card>
-            <CardHeader><CardTitle>Generate Questions with AI</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>Paste or upload document content</Label>
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium"
-                  >
-                    <Upload className="h-3.5 w-3.5" />
-                    {fileName ? fileName : 'Upload file (.pdf, .doc, .docx, .txt, .md)'}
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.doc,.docx,.txt,.md,.csv"
-                    className="hidden"
-                    onChange={handleFileUpload}
-                  />
-                </div>
-                <Textarea
-                  placeholder="Paste your lecture notes, textbook excerpt, or topic description here — or upload a PDF / Word / .txt file above…"
-                  rows={6}
-                  value={docText}
-                  onChange={e => setDocText(e.target.value)}
-                />
-                {docText && (
-                  <p className="text-xs text-muted-foreground">{docText.length.toLocaleString()} characters loaded</p>
-                )}
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Select Questions</CardTitle>
+                <Badge variant={totalAdded > 0 ? 'success' : 'outline'} className="text-sm">
+                  {totalAdded} question{totalAdded !== 1 ? 's' : ''} added
+                </Badge>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Question Type</Label>
-                  <Select value={genType} onValueChange={v => setGenType(v as QuestionType)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {ALL_QUESTION_TYPES.map(t => (
-                        <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+            </CardHeader>
+            <CardContent>
+              <p className="text-xs text-muted-foreground mb-3">
+                Pick approved questions from any Item Bank you have access to — institutional, your own, or shared with you.
+                Need new questions? Generate them with AI or add them manually from a bank&apos;s page, then come back here.
+              </p>
+              <ItemBankPicker
+                selectedIds={new Set(selectedBankItems.keys())}
+                onToggle={toggleBankItem}
+              />
+              {selectedBankItems.size > 0 && (
+                <div className="mt-4 space-y-2 border-t pt-4">
+                  <p className="text-sm font-medium text-muted-foreground">Selected:</p>
+                  {Array.from(selectedBankItems.values()).map((item, i) => (
+                    <div key={item.id} className="flex items-start gap-3 border rounded-lg p-3 bg-green-50 border-green-200">
+                      <span className="text-sm font-semibold text-green-600 w-6 shrink-0 mt-0.5">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium leading-snug">{item.stem}</p>
+                        <div className="flex gap-1.5 mt-1">
+                          <Badge variant="info" className="text-xs">{TYPE_LABELS[item.type]}</Badge>
+                          <Badge variant={DIFF_VARIANT[item.difficulty] as 'success' | 'warning' | 'danger'} className="text-xs capitalize">{item.difficulty}</Badge>
+                          <Badge variant="outline" className="text-xs">{item.marks} pts</Badge>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleBankItem(item)}
+                        className="text-xs text-red-500 hover:text-red-700 shrink-0"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
                 </div>
-                <div className="space-y-2">
-                  <Label>Difficulty</Label>
-                  <Select value={genDifficulty} onValueChange={setGenDifficulty}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="easy">Easy</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="hard">Hard</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <Button onClick={handleGenerate} disabled={isGenerating || !docText.trim()} className="gap-2">
-                <Sparkles className="h-4 w-4" />
-                {isGenerating ? 'Generating…' : 'Generate 5 Questions'}
-              </Button>
+              )}
             </CardContent>
           </Card>
-
-          {generatedQuestions.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  Generated Questions
-                  <span className="ms-2 text-sm font-normal text-muted-foreground">
-                    ({addedAIQuestions.length} of {generatedQuestions.length} added)
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {generatedQuestions.map((q, i) => (
-                  <QuestionPreview
-                    key={i}
-                    q={q}
-                    index={i}
-                    added={addedAIQuestions.includes(q)}
-                    onAdd={() => addAIQuestion(q)}
-                  />
-                ))}
-              </CardContent>
-            </Card>
-          )}
 
           <div className="flex justify-between">
             <Button variant="outline" onClick={() => setStep(0)} className="gap-2">
@@ -677,108 +490,8 @@ export default function NewExamPage() {
         </div>
       )}
 
-      {/* ── Step 3: Questions (AI + Item Bank) ── */}
+      {/* ── Step 3: Settings ── */}
       {step === 2 && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Questions</CardTitle>
-                <Badge variant={totalAdded > 0 ? 'success' : 'outline'} className="text-sm">
-                  {totalAdded} question{totalAdded !== 1 ? 's' : ''} added
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="ai">
-                <TabsList className="mb-4">
-                  <TabsTrigger value="ai" className="gap-1.5">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    AI Generated ({addedAIQuestions.length})
-                  </TabsTrigger>
-                  <TabsTrigger value="bank" className="gap-1.5">
-                    <Library className="h-3.5 w-3.5" />
-                    Item Bank ({selectedBankItems.size})
-                  </TabsTrigger>
-                </TabsList>
-
-                {/* AI Generated sub-tab */}
-                <TabsContent value="ai" className="space-y-3">
-                  {addedAIQuestions.length === 0 ? (
-                    <div className="border-2 border-dashed rounded-lg p-8 text-center text-muted-foreground">
-                      <Sparkles className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                      <p className="font-medium">No AI questions added yet</p>
-                      <p className="text-sm mt-1">Go back to Step 2 to generate and add questions.</p>
-                      <Button variant="outline" size="sm" className="mt-3 gap-1" onClick={() => setStep(1)}>
-                        <ChevronLeft className="h-3.5 w-3.5" /> Back to AI Generation
-                      </Button>
-                    </div>
-                  ) : (
-                    addedAIQuestions.map((q, i) => (
-                      <div key={i} className="flex items-start gap-3 border rounded-lg p-3 bg-blue-50 border-blue-200">
-                        <span className="text-sm font-semibold text-blue-600 w-6 shrink-0 mt-0.5">{i + 1}</span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium leading-snug">{q.stem}</p>
-                          <div className="flex gap-1.5 mt-1">
-                            <Badge variant="info" className="text-xs">{TYPE_LABELS[q.type]}</Badge>
-                            <Badge variant={DIFF_VARIANT[q.difficulty] as 'success' | 'warning' | 'danger'} className="text-xs capitalize">{q.difficulty}</Badge>
-                            <Badge variant="outline" className="text-xs">{q.marks} pts</Badge>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </TabsContent>
-
-                {/* Item Bank sub-tab */}
-                <TabsContent value="bank">
-                  <ItemBankPicker
-                    selectedIds={new Set(selectedBankItems.keys())}
-                    onToggle={toggleBankItem}
-                  />
-                  {selectedBankItems.size > 0 && (
-                    <div className="mt-4 space-y-2 border-t pt-4">
-                      <p className="text-sm font-medium text-muted-foreground">Selected from item bank:</p>
-                      {Array.from(selectedBankItems.values()).map((item, i) => (
-                        <div key={item.id} className="flex items-start gap-3 border rounded-lg p-3 bg-green-50 border-green-200">
-                          <span className="text-sm font-semibold text-green-600 w-6 shrink-0 mt-0.5">{addedAIQuestions.length + i + 1}</span>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium leading-snug">{item.stem}</p>
-                            <div className="flex gap-1.5 mt-1">
-                              <Badge variant="info" className="text-xs">{TYPE_LABELS[item.type]}</Badge>
-                              <Badge variant={DIFF_VARIANT[item.difficulty] as 'success' | 'warning' | 'danger'} className="text-xs capitalize">{item.difficulty}</Badge>
-                              <Badge variant="outline" className="text-xs">{item.marks} pts</Badge>
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => toggleBankItem(item)}
-                            className="text-xs text-red-500 hover:text-red-700 shrink-0"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
-
-          <div className="flex justify-between">
-            <Button variant="outline" onClick={() => setStep(1)} className="gap-2">
-              <ChevronLeft className="h-4 w-4" /> Back
-            </Button>
-            <Button onClick={() => setStep(3)} className="gap-2">
-              Next <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Step 4: Settings ── */}
-      {step === 3 && (
         <div className="space-y-4">
           <Card>
             <CardHeader><CardTitle>Exam Settings</CardTitle></CardHeader>
@@ -878,9 +591,21 @@ export default function NewExamPage() {
               {/* ── Proctoring ── */}
               <div className="space-y-3">
                 <Label className="text-sm font-semibold">Proctoring</Label>
-                <div className="space-y-2">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isProctoringEnabled}
+                    onChange={e => setIsProctoringEnabled(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <div>
+                    <span className="text-sm font-medium">Enable AI Proctoring</span>
+                    <p className="text-xs text-muted-foreground">Camera, tab/fullscreen monitoring, and identity verification. Turn off for low-stakes exams.</p>
+                  </div>
+                </label>
+                <div className={`space-y-2 ${!isProctoringEnabled ? 'opacity-50 pointer-events-none' : ''}`}>
                   <Label className="text-xs text-muted-foreground font-normal">Proctoring Level</Label>
-                  <Select value={proctoringLevel} onValueChange={v => setProctoringLevel(v as typeof proctoringLevel)}>
+                  <Select value={proctoringLevel} onValueChange={v => setProctoringLevel(v as typeof proctoringLevel)} disabled={!isProctoringEnabled}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="basic">Basic — Tab/window detection only</SelectItem>
@@ -889,12 +614,13 @@ export default function NewExamPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className={`flex items-center gap-3 ${!isProctoringEnabled ? 'opacity-50 pointer-events-none' : ''}`}>
                   <Label className="text-xs text-muted-foreground font-normal whitespace-nowrap">Max violations (auto-submit)</Label>
                   <Input
                     type="number"
                     value={maxViolations}
                     min={1} max={10}
+                    disabled={!isProctoringEnabled}
                     onChange={e => setMaxViolations(Number(e.target.value))}
                     className="w-20 h-8 text-sm"
                   />
@@ -964,7 +690,7 @@ export default function NewExamPage() {
                 <p className="font-medium">Exam Summary</p>
                 <p className="text-muted-foreground">{step1Data?.title} · {step1Data?.subject}</p>
                 <p className="text-muted-foreground">{step1Data?.duration} min · {step1Data?.totalMarks} marks (pass at {step1Data?.passingMarks})</p>
-                <p className="text-muted-foreground">{totalAdded} question{totalAdded !== 1 ? 's' : ''} total ({addedAIQuestions.length} AI + {selectedBankItems.size} from bank)</p>
+                <p className="text-muted-foreground">{totalAdded} question{totalAdded !== 1 ? 's' : ''} selected from the item bank</p>
                 <div className="flex flex-wrap gap-1.5 pt-1">
                   <Badge variant="outline" className="text-xs capitalize">{navigationMode} nav</Badge>
                   {forwardOnly && <Badge variant="outline" className="text-xs">forward-only</Badge>}
@@ -972,6 +698,9 @@ export default function NewExamPage() {
                   {allowPause && <Badge variant="outline" className="text-xs">pauseable</Badge>}
                   <Badge variant={resultsVisibility === 'instant' ? 'success' : 'warning'} className="text-xs">
                     {resultsVisibility === 'instant' ? 'Instant results' : 'Held results'}
+                  </Badge>
+                  <Badge variant={isProctoringEnabled ? 'info' : 'outline'} className="text-xs">
+                    {isProctoringEnabled ? `Proctoring: ${proctoringLevel}` : 'Proctoring off'}
                   </Badge>
                   {enablePooling && <Badge variant="info" className="text-xs">pooling {questionLimit}/{poolSize}</Badge>}
                 </div>
@@ -982,7 +711,7 @@ export default function NewExamPage() {
             <p className="text-sm text-red-600 text-center">{createError}</p>
           )}
           <div className="flex justify-between">
-            <Button variant="outline" onClick={() => setStep(2)} className="gap-2" disabled={isCreating}>
+            <Button variant="outline" onClick={() => setStep(1)} className="gap-2" disabled={isCreating}>
               <ChevronLeft className="h-4 w-4" /> Back
             </Button>
             <Button onClick={handleFinish} className="gap-2" disabled={isCreating}>
