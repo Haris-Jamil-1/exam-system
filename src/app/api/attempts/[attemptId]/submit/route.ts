@@ -36,6 +36,8 @@ export const POST = withErrorHandling(async (
     return NextResponse.json({ error: 'Attempt already submitted' }, { status: 409 });
   }
 
+  const exam = await prisma.exam.findUnique({ where: { id: examId }, select: { duration: true, endTime: true } });
+
   const questionRows = await prisma.question.findMany({
     where: { examId },
     orderBy: { order: 'asc' },
@@ -62,6 +64,18 @@ export const POST = withErrorHandling(async (
   const trustScore = Math.max(0, 100 - violationCount * 15);
   const scorePercentage = totalMarks > 0 ? Math.round((score / totalMarks) * 100) : 0;
 
+  // Availability window vs. duration: the deadline is whichever comes first — the student's
+  // duration limit from their own startedAt, or the exam's global availableTo (endTime).
+  // Independently recomputed here (not trusted from the client) so the recorded status
+  // reflects reality even if the client's own timer never fired.
+  let status: 'submitted' | 'auto_submitted' = 'submitted';
+  if (exam) {
+    const durationDeadlineMs = attempt.startedAt.getTime() + exam.duration * 60_000;
+    const deadlineMs = Math.min(durationDeadlineMs, exam.endTime.getTime());
+    const GRACE_MS = 5000; // network/client-timer latency allowance
+    if (Date.now() > deadlineMs + GRACE_MS) status = 'auto_submitted';
+  }
+
   await prisma.$transaction([
     ...perQuestion.map(a =>
       prisma.answer.upsert({
@@ -85,7 +99,7 @@ export const POST = withErrorHandling(async (
     prisma.examAttempt.update({
       where: { id: attemptId },
       data: {
-        status: 'submitted',
+        status,
         submittedAt: new Date(),
         score,
         totalMarks,
@@ -98,7 +112,7 @@ export const POST = withErrorHandling(async (
 
   return NextResponse.json({
     id: attemptId,
-    status: 'submitted',
+    status,
     submittedAt: new Date().toISOString(),
     score,
     totalMarks,

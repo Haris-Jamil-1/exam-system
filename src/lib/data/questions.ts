@@ -21,7 +21,7 @@ type PrismaQuestion = {
   marks: number; difficulty: string; order: number; required: boolean;
   explanation: string | null; correctAnswer: unknown; learningObjectiveId: string | null;
   codeLanguage: string | null; starterCode: string | null; testCases: unknown;
-  allowedFileTypes: string[]; maxFileSizeMB: number | null;
+  allowedFileTypes: string[]; maxFileSizeMB: number | null; timeLimitSeconds: number | null;
   options: PrismaOption[];
 };
 
@@ -43,6 +43,7 @@ function mapQuestion(q: PrismaQuestion): Question {
     testCases: q.testCases as TestCase[] | undefined,
     allowedFileTypes: q.allowedFileTypes.length ? q.allowedFileTypes : undefined,
     maxFileSizeMB: q.maxFileSizeMB ?? undefined,
+    timeLimitSeconds: q.timeLimitSeconds ?? undefined,
     options: q.options.length ? q.options.map(mapOption) : undefined,
   };
 }
@@ -142,6 +143,7 @@ export async function createQuestion(data: Omit<Question, 'id'>): Promise<Questi
         ...(rest.testCases !== undefined && { testCases: rest.testCases as object }),
         allowedFileTypes: rest.allowedFileTypes ?? [],
         maxFileSizeMB: rest.maxFileSizeMB ?? null,
+        timeLimitSeconds: rest.timeLimitSeconds ?? null,
         options: options?.length
           ? { create: options.map((o, i) => ({ text: o.text, isCorrect: o.isCorrect, order: i })) }
           : undefined,
@@ -181,6 +183,7 @@ export async function updateQuestion(id: string, data: Partial<Question>): Promi
       ...(data.testCases !== undefined && { testCases: data.testCases as object }),
       ...(data.allowedFileTypes && { allowedFileTypes: data.allowedFileTypes }),
       ...(data.maxFileSizeMB !== undefined && { maxFileSizeMB: data.maxFileSizeMB ?? null }),
+      ...(data.timeLimitSeconds !== undefined && { timeLimitSeconds: data.timeLimitSeconds ?? null }),
     },
     include: { options: { orderBy: { order: 'asc' } } },
   });

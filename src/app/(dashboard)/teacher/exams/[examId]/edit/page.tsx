@@ -30,12 +30,15 @@ export default function EditExamPage() {
   const [newStem, setNewStem] = useState('');
   const [newMarks, setNewMarks] = useState(4);
   const [newDifficulty, setNewDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
+  const [newTimeLimitSeconds, setNewTimeLimitSeconds] = useState<number | undefined>(undefined);
   const [saved, setSaved] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
+  const [instructions, setInstructions] = useState('');
 
   useEffect(() => {
     Promise.all([getExamById(examId), getQuestions(examId)]).then(([e, q]) => {
       setExam(e ?? null);
+      setInstructions(e?.instructions ?? '');
       setQuestions(q);
     });
   }, [examId]);
@@ -49,9 +52,11 @@ export default function EditExamPage() {
       marks: newMarks,
       difficulty: newDifficulty,
       order: questions.length + 1,
+      timeLimitSeconds: newTimeLimitSeconds,
     });
     setQuestions(prev => [...prev, q]);
     setNewStem('');
+    setNewTimeLimitSeconds(undefined);
     setSaved(false);
   }
 
@@ -64,6 +69,20 @@ export default function EditExamPage() {
     await updateQuestion(id, { stem });
     setQuestions(prev => prev.map(q => q.id === id ? { ...q, stem } : q));
     setSaved(false);
+  }
+
+  async function updateTimeLimit(id: string, timeLimitSeconds: number | undefined) {
+    await updateQuestion(id, { timeLimitSeconds: timeLimitSeconds ?? undefined });
+    setQuestions(prev => prev.map(q => q.id === id ? { ...q, timeLimitSeconds } : q));
+    setSaved(false);
+  }
+
+  async function saveInstructions() {
+    await handleUpdate({ instructions });
+  }
+
+  async function toggleProctoring(checked: boolean) {
+    await handleUpdate({ isProctoringEnabled: checked });
   }
 
   function handleSave() {
@@ -184,6 +203,35 @@ export default function EditExamPage() {
         );
       })()}
 
+      {/* Instructions + Proctoring */}
+      <Card>
+        <CardHeader><CardTitle>Instructions & Proctoring</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Pre-Exam Instructions <span className="text-muted-foreground font-normal">(shown to students before they start)</span></Label>
+            <Textarea
+              placeholder="e.g. Calculators are prohibited. Ensure your camera is active."
+              rows={4}
+              value={instructions}
+              onChange={e => setInstructions(e.target.value)}
+              onBlur={saveInstructions}
+            />
+          </div>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={exam.isProctoringEnabled}
+              onChange={e => toggleProctoring(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300"
+            />
+            <div>
+              <span className="text-sm font-medium">Enable AI Proctoring</span>
+              <p className="text-xs text-muted-foreground">Camera, tab/fullscreen monitoring, and identity verification. Turn off for low-stakes exams.</p>
+            </div>
+          </label>
+        </CardContent>
+      </Card>
+
       {/* Questions list */}
       <Card>
         <CardHeader>
@@ -212,6 +260,17 @@ export default function EditExamPage() {
                       rows={2}
                       className="text-sm resize-none border-0 bg-transparent p-0 focus-visible:ring-0"
                     />
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground font-normal whitespace-nowrap">Time limit (seconds)</Label>
+                      <Input
+                        type="number"
+                        placeholder="No limit"
+                        min={5}
+                        defaultValue={q.timeLimitSeconds}
+                        onBlur={e => updateTimeLimit(q.id, e.target.value ? Number(e.target.value) : undefined)}
+                        className="h-7 w-24 text-xs"
+                      />
+                    </div>
                     {q.options && (
                       <div className="grid grid-cols-2 gap-1 mt-1">
                         {q.options.map(opt => (
@@ -268,6 +327,16 @@ export default function EditExamPage() {
               rows={3}
               value={newStem}
               onChange={e => setNewStem(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2 max-w-[200px]">
+            <Label>Time limit (seconds) <span className="text-muted-foreground font-normal">(optional)</span></Label>
+            <Input
+              type="number"
+              placeholder="No limit"
+              min={5}
+              value={newTimeLimitSeconds ?? ''}
+              onChange={e => setNewTimeLimitSeconds(e.target.value ? Number(e.target.value) : undefined)}
             />
           </div>
           <Button onClick={addQuestion} disabled={!newStem.trim()} className="gap-2">

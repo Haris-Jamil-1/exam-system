@@ -8,6 +8,7 @@ type PrismaExam = {
   totalMarks: number; passingMarks: number; status: string;
   approvalStatus: string; startTime: Date; endTime: Date;
   maxViolations: number; settings: unknown; resultsPublishedAt: Date | null;
+  instructions: string | null; isProctoringEnabled: boolean;
   institutionId: string; teacherId: string; createdAt: Date;
   _count?: { questions: number; enrollments: number };
 };
@@ -27,6 +28,8 @@ function mapExam(e: PrismaExam): Exam {
     maxViolations: e.maxViolations,
     settings: e.settings as ExamSettings,
     resultsPublishedAt: e.resultsPublishedAt?.toISOString() ?? null,
+    instructions: e.instructions ?? undefined,
+    isProctoringEnabled: e.isProctoringEnabled,
     institutionId: e.institutionId,
     teacherId: e.teacherId,
     createdAt: e.createdAt.toISOString(),
@@ -97,6 +100,8 @@ export async function createExam(data: Omit<Exam, 'id' | 'createdAt'>): Promise<
         maxViolations: data.maxViolations,
         settings: data.settings as object,
         resultsPublishedAt: data.resultsPublishedAt ? new Date(data.resultsPublishedAt) : null,
+        instructions: data.instructions ?? null,
+        isProctoringEnabled: data.isProctoringEnabled ?? true,
         institutionId,
         teacherId,
       },
@@ -128,6 +133,8 @@ export async function updateExam(id: string, data: Partial<Exam>): Promise<Exam 
         ...(data.resultsPublishedAt !== undefined && {
           resultsPublishedAt: data.resultsPublishedAt ? new Date(data.resultsPublishedAt) : null,
         }),
+        ...(data.instructions !== undefined && { instructions: data.instructions ?? null }),
+        ...(data.isProctoringEnabled !== undefined && { isProctoringEnabled: data.isProctoringEnabled }),
       },
       include: { _count: { select: COUNT_SELECT } },
     });

@@ -13,12 +13,13 @@ import { ProctoringOverlay } from '@/components/proctoring/ProctoringOverlay';
 import { BiometricOnboarding } from '@/components/proctoring/BiometricOnboarding';
 import { CodeQuestion } from '@/components/exam/CodeQuestion';
 import { FileUploadQuestion } from '@/components/exam/FileUploadQuestion';
+import { ItemCountdownBadge } from '@/components/exam/ItemCountdownBadge';
 import { DesktopGuard } from '@/components/shared/DesktopGuard';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Flag, ChevronLeft, ChevronRight, Clock, ChevronUp, ChevronDown, Pause, Play } from 'lucide-react';
+import { Flag, ChevronLeft, ChevronRight, Clock, ChevronUp, ChevronDown, Pause, Play, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const SESSION_KEY = (examId: string) => `exam_attempt_${examId}`;
@@ -26,6 +27,19 @@ const SESSION_KEY = (examId: string) => `exam_attempt_${examId}`;
 interface AttemptSession {
   attemptId: string;
   startedAt: string;
+}
+
+// Availability window vs. duration: the exam auto-submits at whichever comes first —
+// the student's duration limit, or the exam's global availableTo (endTime).
+function deadlineMs(startedAtIso: string, exam: Exam): number {
+  const startedMs = new Date(startedAtIso).getTime();
+  const durationDeadline = startedMs + exam.duration * 60_000;
+  const availableToMs = new Date(exam.endTime).getTime();
+  return Math.min(durationDeadline, availableToMs);
+}
+
+function remainingSeconds(startedAtIso: string, exam: Exam, serverNow: number): number {
+  return Math.max(0, Math.floor((deadlineMs(startedAtIso, exam) - serverNow) / 1000));
 }
 
 export default function ExamPage() {
@@ -46,10 +60,15 @@ export default function ExamPage() {
 
   // Biometric gate — shown before exam if proctoring level is strict
   const [biometricDone, setBiometricDone] = useState(false);
+  // Pre-exam instructions gate — the duration timer only starts once this is dismissed
+  const [instructionsDone, setInstructionsDone] = useState(false);
+  const [startingExam, setStartingExam] = useState(false);
   // Pause overlay
   const [paused, setPaused] = useState(false);
   // File upload answers stored separately (File objects can't go into Zustand string answers)
   const [fileAnswers, setFileAnswers] = useState<Record<string, File | null>>({});
+  // Question indices whose per-item time limit has expired — navigating back to them is locked
+  const [expiredIndices, setExpiredIndices] = useState<Set<number>>(new Set());
 
   const {
     currentQuestionIndex,
@@ -72,7 +91,7 @@ export default function ExamPage() {
   const autoAdvance  = !!settings?.autoAdvance;
   const allowPause   = settings?.allowPause !== false; // default true
 
-  // Load exam + questions; check start time before creating attempt
+  // Load exam + questions; check start time before entering the instructions/attempt flow
   useEffect(() => {
     async function load() {
       const [[e, q], timeRes] = await Promise.all([
@@ -90,6 +109,18 @@ export default function ExamPage() {
       const serverNow = Date.now() + offset;
       const startMs = new Date(e.startTime).getTime();
 
+      const stored = sessionStorage.getItem(SESSION_KEY(examId));
+      if (stored) {
+        // Resuming an attempt already in progress — the student already passed the waiting
+        // room, biometric gate, and instructions screen, so skip straight to the exam UI.
+        const session = JSON.parse(stored) as AttemptSession;
+        setAttemptId(session.attemptId);
+        setBiometricDone(true);
+        setInstructionsDone(true);
+        setInitialSeconds(remainingSeconds(session.startedAt, e, serverNow));
+        return;
+      }
+
       // Show waiting room only when the exam hasn't been manually started by the teacher
       // AND the scheduled startTime hasn't been reached yet.
       // If status is already 'live', the teacher started it early — let the student in immediately.
@@ -98,35 +129,10 @@ export default function ExamPage() {
         return;
       }
 
-      await beginAttempt(e, offset);
-    }
-
-    async function beginAttempt(e: Exam, offset: number) {
-      const stored = sessionStorage.getItem(SESSION_KEY(examId));
-      let session: AttemptSession;
-
-      if (stored) {
-        session = JSON.parse(stored) as AttemptSession;
-      } else {
-        const res = await fetch('/api/attempts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ examId }),
-        });
-        const attempt = await res.json() as { id: string; startedAt: string };
-        session = { attemptId: attempt.id, startedAt: attempt.startedAt };
-        sessionStorage.setItem(SESSION_KEY(examId), JSON.stringify(session));
-      }
-
-      setAttemptId(session.attemptId);
-
-      // Use endTime - serverNow so the timer is anchored to the scheduled end, not duration
-      const serverNow = Date.now() + offset;
-      const endMs = new Date(e.endTime).getTime();
-      const remaining = Math.max(0, Math.floor((endMs - serverNow) / 1000));
-      setInitialSeconds(remaining);
-
-      if (e.settings.proctoringLevel !== 'strict') {
+      // Ready to enter: biometric gate (if strict proctoring is enabled) runs first, then the
+      // instructions screen. The duration timer does NOT start here — it only starts once the
+      // student clicks "Start Exam" on the instructions screen (see handleStartExam below).
+      if (!e.isProctoringEnabled || e.settings.proctoringLevel !== 'strict') {
         setBiometricDone(true);
       }
     }
@@ -134,6 +140,27 @@ export default function ExamPage() {
     load();
     return () => { resetExam(); };
   }, [examId, resetExam, setCurrentExam, user?.id]); // eslint-disable-line
+
+  async function handleStartExam() {
+    if (!exam || startingExam) return;
+    setStartingExam(true);
+    try {
+      const res = await fetch('/api/attempts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ examId }),
+      });
+      const attempt = await res.json() as { id: string; startedAt: string };
+      const session: AttemptSession = { attemptId: attempt.id, startedAt: attempt.startedAt };
+      sessionStorage.setItem(SESSION_KEY(examId), JSON.stringify(session));
+      setAttemptId(attempt.id);
+      const serverNow = Date.now() + serverOffset;
+      setInitialSeconds(remainingSeconds(attempt.startedAt, exam, serverNow));
+      setInstructionsDone(true);
+    } finally {
+      setStartingExam(false);
+    }
+  }
 
   // Waiting-room countdown: tick down and auto-start when startTime is reached
   useEffect(() => {
@@ -219,6 +246,19 @@ export default function ExamPage() {
     void doSubmit();
   }
 
+  // Hooks must run on every render (before any early return below), even while questions
+  // are still loading — q is undefined until then, and useItemTimer tolerates that.
+  const q = questions[currentQuestionIndex];
+  const handleItemExpire = useCallback(() => {
+    setExpiredIndices(prev => {
+      if (prev.has(currentQuestionIndex)) return prev;
+      const next = new Set(prev);
+      next.add(currentQuestionIndex);
+      return next;
+    });
+    if (currentQuestionIndex < questions.length - 1) nextQuestion();
+  }, [currentQuestionIndex, questions.length, nextQuestion]);
+
   // ── Pre-exam waiting room ─────────────────────────────────────────────────────
   if (waitSeconds !== null && exam) {
     const wm = Math.floor(waitSeconds / 60);
@@ -257,6 +297,45 @@ export default function ExamPage() {
     return <BiometricOnboarding onComplete={() => setBiometricDone(true)} />;
   }
 
+  // ── Pre-exam instructions screen ──────────────────────────────────────────────
+  // The duration timer only starts once "Start Exam" is clicked (handleStartExam),
+  // never before — see the load() effect above, which never sets initialSeconds here.
+  if (exam && !instructionsDone) {
+    return (
+      <DesktopGuard>
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+          <div className="max-w-lg w-full space-y-6">
+            <div className="text-center">
+              <div className="inline-flex h-16 w-16 rounded-full bg-blue-100 items-center justify-center mx-auto mb-3">
+                <Info className="h-8 w-8 text-blue-600" />
+              </div>
+              <h1 className="text-2xl font-bold text-gray-900">{exam.title}</h1>
+              <p className="text-muted-foreground mt-1">Please read the instructions before you begin</p>
+            </div>
+            <div className="rounded-2xl border bg-white p-6 shadow-sm space-y-3">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <Badge variant="outline">{exam.duration} minutes</Badge>
+                <Badge variant="outline">{exam.totalMarks} marks</Badge>
+                <Badge variant="outline">{questions.length} question{questions.length !== 1 ? 's' : ''}</Badge>
+              </div>
+              {exam.instructions ? (
+                <p className="text-sm text-gray-800 whitespace-pre-wrap">{exam.instructions}</p>
+              ) : (
+                <p className="text-sm text-muted-foreground italic">No special instructions provided for this exam.</p>
+              )}
+            </div>
+            <Button onClick={handleStartExam} disabled={startingExam || questions.length === 0} className="w-full" size="lg">
+              {startingExam ? 'Starting…' : 'Start Exam'}
+            </Button>
+            <p className="text-xs text-center text-muted-foreground">
+              Your {exam.duration}-minute timer starts as soon as you click Start Exam.
+            </p>
+          </div>
+        </div>
+      </DesktopGuard>
+    );
+  }
+
   if (!exam || questions.length === 0 || !attemptId) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -265,7 +344,6 @@ export default function ExamPage() {
     );
   }
 
-  const q = questions[currentQuestionIndex];
   const answeredCount = Object.keys(answers).length + Object.values(fileAnswers).filter(Boolean).length;
   const progress = Math.round((answeredCount / questions.length) * 100);
   const currentAnswered = answers[q.id] !== undefined || fileAnswers[q.id] !== undefined;
@@ -274,13 +352,14 @@ export default function ExamPage() {
   function handleGoToQuestion(i: number) {
     if (isSequential && Math.abs(i - currentQuestionIndex) > 1) return;
     if (forwardOnly && i < currentQuestionIndex) return;
+    if (expiredIndices.has(i)) return;
     goToQuestion(i);
   }
 
   return (
     <DesktopGuard>
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <ProctoringOverlay examId={examId} attemptId={attemptId || 'attempt-loading'} />
+      {exam.isProctoringEnabled && <ProctoringOverlay examId={examId} attemptId={attemptId || 'attempt-loading'} />}
 
       {/* ── Pause overlay ── */}
       {paused && (
@@ -334,7 +413,8 @@ export default function ExamPage() {
               const current  = i === currentQuestionIndex;
               const disabled =
                 (isSequential && Math.abs(i - currentQuestionIndex) > 1) ||
-                (forwardOnly && i < currentQuestionIndex);
+                (forwardOnly && i < currentQuestionIndex) ||
+                expiredIndices.has(i);
               return (
                 <button
                   key={qi.id}
@@ -375,6 +455,14 @@ export default function ExamPage() {
                   {q.required && <Badge variant="danger" className="text-xs">Required</Badge>}
                   {isSequential && (
                     <Badge variant="info" className="text-xs">Sequential</Badge>
+                  )}
+                  {!!q.timeLimitSeconds && (
+                    <ItemCountdownBadge
+                      key={q.id}
+                      limitSeconds={q.timeLimitSeconds}
+                      paused={paused}
+                      onExpire={handleItemExpire}
+                    />
                   )}
                 </div>
                 <p className="text-base font-medium text-gray-900">
@@ -605,8 +693,9 @@ export default function ExamPage() {
           <Button
             variant="outline"
             onClick={prevQuestion}
-            disabled={currentQuestionIndex === 0}
+            disabled={currentQuestionIndex === 0 || expiredIndices.has(currentQuestionIndex - 1)}
             className="gap-2"
+            title={expiredIndices.has(currentQuestionIndex - 1) ? 'The time limit for the previous question has expired.' : undefined}
           >
             <ChevronLeft className="h-4 w-4" /> Previous
           </Button>

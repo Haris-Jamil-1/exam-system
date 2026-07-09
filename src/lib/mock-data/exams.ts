@@ -14,6 +14,7 @@ export const mockExams: Exam[] = [
     institutionId: 'inst-1',
     teacherId: 'teacher-1',
     maxViolations: 3,
+    isProctoringEnabled: true,
     settings: {
       shuffleQuestions: true,
       shuffleOptions: true,
@@ -37,6 +38,7 @@ export const mockExams: Exam[] = [
     institutionId: 'inst-1',
     teacherId: 'teacher-1',
     maxViolations: 2,
+    isProctoringEnabled: true,
     settings: {
       shuffleQuestions: false,
       shuffleOptions: false,
@@ -60,6 +62,7 @@ export const mockExams: Exam[] = [
     institutionId: 'inst-1',
     teacherId: 'teacher-2',
     maxViolations: 5,
+    isProctoringEnabled: true,
     settings: {
       shuffleQuestions: true,
       shuffleOptions: true,
@@ -83,6 +86,7 @@ export const mockExams: Exam[] = [
     institutionId: 'inst-1',
     teacherId: 'teacher-1',
     maxViolations: 3,
+    isProctoringEnabled: true,
     settings: {
       shuffleQuestions: true,
       shuffleOptions: false,
@@ -106,6 +110,7 @@ export const mockExams: Exam[] = [
     institutionId: 'inst-1',
     teacherId: 'teacher-2',
     maxViolations: 4,
+    isProctoringEnabled: true,
     settings: {
       shuffleQuestions: false,
       shuffleOptions: true,
@@ -129,6 +134,7 @@ export const mockExams: Exam[] = [
     institutionId: 'inst-2',
     teacherId: 'teacher-3',
     maxViolations: 2,
+    isProctoringEnabled: true,
     settings: {
       shuffleQuestions: true,
       shuffleOptions: true,
@@ -152,6 +158,7 @@ export const mockExams: Exam[] = [
     institutionId: 'inst-2',
     teacherId: 'teacher-3',
     maxViolations: 3,
+    isProctoringEnabled: true,
     settings: {
       shuffleQuestions: false,
       shuffleOptions: false,
@@ -175,6 +182,7 @@ export const mockExams: Exam[] = [
     institutionId: 'inst-3',
     teacherId: 'teacher-1',
     maxViolations: 2,
+    isProctoringEnabled: true,
     settings: {
       shuffleQuestions: true,
       shuffleOptions: true,
