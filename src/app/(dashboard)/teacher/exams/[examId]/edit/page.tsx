@@ -256,7 +256,15 @@ export default function EditExamPage() {
       {/* Sections */}
       <Card>
         <CardHeader><CardTitle>Multi-Section Architecture</CardTitle></CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          {sections.length > 0 && !!exam.settings?.dynamicPoolingBlueprint && Object.keys(exam.settings.dynamicPoolingBlueprint).length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <strong>Not supported together:</strong> stratified dynamic pooling draws questions exam-wide, not
+              per section — a pooled question is never assigned to any section, so it will not appear inside any
+              section for students. Use sections with a fixed question list, or pooling on a non-sectioned exam,
+              not both on the same exam.
+            </div>
+          )}
           <SectionsManager
             examId={examId}
             sections={sections}
