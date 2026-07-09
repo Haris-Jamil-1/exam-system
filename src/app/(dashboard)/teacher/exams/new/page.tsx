@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { createExam, createQuestion, getItems, incrementItemUsage } from '@/lib/data';
+import { BlueprintPoolingPanel } from '@/components/exams/BlueprintPoolingPanel';
 import type { QuestionType, Item } from '@/types';
 import { Plus, Check, ChevronRight, ChevronLeft, Search, ChevronDown, ChevronUp } from 'lucide-react';
 
@@ -248,10 +249,10 @@ export default function NewExamPage() {
   const [allowPause, setAllowPause] = useState(true);
   // Results visibility — Phase 2: stored in ExamSettings.resultsVisibility
   const [resultsVisibility, setResultsVisibility] = useState<'instant' | 'held'>('instant');
-  // Dynamic pooling — Phase 2: pool drawn randomly from item bank at runtime
+  // Stratified dynamic pooling — each student's questions are drawn per-CLO at attempt start
   const [enablePooling, setEnablePooling] = useState(false);
-  const [poolSize, setPoolSize] = useState(30);
-  const [questionLimit, setQuestionLimit] = useState(20);
+  const [poolingBankIds, setPoolingBankIds] = useState<string[]>([]);
+  const [poolingBlueprint, setPoolingBlueprint] = useState<Record<string, number>>({});
 
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -304,7 +305,9 @@ export default function NewExamPage() {
           autoAdvance,
           allowPause,
           resultsVisibility,
-          ...(enablePooling ? { poolSize, questionLimit } : {}),
+          ...(enablePooling && Object.keys(poolingBlueprint).length > 0
+            ? { dynamicPoolingBankIds: poolingBankIds, dynamicPoolingBlueprint: poolingBlueprint }
+            : {}),
         },
       });
 
@@ -654,36 +657,15 @@ export default function NewExamPage() {
 
               <div className="h-px bg-border" />
 
-              {/* ── Dynamic Pooling ── */}
-              <div className="space-y-3">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={enablePooling}
-                    onChange={e => setEnablePooling(e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300"
-                  />
-                  <div>
-                    <span className="text-sm font-semibold">Dynamic Question Pooling</span>
-                    <p className="text-xs text-muted-foreground">Draw a random subset of questions from a larger pool at runtime (Phase 2 feature).</p>
-                  </div>
-                </label>
-                {enablePooling && (
-                  <div className="ps-7 grid grid-cols-2 gap-4">
-                    <div className="space-y-1">
-                      <Label className="text-xs">Pool size (total items)</Label>
-                      <Input type="number" value={poolSize} min={questionLimit} onChange={e => setPoolSize(Number(e.target.value))} className="h-8 text-sm" />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">Questions per student</Label>
-                      <Input type="number" value={questionLimit} min={1} max={poolSize} onChange={e => setQuestionLimit(Number(e.target.value))} className="h-8 text-sm" />
-                    </div>
-                    <p className="col-span-2 text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded px-3 py-2">
-                      Phase 2: at exam start, the system will randomly pick {questionLimit} questions from a pool of {poolSize} approved items matching this exam&apos;s subject/difficulty.
-                    </p>
-                  </div>
-                )}
-              </div>
+              {/* ── Stratified Dynamic Pooling ── */}
+              <BlueprintPoolingPanel
+                enabled={enablePooling}
+                onToggle={setEnablePooling}
+                bankIds={poolingBankIds}
+                onChangeBankIds={setPoolingBankIds}
+                blueprint={poolingBlueprint}
+                onChangeBlueprint={setPoolingBlueprint}
+              />
 
               {/* Summary */}
               <div className="rounded-lg bg-muted/50 p-4 space-y-1 text-sm border-t">
@@ -702,7 +684,11 @@ export default function NewExamPage() {
                   <Badge variant={isProctoringEnabled ? 'info' : 'outline'} className="text-xs">
                     {isProctoringEnabled ? `Proctoring: ${proctoringLevel}` : 'Proctoring off'}
                   </Badge>
-                  {enablePooling && <Badge variant="info" className="text-xs">pooling {questionLimit}/{poolSize}</Badge>}
+                  {enablePooling && Object.keys(poolingBlueprint).length > 0 && (
+                    <Badge variant="info" className="text-xs">
+                      pooling {Object.values(poolingBlueprint).reduce((s, n) => s + n, 0)} questions
+                    </Badge>
+                  )}
                 </div>
               </div>
             </CardContent>

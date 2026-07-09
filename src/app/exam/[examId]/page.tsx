@@ -91,11 +91,13 @@ export default function ExamPage() {
   const autoAdvance  = !!settings?.autoAdvance;
   const allowPause   = settings?.allowPause !== false; // default true
 
-  // Load exam + questions; check start time before entering the instructions/attempt flow
+  // Load exam; check start time before entering the instructions/attempt flow. Questions are
+  // fetched separately below, once it's known whether an attempt (and therefore a possible
+  // stratified-pooled question set) already exists — see materializePooledQuestions.
   useEffect(() => {
     async function load() {
-      const [[e, q], timeRes] = await Promise.all([
-        Promise.all([getExamById(examId), getQuestionsForStudent(examId)]),
+      const [e, timeRes] = await Promise.all([
+        getExamById(examId),
         fetch('/api/time').then(r => r.json() as Promise<{ now: number }>),
       ]);
       if (!e) return;
@@ -104,7 +106,6 @@ export default function ExamPage() {
       setServerOffset(offset);
       setExam(e);
       setCurrentExam(e);
-      setQuestions(q);
 
       const serverNow = Date.now() + offset;
       const startMs = new Date(e.startTime).getTime();
@@ -113,7 +114,11 @@ export default function ExamPage() {
       if (stored) {
         // Resuming an attempt already in progress — the student already passed the waiting
         // room, biometric gate, and instructions screen, so skip straight to the exam UI.
+        // Pass the attemptId so a pooled exam's already-materialized private questions load
+        // correctly (a bare examId fetch would return none for a pure-pooling exam).
         const session = JSON.parse(stored) as AttemptSession;
+        const q = await getQuestionsForStudent(examId, session.attemptId);
+        setQuestions(q);
         setAttemptId(session.attemptId);
         setBiometricDone(true);
         setInstructionsDone(true);
@@ -128,6 +133,13 @@ export default function ExamPage() {
         setWaitSeconds(Math.ceil((startMs - serverNow) / 1000));
         return;
       }
+
+      // Fixed/shared-question preview for the instructions screen. For a stratified-pooled
+      // exam this is empty (nothing to preview yet — the real per-student set is drawn only
+      // once the attempt is created, on Start Exam) — the instructions screen accounts for
+      // that explicitly rather than treating 0 as "still loading".
+      const q = await getQuestionsForStudent(examId);
+      setQuestions(q);
 
       // Ready to enter: biometric gate (if strict proctoring is enabled) runs first, then the
       // instructions screen. The duration timer does NOT start here — it only starts once the
@@ -154,6 +166,12 @@ export default function ExamPage() {
       const session: AttemptSession = { attemptId: attempt.id, startedAt: attempt.startedAt };
       sessionStorage.setItem(SESSION_KEY(examId), JSON.stringify(session));
       setAttemptId(attempt.id);
+      // Re-fetch with the now-known attemptId — for a stratified-pooled exam this is the
+      // first moment the student's private question set exists at all (materialized
+      // server-side inside POST /api/attempts); for a non-pooled exam it's the same fixed
+      // list they already had, just re-fetched.
+      const freshQuestions = await getQuestionsForStudent(examId, attempt.id);
+      setQuestions(freshQuestions);
       const serverNow = Date.now() + serverOffset;
       setInitialSeconds(remainingSeconds(attempt.startedAt, exam, serverNow));
       setInstructionsDone(true);
@@ -300,6 +318,7 @@ export default function ExamPage() {
   // ── Pre-exam instructions screen ──────────────────────────────────────────────
   // The duration timer only starts once "Start Exam" is clicked (handleStartExam),
   // never before — see the load() effect above, which never sets initialSeconds here.
+  const isPooled = !!(exam?.settings?.dynamicPoolingBlueprint && Object.keys(exam.settings.dynamicPoolingBlueprint).length > 0);
   if (exam && !instructionsDone) {
     return (
       <DesktopGuard>
@@ -316,7 +335,11 @@ export default function ExamPage() {
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <Badge variant="outline">{exam.duration} minutes</Badge>
                 <Badge variant="outline">{exam.totalMarks} marks</Badge>
-                <Badge variant="outline">{questions.length} question{questions.length !== 1 ? 's' : ''}</Badge>
+                {isPooled ? (
+                  <Badge variant="info">Your question set is generated when you start</Badge>
+                ) : (
+                  <Badge variant="outline">{questions.length} question{questions.length !== 1 ? 's' : ''}</Badge>
+                )}
               </div>
               {exam.instructions ? (
                 <p className="text-sm text-gray-800 whitespace-pre-wrap">{exam.instructions}</p>
@@ -324,7 +347,7 @@ export default function ExamPage() {
                 <p className="text-sm text-muted-foreground italic">No special instructions provided for this exam.</p>
               )}
             </div>
-            <Button onClick={handleStartExam} disabled={startingExam || questions.length === 0} className="w-full" size="lg">
+            <Button onClick={handleStartExam} disabled={startingExam || (!isPooled && questions.length === 0)} className="w-full" size="lg">
               {startingExam ? 'Starting…' : 'Start Exam'}
             </Button>
             <p className="text-xs text-center text-muted-foreground">

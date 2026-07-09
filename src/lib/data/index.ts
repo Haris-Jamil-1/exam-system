@@ -7,3 +7,4 @@ export * from './analytics';
 export * from './items';
 export * from './curriculum';
 export * from './item-banks';
+export * from './pooling';

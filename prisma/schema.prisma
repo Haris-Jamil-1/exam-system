@@ -225,6 +225,14 @@ model ExamEnrollment {
 model Question {
   id                  String       @id @default(cuid())
   examId              String
+  // Set only for a per-attempt, JIT stratified-pooled question (drawn randomly from an Item
+  // pool when that one student's attempt was created) — null for the normal fixed/shared
+  // question set every student of a non-pooled exam sees identically. A pooled exam's
+  // Question rows all share examId but are privately scoped to one attempt each; every query
+  // that lists "this exam's questions" for display/scoring MUST filter accordingly (see
+  // getQuestions/getQuestionsForAttempt in lib/data/questions.ts) or it will mix together
+  // every student's individually-drawn questions.
+  attemptId           String?
   type                QuestionType
   stem                String
   marks               Int          @default(1)
@@ -243,9 +251,12 @@ model Question {
   createdAt           DateTime     @default(now())
 
   exam              Exam               @relation(fields: [examId], references: [id], onDelete: Cascade)
+  attempt           ExamAttempt?       @relation(fields: [attemptId], references: [id], onDelete: Cascade)
   learningObjective LearningObjective? @relation(fields: [learningObjectiveId], references: [id])
   options           Option[]
   answers           Answer[]
+
+  @@index([examId, attemptId])
 }
 
 model Option {
@@ -360,10 +371,11 @@ model ExamAttempt {
   biometricVerified Boolean       @default(false)
   createdAt         DateTime      @default(now())
 
-  exam       Exam        @relation(fields: [examId], references: [id])
-  student    User        @relation(fields: [studentId], references: [id])
-  answers    Answer[]
-  violations Violation[]
+  exam             Exam        @relation(fields: [examId], references: [id])
+  student          User        @relation(fields: [studentId], references: [id])
+  answers          Answer[]
+  violations       Violation[]
+  pooledQuestions  Question[]
 
   @@unique([examId, studentId])
   @@index([studentId])

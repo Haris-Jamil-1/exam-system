@@ -232,10 +232,20 @@ export default function EditExamPage() {
         </CardContent>
       </Card>
 
+      {/* Stratified pooling notice */}
+      {exam.settings?.dynamicPoolingBlueprint && Object.keys(exam.settings.dynamicPoolingBlueprint).length > 0 && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          <strong>This exam uses stratified dynamic pooling</strong> — each student gets their own randomly-drawn
+          question set from the configured item banks at attempt start, so there is no single fixed question list to
+          manage here. Any questions you add below are additional fixed questions every student sees on top of their
+          personal pool. Edit the pooling blueprint from the exam wizard&apos;s Settings step.
+        </div>
+      )}
+
       {/* Questions list */}
       <Card>
         <CardHeader>
-          <CardTitle>Questions ({questions.length})</CardTitle>
+          <CardTitle>Fixed Questions ({questions.length})</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {questions.length === 0 ? (

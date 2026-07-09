@@ -140,6 +140,15 @@ export default function ResultsPage() {
         </Card>
       </div>
 
+      {exam.settings?.dynamicPoolingBlueprint && Object.keys(exam.settings.dynamicPoolingBlueprint).length > 0 && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          <strong>This exam uses stratified dynamic pooling</strong> — students were shown different, randomly-drawn
+          questions, so there is no single shared question-by-question breakdown. The chart below is still accurate
+          (it&apos;s bucketed by difficulty across every student&apos;s actual answers, not by a fixed question list).
+          For one student&apos;s exact questions, open their row below and use &ldquo;View answers&rdquo;.
+        </div>
+      )}
+
       <Card>
         <CardHeader><CardTitle>Question Difficulty Performance</CardTitle></CardHeader>
         <CardContent>

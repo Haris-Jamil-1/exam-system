@@ -31,9 +31,11 @@ export interface ExamSettings {
   autoAdvance?: boolean;
   allowPause?: boolean;
   resultsVisibility?: 'instant' | 'held';
-  // Phase 2: randomized selection query — SELECT * FROM questions WHERE examId ORDER BY RANDOM() LIMIT questionLimit
-  poolSize?: number;
-  questionLimit?: number;
+  // Stratified dynamic pooling: at attempt creation, draw dynamicPoolingBlueprint[cloId] items
+  // per CLO (randomly, from dynamicPoolingBankIds only), materialized as private per-attempt
+  // Question rows. Absent/empty blueprint = normal fixed exam-wide question set (unchanged).
+  dynamicPoolingBankIds?: string[];
+  dynamicPoolingBlueprint?: Record<string, number>;
   // Phase 2: CAT engine — adjusts next question difficulty based on attempt.lastResponseCorrect
   adaptiveTesting?: boolean;
 }
@@ -125,6 +127,9 @@ export interface Question {
   maxFileSizeMB?: number;
   // Optional per-question countdown; on expiry, response auto-saves and the student auto-advances
   timeLimitSeconds?: number;
+  // Set only for a stratified-pooled question drawn privately for one attempt; undefined for
+  // the normal fixed/shared question every student of a non-pooled exam sees identically.
+  attemptId?: string;
 }
 
 export type ItemStatus = 'draft' | 'review' | 'approved' | 'archived';

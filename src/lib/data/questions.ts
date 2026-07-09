@@ -17,7 +17,7 @@ function mapOption(o: PrismaOption): Option {
 }
 
 type PrismaQuestion = {
-  id: string; examId: string; type: string; stem: string;
+  id: string; examId: string; attemptId: string | null; type: string; stem: string;
   marks: number; difficulty: string; order: number; required: boolean;
   explanation: string | null; correctAnswer: unknown; learningObjectiveId: string | null;
   codeLanguage: string | null; starterCode: string | null; testCases: unknown;
@@ -29,6 +29,7 @@ function mapQuestion(q: PrismaQuestion): Question {
   return {
     id: q.id,
     examId: q.examId,
+    attemptId: q.attemptId ?? undefined,
     type: q.type as Question['type'],
     stem: q.stem,
     marks: q.marks,
@@ -48,8 +49,15 @@ function mapQuestion(q: PrismaQuestion): Question {
   };
 }
 
-export async function getQuestionsForStudent(examId: string): Promise<PublicQuestion[]> {
-  const all = await getQuestions(examId);
+/**
+ * Student-facing question list, answer-stripped. Without `attemptId`, returns only the exam's
+ * fixed/shared questions (attemptId: null) — correct for a non-pooled exam, and correct as the
+ * pre-attempt instructions-screen preview for a pooled exam (whose real per-attempt set doesn't
+ * exist yet). Once an attempt exists, pass its id to also include that attempt's privately
+ * drawn pooled questions — never another student's.
+ */
+export async function getQuestionsForStudent(examId: string, attemptId?: string): Promise<PublicQuestion[]> {
+  const all = attemptId ? await getQuestionsForAttempt(examId, attemptId) : await getQuestions(examId);
   return all.map(({ correctAnswer, explanation: _ex, options, type, ...rest }) => {
     if (type === 'matching' && options?.length) {
       // ── New format ──────────────────────────────────────────────────────────
@@ -106,9 +114,25 @@ function shuffled<T>(arr: T[]): T[] {
   return a;
 }
 
+/** The exam's fixed/shared question set only — excludes every attempt's privately pooled
+ * questions. This is what the teacher's exam editor and every "manage this exam's questions"
+ * view must use; it must NOT fall back to a bare `{ examId }` filter, or once any student
+ * starts a pooled exam their private questions would show up mixed into the shared list. */
 export async function getQuestions(examId: string): Promise<Question[]> {
   const rows = await prisma.question.findMany({
-    where: { examId },
+    where: { examId, attemptId: null },
+    orderBy: { order: 'asc' },
+    include: { options: { orderBy: { order: 'asc' } } },
+  });
+  return rows.map(mapQuestion);
+}
+
+/** Fixed/shared questions plus this one attempt's own privately-drawn pooled questions —
+ * never another attempt's. Safe for both pooled and non-pooled exams (a non-pooled exam has
+ * no attemptId-scoped rows at all, so this is equivalent to getQuestions for it). */
+export async function getQuestionsForAttempt(examId: string, attemptId: string): Promise<Question[]> {
+  const rows = await prisma.question.findMany({
+    where: { examId, OR: [{ attemptId: null }, { attemptId }] },
     orderBy: { order: 'asc' },
     include: { options: { orderBy: { order: 'asc' } } },
   });
@@ -124,6 +148,13 @@ export async function getQuestionById(id: string): Promise<Question | undefined>
 }
 
 export async function createQuestion(data: Omit<Question, 'id'>): Promise<Question> {
+  const caller = await getCallerPrismaUser();
+  if (!caller) throw new Error('Unauthorized');
+  {
+    const exam = await prisma.exam.findUnique({ where: { id: data.examId }, select: { teacherId: true, institutionId: true } });
+    if (!exam || exam.institutionId !== caller.institutionId) throw new Error('Forbidden');
+    if (caller.role === 'teacher' && exam.teacherId !== caller.id) throw new Error('Forbidden');
+  }
   const { options, ...rest } = data;
   try {
     const row = await prisma.question.create({

@@ -38,8 +38,13 @@ export const POST = withErrorHandling(async (
 
   const exam = await prisma.exam.findUnique({ where: { id: examId }, select: { duration: true, endTime: true } });
 
+  // OR [attemptId: null, attemptId: this attempt] — the exam's fixed/shared questions plus
+  // this one attempt's own privately-drawn stratified-pooled questions (if any), never
+  // another student's. Scoring against a bare `{ examId }` filter would either score a pooled
+  // exam's student against the entire item-derived question superset, or (for a non-pooled
+  // exam once any other student's pooled questions somehow existed) mix in unrelated rows.
   const questionRows = await prisma.question.findMany({
-    where: { examId },
+    where: { examId, OR: [{ attemptId: null }, { attemptId }] },
     orderBy: { order: 'asc' },
     include: { options: { orderBy: { order: 'asc' } } },
   });

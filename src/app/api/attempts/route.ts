@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } from '@/lib/api-auth';
+import { materializePooledQuestions } from '@/lib/data/pooling';
+import type { ExamSettings } from '@/types';
 
 const startSchema = z.object({ examId: z.string() });
 
@@ -19,7 +21,10 @@ export const POST = withErrorHandling(async (request: Request) => {
 
   const { examId } = parsed.data;
 
-  const exam = await prisma.exam.findUnique({ where: { id: examId }, select: { startTime: true, endTime: true, status: true } });
+  const exam = await prisma.exam.findUnique({
+    where: { id: examId },
+    select: { startTime: true, endTime: true, status: true, institutionId: true, settings: true },
+  });
   if (!exam) return notFound();
 
   // Only gate a brand-new attempt behind the scheduled window — an attempt
@@ -55,6 +60,21 @@ export const POST = withErrorHandling(async (request: Request) => {
     create: { examId, studentId: user.id, status: 'in_progress' },
     update: {},
   });
+
+  // Stratified dynamic pooling: only for a brand-new attempt (never re-draw on resume — the
+  // student must keep the same private question set every time they reopen the exam).
+  if (!existing) {
+    const settings = exam.settings as unknown as ExamSettings;
+    if (settings?.dynamicPoolingBlueprint && settings.dynamicPoolingBankIds?.length) {
+      await materializePooledQuestions({
+        examId,
+        institutionId: exam.institutionId,
+        attemptId: attempt.id,
+        bankIds: settings.dynamicPoolingBankIds,
+        blueprint: settings.dynamicPoolingBlueprint,
+      });
+    }
+  }
 
   return NextResponse.json({
     id: attempt.id,

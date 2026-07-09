@@ -208,17 +208,20 @@ export async function getStudentSubmissionDetail(examId: string, studentId: stri
   const student = await prisma.user.findUnique({ where: { id: studentId } });
   if (!student || student.role !== 'student' || student.institutionId !== institutionId) return undefined;
 
-  const [questions, attempt] = await Promise.all([
-    prisma.question.findMany({
-      where: { examId },
-      orderBy: { order: 'asc' },
-      include: { options: { orderBy: { order: 'asc' } } },
-    }),
-    prisma.examAttempt.findUnique({
-      where: { examId_studentId: { examId, studentId } },
-      include: { answers: true },
-    }),
-  ]);
+  const attempt = await prisma.examAttempt.findUnique({
+    where: { examId_studentId: { examId, studentId } },
+    include: { answers: true },
+  });
+
+  // OR [attemptId: null, attemptId: this attempt] — this student's actual question set,
+  // whether it's the exam's fixed/shared questions or their own privately-drawn stratified
+  // pool. A bare `{ examId }` filter would show every other student's pooled questions too
+  // once any of them existed, all mixed together in one review pane.
+  const questions = await prisma.question.findMany({
+    where: { examId, OR: [{ attemptId: null }, { attemptId: attempt?.id ?? '__none__' }] },
+    orderBy: { order: 'asc' },
+    include: { options: { orderBy: { order: 'asc' } } },
+  });
 
   const answerByQuestionId = new Map((attempt?.answers ?? []).map(a => [a.questionId, a]));
 
