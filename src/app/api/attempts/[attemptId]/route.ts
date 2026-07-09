@@ -24,6 +24,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ attempt
     if (user.role === 'teacher' && exam.teacherId !== user.id) return forbidden();
   }
 
+  // Sectioned exams score hierarchically (per-section, then a weighted composite) — this
+  // is only ever non-empty for exams built with the multi-section architecture; a normal
+  // exam has zero ExamSection rows and this array stays empty.
+  const sectionAttempts = await prisma.sectionAttempt.findMany({
+    where: { attemptId },
+    include: { section: true },
+    orderBy: { section: { orderIndex: 'asc' } },
+  });
+
   return NextResponse.json({
     id: attempt.id,
     examId: attempt.examId,
@@ -44,6 +53,17 @@ export async function GET(_req: Request, { params }: { params: Promise<{ attempt
       type: a.question.type,
       marks: a.question.marks,
       marksAwarded: a.marksAwarded,
+    })),
+    sectionResults: sectionAttempts.map(sa => ({
+      sectionId: sa.sectionId,
+      title: sa.section.title,
+      status: sa.status,
+      score: sa.score,
+      totalMarks: sa.totalMarks,
+      scorePercentage: sa.scorePercentage,
+      passed: sa.passed,
+      sectionWeight: sa.section.sectionWeight,
+      passingThreshold: sa.section.passingThreshold,
     })),
   });
 }

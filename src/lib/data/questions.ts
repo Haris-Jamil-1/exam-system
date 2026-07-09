@@ -17,7 +17,7 @@ function mapOption(o: PrismaOption): Option {
 }
 
 type PrismaQuestion = {
-  id: string; examId: string; attemptId: string | null; type: string; stem: string;
+  id: string; examId: string; attemptId: string | null; sectionId: string | null; type: string; stem: string;
   marks: number; difficulty: string; order: number; required: boolean;
   explanation: string | null; correctAnswer: unknown; learningObjectiveId: string | null;
   codeLanguage: string | null; starterCode: string | null; testCases: unknown;
@@ -30,6 +30,7 @@ function mapQuestion(q: PrismaQuestion): Question {
     id: q.id,
     examId: q.examId,
     attemptId: q.attemptId ?? undefined,
+    sectionId: q.sectionId ?? undefined,
     type: q.type as Question['type'],
     stem: q.stem,
     marks: q.marks,
@@ -58,6 +59,17 @@ function mapQuestion(q: PrismaQuestion): Question {
  */
 export async function getQuestionsForStudent(examId: string, attemptId?: string): Promise<PublicQuestion[]> {
   const all = attemptId ? await getQuestionsForAttempt(examId, attemptId) : await getQuestions(examId);
+  return stripForStudent(all);
+}
+
+/** Same answer-stripping as getQuestionsForStudent, narrowed to one section — for a
+ * multi-section exam's isolated per-section student view. */
+export async function getQuestionsForStudentSection(examId: string, sectionId: string, attemptId?: string): Promise<PublicQuestion[]> {
+  const all = await getQuestionsForSection(examId, sectionId, attemptId);
+  return stripForStudent(all);
+}
+
+function stripForStudent(all: Question[]): PublicQuestion[] {
   return all.map(({ correctAnswer, explanation: _ex, options, type, ...rest }) => {
     if (type === 'matching' && options?.length) {
       // ── New format ──────────────────────────────────────────────────────────
@@ -139,6 +151,22 @@ export async function getQuestionsForAttempt(examId: string, attemptId: string):
   return rows.map(mapQuestion);
 }
 
+/** One section's questions only — for a multi-section exam's isolated per-section view.
+ * Same attemptId-scoping as getQuestionsForAttempt (fixed + this attempt's pooled, never
+ * another attempt's), narrowed further to a single sectionId. */
+export async function getQuestionsForSection(examId: string, sectionId: string, attemptId?: string): Promise<Question[]> {
+  const rows = await prisma.question.findMany({
+    where: {
+      examId,
+      sectionId,
+      ...(attemptId ? { OR: [{ attemptId: null }, { attemptId }] } : { attemptId: null }),
+    },
+    orderBy: { order: 'asc' },
+    include: { options: { orderBy: { order: 'asc' } } },
+  });
+  return rows.map(mapQuestion);
+}
+
 export async function getQuestionById(id: string): Promise<Question | undefined> {
   const row = await prisma.question.findUnique({
     where: { id },
@@ -160,6 +188,7 @@ export async function createQuestion(data: Omit<Question, 'id'>): Promise<Questi
     const row = await prisma.question.create({
       data: {
         examId: rest.examId,
+        sectionId: rest.sectionId ?? null,
         type: rest.type,
         stem: rest.stem,
         marks: rest.marks,
@@ -201,6 +230,7 @@ export async function updateQuestion(id: string, data: Partial<Question>): Promi
   const row = await prisma.question.update({
     where: { id },
     data: {
+      ...(data.sectionId !== undefined && { sectionId: data.sectionId ?? null }),
       ...(data.type && { type: data.type }),
       ...(data.stem && { stem: data.stem }),
       ...(data.marks !== undefined && { marks: data.marks }),

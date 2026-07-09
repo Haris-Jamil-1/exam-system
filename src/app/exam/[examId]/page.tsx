@@ -3,8 +3,8 @@
 // Phase 3: biometric onboarding uses real face-api.js capture
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { getExamById, getQuestionsForStudent } from '@/lib/data';
-import type { Exam, PublicQuestion, Question } from '@/types';
+import { getExamById, getQuestionsForStudent, getQuestionsForStudentSection, getSections, getSectionAttempts } from '@/lib/data';
+import type { Exam, PublicQuestion, Question, ExamSection } from '@/types';
 import { useExamStore } from '@/store/examStore';
 import { useProctoringStore } from '@/store/proctoringStore';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Flag, ChevronLeft, ChevronRight, Clock, ChevronUp, ChevronDown, Pause, Play, Info } from 'lucide-react';
+import { Flag, ChevronLeft, ChevronRight, Clock, ChevronUp, ChevronDown, Pause, Play, Info, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const SESSION_KEY = (examId: string) => `exam_attempt_${examId}`;
@@ -40,6 +40,20 @@ function deadlineMs(startedAtIso: string, exam: Exam): number {
 
 function remainingSeconds(startedAtIso: string, exam: Exam, serverNow: number): number {
   return Math.max(0, Math.floor((deadlineMs(startedAtIso, exam) - serverNow) / 1000));
+}
+
+// A section's own deadline: whichever comes first — its own durationMinutes (from when the
+// student clicked "Start Section", not the overall exam) or the exam's global endTime. If the
+// section has no durationMinutes, only the exam's endTime governs it.
+function sectionDeadlineMs(sectionStartedAtIso: string, section: ExamSection, exam: Exam): number {
+  const startedMs = new Date(sectionStartedAtIso).getTime();
+  const availableToMs = new Date(exam.endTime).getTime();
+  if (!section.durationMinutes) return availableToMs;
+  return Math.min(startedMs + section.durationMinutes * 60_000, availableToMs);
+}
+
+function sectionRemainingSeconds(sectionStartedAtIso: string, section: ExamSection, exam: Exam, serverNow: number): number {
+  return Math.max(0, Math.floor((sectionDeadlineMs(sectionStartedAtIso, section, exam) - serverNow) / 1000));
 }
 
 export default function ExamPage() {
@@ -67,6 +81,18 @@ export default function ExamPage() {
   const [paused, setPaused] = useState(false);
   // File upload answers stored separately (File objects can't go into Zustand string answers)
   const [fileAnswers, setFileAnswers] = useState<Record<string, File | null>>({});
+
+  // ── Multi-section exams only (sections.length > 0) ──────────────────────────────
+  // A non-sectioned exam never touches any of this — everything above/below behaves exactly
+  // as it did before sections existed.
+  const [sections, setSections] = useState<ExamSection[]>([]);
+  const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
+  const [sectionInstructionsDone, setSectionInstructionsDone] = useState(false);
+  const [startingSection, setStartingSection] = useState(false);
+  const [submittedSectionIds, setSubmittedSectionIds] = useState<Set<string>>(new Set());
+  const isSectioned = sections.length > 0;
+  const currentSection = isSectioned ? sections[currentSectionIndex] : undefined;
+
   // Question indices whose per-item time limit has expired — navigating back to them is locked
   const [expiredIndices, setExpiredIndices] = useState<Set<number>>(new Set());
 
@@ -86,18 +112,22 @@ export default function ExamPage() {
   const { violationCount, trustScore } = useProctoringStore();
 
   const settings = exam?.settings;
-  const isSequential = settings?.navigationMode === 'sequential';
-  const forwardOnly  = isSequential && !!settings?.forwardOnly;
+  // Multi-section exams use isItemSequential instead of navigationMode/forwardOnly — answering
+  // a question auto-advances and hides Previous entirely, matching the spec's "Lock Answered
+  // Questions" toggle. Reuses the exact same isSequential/forwardOnly gating logic below either way.
+  const isSequential = isSectioned ? !!settings?.isItemSequential : settings?.navigationMode === 'sequential';
+  const forwardOnly  = isSectioned ? isSequential : (isSequential && !!settings?.forwardOnly);
   const autoAdvance  = !!settings?.autoAdvance;
   const allowPause   = settings?.allowPause !== false; // default true
 
-  // Load exam; check start time before entering the instructions/attempt flow. Questions are
-  // fetched separately below, once it's known whether an attempt (and therefore a possible
-  // stratified-pooled question set) already exists — see materializePooledQuestions.
+  // Load exam (+ sections, if any); check start time before entering the instructions/attempt
+  // flow. Questions are fetched separately below, once it's known whether an attempt (and
+  // therefore a possible stratified-pooled or section-scoped question set) already exists.
   useEffect(() => {
     async function load() {
-      const [e, timeRes] = await Promise.all([
+      const [e, examSections, timeRes] = await Promise.all([
         getExamById(examId),
+        getSections(examId),
         fetch('/api/time').then(r => r.json() as Promise<{ now: number }>),
       ]);
       if (!e) return;
@@ -106,6 +136,8 @@ export default function ExamPage() {
       setServerOffset(offset);
       setExam(e);
       setCurrentExam(e);
+      setSections(examSections);
+      const sectioned = examSections.length > 0;
 
       const serverNow = Date.now() + offset;
       const startMs = new Date(e.startTime).getTime();
@@ -113,16 +145,39 @@ export default function ExamPage() {
       const stored = sessionStorage.getItem(SESSION_KEY(examId));
       if (stored) {
         // Resuming an attempt already in progress — the student already passed the waiting
-        // room, biometric gate, and instructions screen, so skip straight to the exam UI.
-        // Pass the attemptId so a pooled exam's already-materialized private questions load
-        // correctly (a bare examId fetch would return none for a pure-pooling exam).
+        // room, biometric gate, and (overall) instructions screen.
         const session = JSON.parse(stored) as AttemptSession;
-        const q = await getQuestionsForStudent(examId, session.attemptId);
-        setQuestions(q);
         setAttemptId(session.attemptId);
         setBiometricDone(true);
         setInstructionsDone(true);
-        setInitialSeconds(remainingSeconds(session.startedAt, e, serverNow));
+
+        if (!sectioned) {
+          // Pass the attemptId so a pooled exam's already-materialized private questions load
+          // correctly (a bare examId fetch would return none for a pure-pooling exam).
+          const q = await getQuestionsForStudent(examId, session.attemptId);
+          setQuestions(q);
+          setInitialSeconds(remainingSeconds(session.startedAt, e, serverNow));
+          return;
+        }
+
+        // Sectioned resume: find the first section that isn't submitted yet — that's where
+        // the student left off. If it was already started (has its own startedAt), skip its
+        // instructions screen and load straight into it; otherwise show its instructions.
+        const sectionAttempts = await getSectionAttempts(session.attemptId);
+        const submitted = new Set(sectionAttempts.filter(sa => sa.status !== 'in_progress').map(sa => sa.sectionId));
+        setSubmittedSectionIds(submitted);
+        const sorted = examSections.slice().sort((a, b) => a.orderIndex - b.orderIndex);
+        const resumeIndex = sorted.findIndex(s => !submitted.has(s.id));
+        const targetIndex = resumeIndex === -1 ? sorted.length - 1 : resumeIndex;
+        setCurrentSectionIndex(targetIndex);
+        const targetSection = sorted[targetIndex];
+        const existingSectionAttempt = sectionAttempts.find(sa => sa.sectionId === targetSection.id);
+        if (existingSectionAttempt?.startedAt) {
+          const q = await getQuestionsForStudentSection(examId, targetSection.id, session.attemptId);
+          setQuestions(q);
+          setSectionInstructionsDone(true);
+          setInitialSeconds(sectionRemainingSeconds(existingSectionAttempt.startedAt, targetSection, e, serverNow));
+        }
         return;
       }
 
@@ -134,12 +189,14 @@ export default function ExamPage() {
         return;
       }
 
-      // Fixed/shared-question preview for the instructions screen. For a stratified-pooled
-      // exam this is empty (nothing to preview yet — the real per-student set is drawn only
-      // once the attempt is created, on Start Exam) — the instructions screen accounts for
-      // that explicitly rather than treating 0 as "still loading".
-      const q = await getQuestionsForStudent(examId);
-      setQuestions(q);
+      // Fixed/shared-question preview for the (overall) instructions screen. For a
+      // stratified-pooled or sectioned exam this is empty (nothing to preview yet — the real
+      // set is only known once the attempt/section is started) — the instructions screen
+      // accounts for that explicitly rather than treating 0 as "still loading".
+      if (!sectioned) {
+        const q = await getQuestionsForStudent(examId);
+        setQuestions(q);
+      }
 
       // Ready to enter: biometric gate (if strict proctoring is enabled) runs first, then the
       // instructions screen. The duration timer does NOT start here — it only starts once the
@@ -151,7 +208,7 @@ export default function ExamPage() {
 
     load();
     return () => { resetExam(); };
-  }, [examId, resetExam, setCurrentExam, user?.id]); // eslint-disable-line
+  }, [examId, resetExam, setCurrentExam, user?.id]);
 
   async function handleStartExam() {
     if (!exam || startingExam) return;
@@ -166,6 +223,15 @@ export default function ExamPage() {
       const session: AttemptSession = { attemptId: attempt.id, startedAt: attempt.startedAt };
       sessionStorage.setItem(SESSION_KEY(examId), JSON.stringify(session));
       setAttemptId(attempt.id);
+
+      if (isSectioned) {
+        // Sectioned exams have no overall duration timer — each section gates its own via
+        // "Start Section" (handleStartSection). Nothing to seed here; the very next screen is
+        // Section 1's instructions.
+        setInstructionsDone(true);
+        return;
+      }
+
       // Re-fetch with the now-known attemptId — for a stratified-pooled exam this is the
       // first moment the student's private question set exists at all (materialized
       // server-side inside POST /api/attempts); for a non-pooled exam it's the same fixed
@@ -177,6 +243,26 @@ export default function ExamPage() {
       setInstructionsDone(true);
     } finally {
       setStartingExam(false);
+    }
+  }
+
+  async function handleStartSection() {
+    if (!exam || !currentSection || !attemptId || startingSection) return;
+    setStartingSection(true);
+    try {
+      const res = await fetch(`/api/attempts/${attemptId}/sections/${currentSection.id}/start`, { method: 'POST' });
+      if (!res.ok) return; // e.g. 403 if a locked earlier section wasn't actually submitted
+      const sectionAttempt = await res.json() as { startedAt: string };
+      const q = await getQuestionsForStudentSection(examId, currentSection.id, attemptId);
+      setQuestions(q);
+      const serverNow = Date.now() + serverOffset;
+      setInitialSeconds(sectionRemainingSeconds(sectionAttempt.startedAt, currentSection, exam, serverNow));
+      setSectionInstructionsDone(true);
+      // Fresh section — local UI state from the previous section shouldn't carry over.
+      setExpiredIndices(new Set());
+      goToQuestion(0);
+    } finally {
+      setStartingSection(false);
     }
   }
 
@@ -256,12 +342,78 @@ export default function ExamPage() {
     }
   }, [submitting, exam, attemptId, examId, answers, fileAnswers, violationCount, trustScore, router]);
 
-  const handleTimeUp = useCallback(() => { void doSubmit(); }, [doSubmit]);
+  const handleSectionSubmit = useCallback(async () => {
+    if (submitting || !exam || !currentSection) return;
+    setSubmitting(true);
+    try {
+      const sectionQuestionIds = new Set(questions.map(qi => qi.id));
+      const fileUploads = await Promise.allSettled(
+        Object.entries(fileAnswers)
+          .filter(([qid, file]) => file !== null && sectionQuestionIds.has(qid))
+          .map(async ([questionId, file]) => {
+            const fd = new FormData();
+            fd.append('file', file!);
+            fd.append('folder', `exams/${examId}`);
+            const uploadRes = await fetch('/api/upload', { method: 'POST', body: fd });
+            if (!uploadRes.ok) throw new Error('Upload failed');
+            const { path } = await uploadRes.json() as { path: string };
+            return { questionId, path };
+          })
+      );
+      const sectionAnswers: Record<string, string | string[] | Record<string, string>> = {};
+      for (const [qid, val] of Object.entries(answers)) {
+        if (sectionQuestionIds.has(qid)) sectionAnswers[qid] = val;
+      }
+      for (const result of fileUploads) {
+        if (result.status === 'fulfilled') sectionAnswers[result.value.questionId] = result.value.path;
+      }
+
+      const res = await fetch(`/api/attempts/${attemptId}/sections/${currentSection.id}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answers: sectionAnswers }),
+      });
+      const result = await res.json() as {
+        isLastSection: boolean;
+        nextSectionId: string | null;
+        overallResult: { score: number; totalMarks: number; scorePercentage: number } | null;
+      };
+
+      setSubmittedSectionIds(prev => new Set(prev).add(currentSection.id));
+
+      if (result.isLastSection && result.overallResult) {
+        sessionStorage.removeItem(SESSION_KEY(examId));
+        const heldParam = exam.settings.resultsVisibility === 'held' ? '&held=1' : '';
+        router.push(
+          `/exam/${examId}/complete?score=${result.overallResult.score}&total=${result.overallResult.totalMarks}&pct=${result.overallResult.scorePercentage}&attemptId=${attemptId}${heldParam}`
+        );
+        return;
+      }
+
+      // Advance to the next section's instructions screen.
+      setSectionInstructionsDone(false);
+      setCurrentSectionIndex(i => i + 1);
+      setQuestions([]);
+      resetExam();
+      setCurrentExam(exam);
+    } catch {
+      sessionStorage.removeItem(SESSION_KEY(examId));
+      router.push(`/exam/${examId}/complete?score=0&total=0&pct=0`);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [submitting, exam, currentSection, questions, answers, fileAnswers, attemptId, examId, router, resetExam, setCurrentExam]);
+
+  const handleTimeUp = useCallback(() => {
+    if (isSectioned) void handleSectionSubmit();
+    else void doSubmit();
+  }, [isSectioned, handleSectionSubmit, doSubmit]);
   const { timeRemaining, isLow } = useExamTimer(initialSeconds, handleTimeUp, paused);
 
   function handleSubmitConfirm() {
     setShowSubmitModal(false);
-    void doSubmit();
+    if (isSectioned) void handleSectionSubmit();
+    else void doSubmit();
   }
 
   // Hooks must run on every render (before any early return below), even while questions
@@ -335,7 +487,9 @@ export default function ExamPage() {
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <Badge variant="outline">{exam.duration} minutes</Badge>
                 <Badge variant="outline">{exam.totalMarks} marks</Badge>
-                {isPooled ? (
+                {isSectioned ? (
+                  <Badge variant="info">{sections.length} section{sections.length !== 1 ? 's' : ''}</Badge>
+                ) : isPooled ? (
                   <Badge variant="info">Your question set is generated when you start</Badge>
                 ) : (
                   <Badge variant="outline">{questions.length} question{questions.length !== 1 ? 's' : ''}</Badge>
@@ -347,11 +501,58 @@ export default function ExamPage() {
                 <p className="text-sm text-muted-foreground italic">No special instructions provided for this exam.</p>
               )}
             </div>
-            <Button onClick={handleStartExam} disabled={startingExam || (!isPooled && questions.length === 0)} className="w-full" size="lg">
+            <Button onClick={handleStartExam} disabled={startingExam || (!isPooled && !isSectioned && questions.length === 0)} className="w-full" size="lg">
               {startingExam ? 'Starting…' : 'Start Exam'}
             </Button>
             <p className="text-xs text-center text-muted-foreground">
-              Your {exam.duration}-minute timer starts as soon as you click Start Exam.
+              {isSectioned
+                ? `This exam is split into ${sections.length} timed section${sections.length !== 1 ? 's' : ''} — each section's own timer starts when you click "Start Section".`
+                : `Your ${exam.duration}-minute timer starts as soon as you click Start Exam.`}
+            </p>
+          </div>
+        </div>
+      </DesktopGuard>
+    );
+  }
+
+  // ── Section N instructions screen (multi-section exams only) ─────────────────
+  if (exam && isSectioned && currentSection && !sectionInstructionsDone) {
+    return (
+      <DesktopGuard>
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+          <div className="max-w-lg w-full space-y-6">
+            <div className="text-center">
+              <div className="inline-flex h-16 w-16 rounded-full bg-blue-100 items-center justify-center mx-auto mb-3">
+                <Info className="h-8 w-8 text-blue-600" />
+              </div>
+              <p className="text-xs font-medium text-blue-600 uppercase tracking-wide">Section {currentSectionIndex + 1} of {sections.length}</p>
+              <h1 className="text-2xl font-bold text-gray-900">{currentSection.title}</h1>
+            </div>
+            <div className="rounded-2xl border bg-white p-6 shadow-sm space-y-3">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                {currentSection.durationMinutes ? (
+                  <Badge variant="outline">{currentSection.durationMinutes} minutes</Badge>
+                ) : (
+                  <Badge variant="outline">No section time limit</Badge>
+                )}
+                <Badge variant="outline">{currentSection.sectionWeight}% of grade</Badge>
+                {currentSection.passingThreshold !== undefined && (
+                  <Badge variant="outline">pass ≥ {currentSection.passingThreshold}%</Badge>
+                )}
+              </div>
+              {currentSection.instructions ? (
+                <p className="text-sm text-gray-800 whitespace-pre-wrap">{currentSection.instructions}</p>
+              ) : (
+                <p className="text-sm text-muted-foreground italic">No special instructions for this section.</p>
+              )}
+            </div>
+            <Button onClick={handleStartSection} disabled={startingSection} className="w-full" size="lg">
+              {startingSection ? 'Starting…' : 'Start Section'}
+            </Button>
+            <p className="text-xs text-center text-muted-foreground">
+              {currentSection.durationMinutes
+                ? `This section's ${currentSection.durationMinutes}-minute timer starts as soon as you click Start Section.`
+                : 'This section has no timer of its own — the overall exam deadline still applies.'}
             </p>
           </div>
         </div>
@@ -402,8 +603,36 @@ export default function ExamPage() {
       <header className="bg-white border-b px-4 py-3 flex items-center justify-between">
         <div>
           <h1 className="font-semibold text-gray-900">{exam.title}</h1>
-          <p className="text-xs text-muted-foreground">{exam.subject}</p>
+          <p className="text-xs text-muted-foreground">
+            {isSectioned && currentSection
+              ? `Section ${currentSectionIndex + 1} of ${sections.length}: ${currentSection.title}`
+              : exam.subject}
+          </p>
         </div>
+        {isSectioned && (
+          <div className="hidden md:flex items-center gap-1.5" title="Section progress">
+            {sections.map((s, i) => {
+              const done = submittedSectionIds.has(s.id);
+              const active = i === currentSectionIndex;
+              return (
+                <div
+                  key={s.id}
+                  className={cn(
+                    'h-6 w-6 rounded-full flex items-center justify-center text-[11px] font-semibold border',
+                    done
+                      ? 'bg-green-600 border-green-600 text-white'
+                      : active
+                        ? 'bg-blue-50 border-blue-500 text-blue-700'
+                        : 'bg-gray-50 border-gray-200 text-gray-400'
+                  )}
+                  title={`${s.title}${done ? ' (submitted)' : active ? ' (current)' : ''}`}
+                >
+                  {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div className="flex items-center gap-3">
           {allowPause && !paused && (
             <Button
@@ -704,7 +933,7 @@ export default function ExamPage() {
           </div>
           <div className="mt-auto">
             <Button onClick={() => setShowSubmitModal(true)} className="w-full" disabled={submitting}>
-              {submitting ? 'Submitting...' : 'Submit Exam'}
+              {submitting ? 'Submitting...' : isSectioned ? 'Submit Section' : 'Submit Exam'}
             </Button>
           </div>
         </aside>
@@ -741,7 +970,7 @@ export default function ExamPage() {
             className="gap-2 lg:hidden"
             disabled={submitting}
           >
-            Submit
+            {isSectioned ? 'Submit Section' : 'Submit'}
           </Button>
         )}
       </footer>
@@ -749,10 +978,11 @@ export default function ExamPage() {
       {/* Submit modal */}
       <Dialog open={showSubmitModal} onOpenChange={setShowSubmitModal}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Submit Exam?</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{isSectioned ? `Submit ${currentSection?.title ?? 'Section'}?` : 'Submit Exam?'}</DialogTitle></DialogHeader>
           <div className="space-y-3 py-2">
             <p className="text-sm text-muted-foreground">
-              You have answered <strong>{answeredCount}</strong> of <strong>{questions.length}</strong> questions.
+              You have answered <strong>{answeredCount}</strong> of <strong>{questions.length}</strong> questions
+              {isSectioned ? ' in this section' : ''}.
             </p>
             {flaggedQuestions.size > 0 && (
               <p className="text-sm text-yellow-600">⚠️ You have {flaggedQuestions.size} flagged question(s) for review.</p>
@@ -762,9 +992,14 @@ export default function ExamPage() {
                 {questions.length - answeredCount} question(s) unanswered will be marked as skipped.
               </p>
             )}
+            {isSectioned && !!settings?.isSectionSequential && (
+              <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                This exam locks completed sections — once submitted, you cannot return to this section.
+              </p>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowSubmitModal(false)}>Continue Exam</Button>
+            <Button variant="outline" onClick={() => setShowSubmitModal(false)}>{isSectioned ? 'Continue Section' : 'Continue Exam'}</Button>
             <Button onClick={handleSubmitConfirm} disabled={submitting}>
               {submitting ? 'Submitting...' : 'Confirm Submit'}
             </Button>

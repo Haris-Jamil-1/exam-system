@@ -201,6 +201,7 @@ model Exam {
   attempts    ExamAttempt[]
   enrollments ExamEnrollment[]
   violations  Violation[]
+  sections    ExamSection[]
 
   @@index([institutionId])
   @@index([institutionId, teacherId])
@@ -233,6 +234,10 @@ model Question {
   // getQuestions/getQuestionsForAttempt in lib/data/questions.ts) or it will mix together
   // every student's individually-drawn questions.
   attemptId           String?
+  // Null = this exam has no sections (the default, fully backward-compatible — every existing
+  // exam and every non-sectioned new exam behaves exactly as before). Set = this question
+  // belongs to that section; a sectioned exam's questions are always grouped this way.
+  sectionId           String?
   type                QuestionType
   stem                String
   marks               Int          @default(1)
@@ -252,11 +257,58 @@ model Question {
 
   exam              Exam               @relation(fields: [examId], references: [id], onDelete: Cascade)
   attempt           ExamAttempt?       @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  section           ExamSection?       @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   learningObjective LearningObjective? @relation(fields: [learningObjectiveId], references: [id])
   options           Option[]
   answers           Answer[]
 
   @@index([examId, attemptId])
+  @@index([sectionId])
+}
+
+model ExamSection {
+  id               String   @id @default(cuid())
+  examId           String
+  title            String
+  instructions     String?
+  // Null = no isolated timer for this section (governed only by the overall exam deadline).
+  durationMinutes  Int?
+  orderIndex       Int      @default(0)
+  // Percentage of the exam's total grade this section contributes, e.g. 40 for 40%.
+  sectionWeight    Float    @default(0)
+  // Minimum scaled score (0-100) required to "pass" this section — independent of the overall
+  // composite score. If set and missed, the whole exam attempt is flagged Failed regardless of
+  // total score (see computeSectionScores in lib/scoring.ts).
+  passingThreshold Int?
+  createdAt        DateTime @default(now())
+
+  exam            Exam             @relation(fields: [examId], references: [id], onDelete: Cascade)
+  questions       Question[]
+  sectionAttempts SectionAttempt[]
+
+  @@index([examId])
+}
+
+model SectionAttempt {
+  id              String        @id @default(cuid())
+  attemptId       String
+  sectionId       String
+  status          AttemptStatus @default(in_progress)
+  // Set only once the student clicks "Start Section" — the section's own isolated timer is
+  // seeded from this, not from when the parent ExamAttempt was created.
+  startedAt       DateTime?
+  submittedAt     DateTime?
+  score           Float?
+  totalMarks      Int?
+  scorePercentage Float?
+  passed          Boolean?
+  createdAt       DateTime      @default(now())
+
+  attempt ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  section ExamSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, sectionId])
+  @@index([attemptId])
 }
 
 model Option {
@@ -371,11 +423,12 @@ model ExamAttempt {
   biometricVerified Boolean       @default(false)
   createdAt         DateTime      @default(now())
 
-  exam             Exam        @relation(fields: [examId], references: [id])
-  student          User        @relation(fields: [studentId], references: [id])
+  exam             Exam             @relation(fields: [examId], references: [id])
+  student          User             @relation(fields: [studentId], references: [id])
   answers          Answer[]
   violations       Violation[]
   pooledQuestions  Question[]
+  sectionAttempts  SectionAttempt[]
 
   @@unique([examId, studentId])
   @@index([studentId])

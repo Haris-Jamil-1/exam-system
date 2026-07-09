@@ -2,8 +2,8 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getExamById, getQuestions, createQuestion, updateQuestion, deleteQuestion, updateExam } from '@/lib/data';
-import type { Exam, Question, QuestionType } from '@/types';
+import { getExamById, getQuestions, createQuestion, updateQuestion, deleteQuestion, updateExam, getSections } from '@/lib/data';
+import type { Exam, Question, QuestionType, ExamSection } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { SectionsManager } from '@/components/exams/SectionsManager';
 import { Plus, Trash2, GripVertical, Save, Radio, CalendarCheck, CheckCircle2, ChevronRight } from 'lucide-react';
 
 const QUESTION_TYPES: { value: QuestionType; label: string }[] = [
@@ -26,20 +27,23 @@ export default function EditExamPage() {
   const { examId } = useParams<{ examId: string }>();
   const [exam, setExam] = useState<Exam | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [sections, setSections] = useState<ExamSection[]>([]);
   const [newType, setNewType] = useState<QuestionType>('mcq');
   const [newStem, setNewStem] = useState('');
   const [newMarks, setNewMarks] = useState(4);
   const [newDifficulty, setNewDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [newTimeLimitSeconds, setNewTimeLimitSeconds] = useState<number | undefined>(undefined);
+  const [newSectionId, setNewSectionId] = useState<string>('none');
   const [saved, setSaved] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [instructions, setInstructions] = useState('');
 
   useEffect(() => {
-    Promise.all([getExamById(examId), getQuestions(examId)]).then(([e, q]) => {
+    Promise.all([getExamById(examId), getQuestions(examId), getSections(examId)]).then(([e, q, s]) => {
       setExam(e ?? null);
       setInstructions(e?.instructions ?? '');
       setQuestions(q);
+      setSections(s);
     });
   }, [examId]);
 
@@ -53,10 +57,17 @@ export default function EditExamPage() {
       difficulty: newDifficulty,
       order: questions.length + 1,
       timeLimitSeconds: newTimeLimitSeconds,
+      sectionId: newSectionId === 'none' ? undefined : newSectionId,
     });
     setQuestions(prev => [...prev, q]);
     setNewStem('');
     setNewTimeLimitSeconds(undefined);
+    setSaved(false);
+  }
+
+  async function reassignSection(id: string, sectionId: string) {
+    await updateQuestion(id, { sectionId: sectionId === 'none' ? undefined : sectionId });
+    setQuestions(prev => prev.map(q => q.id === id ? { ...q, sectionId: sectionId === 'none' ? undefined : sectionId } : q));
     setSaved(false);
   }
 
@@ -83,6 +94,16 @@ export default function EditExamPage() {
 
   async function toggleProctoring(checked: boolean) {
     await handleUpdate({ isProctoringEnabled: checked });
+  }
+
+  async function toggleSectionSequential(checked: boolean) {
+    if (!exam) return;
+    await handleUpdate({ settings: { ...exam.settings, isSectionSequential: checked } });
+  }
+
+  async function toggleItemSequential(checked: boolean) {
+    if (!exam) return;
+    await handleUpdate({ settings: { ...exam.settings, isItemSequential: checked } });
   }
 
   function handleSave() {
@@ -232,6 +253,22 @@ export default function EditExamPage() {
         </CardContent>
       </Card>
 
+      {/* Sections */}
+      <Card>
+        <CardHeader><CardTitle>Multi-Section Architecture</CardTitle></CardHeader>
+        <CardContent>
+          <SectionsManager
+            examId={examId}
+            sections={sections}
+            onChange={setSections}
+            isSectionSequential={!!exam.settings?.isSectionSequential}
+            onToggleSectionSequential={toggleSectionSequential}
+            isItemSequential={!!exam.settings?.isItemSequential}
+            onToggleItemSequential={toggleItemSequential}
+          />
+        </CardContent>
+      </Card>
+
       {/* Stratified pooling notice */}
       {exam.settings?.dynamicPoolingBlueprint && Object.keys(exam.settings.dynamicPoolingBlueprint).length > 0 && (
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
@@ -270,16 +307,30 @@ export default function EditExamPage() {
                       rows={2}
                       className="text-sm resize-none border-0 bg-transparent p-0 focus-visible:ring-0"
                     />
-                    <div className="flex items-center gap-2">
-                      <Label className="text-xs text-muted-foreground font-normal whitespace-nowrap">Time limit (seconds)</Label>
-                      <Input
-                        type="number"
-                        placeholder="No limit"
-                        min={5}
-                        defaultValue={q.timeLimitSeconds}
-                        onBlur={e => updateTimeLimit(q.id, e.target.value ? Number(e.target.value) : undefined)}
-                        className="h-7 w-24 text-xs"
-                      />
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-xs text-muted-foreground font-normal whitespace-nowrap">Time limit (seconds)</Label>
+                        <Input
+                          type="number"
+                          placeholder="No limit"
+                          min={5}
+                          defaultValue={q.timeLimitSeconds}
+                          onBlur={e => updateTimeLimit(q.id, e.target.value ? Number(e.target.value) : undefined)}
+                          className="h-7 w-24 text-xs"
+                        />
+                      </div>
+                      {sections.length > 0 && (
+                        <div className="flex items-center gap-2">
+                          <Label className="text-xs text-muted-foreground font-normal whitespace-nowrap">Section</Label>
+                          <Select value={q.sectionId ?? 'none'} onValueChange={v => reassignSection(q.id, v)}>
+                            <SelectTrigger className="h-7 w-36 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">No section</SelectItem>
+                              {sections.map(s => <SelectItem key={s.id} value={s.id}>{s.title}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
                     </div>
                     {q.options && (
                       <div className="grid grid-cols-2 gap-1 mt-1">
@@ -339,15 +390,29 @@ export default function EditExamPage() {
               onChange={e => setNewStem(e.target.value)}
             />
           </div>
-          <div className="space-y-2 max-w-[200px]">
-            <Label>Time limit (seconds) <span className="text-muted-foreground font-normal">(optional)</span></Label>
-            <Input
-              type="number"
-              placeholder="No limit"
-              min={5}
-              value={newTimeLimitSeconds ?? ''}
-              onChange={e => setNewTimeLimitSeconds(e.target.value ? Number(e.target.value) : undefined)}
-            />
+          <div className="flex gap-4 flex-wrap">
+            <div className="space-y-2 max-w-[200px]">
+              <Label>Time limit (seconds) <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Input
+                type="number"
+                placeholder="No limit"
+                min={5}
+                value={newTimeLimitSeconds ?? ''}
+                onChange={e => setNewTimeLimitSeconds(e.target.value ? Number(e.target.value) : undefined)}
+              />
+            </div>
+            {sections.length > 0 && (
+              <div className="space-y-2 max-w-[220px]">
+                <Label>Section</Label>
+                <Select value={newSectionId} onValueChange={setNewSectionId}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No section</SelectItem>
+                    {sections.map(s => <SelectItem key={s.id} value={s.id}>{s.title}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           <Button onClick={addQuestion} disabled={!newStem.trim()} className="gap-2">
             <Plus className="h-4 w-4" /> Add Question

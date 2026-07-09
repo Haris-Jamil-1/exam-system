@@ -1,4 +1,4 @@
-> **Status (2026-07-09): Items 1–8 implemented, QA'd, and shipped.** See CLAUDE.md's session log for what changed. Item 9 below remains an unimplemented plan, in progress this same session (dependency order 5→6→7→8→9).
+> **Status (2026-07-09): Items 1–9 implemented, QA'd, and shipped.** See CLAUDE.md's session log for what changed. All 9 items from this gap analysis are now complete.
 
 # Spec Gap Analysis & Implementation Plan
 

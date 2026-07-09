@@ -67,10 +67,14 @@ export type StudentResult = {
   trustScore: number;
   violationCount: number;
   submitted: boolean;
+  // True when this attempt cleared the overall percentage but still missed a
+  // per-section passing threshold — a hierarchical-scoring exam can fail a
+  // student this way even though their composite score alone looks like a pass.
+  sectionsFailed: boolean;
 };
 
 export async function getStudentResults(examId: string): Promise<StudentResult[]> {
-  const [enrollments, attempts] = await Promise.all([
+  const [enrollments, attempts, failedSectionAttempts] = await Promise.all([
     prisma.examEnrollment.findMany({
       where: { examId },
       include: { student: true },
@@ -79,12 +83,17 @@ export async function getStudentResults(examId: string): Promise<StudentResult[]
     prisma.examAttempt.findMany({
       where: { examId },
       select: {
-        studentId: true, score: true, totalMarks: true,
+        id: true, studentId: true, score: true, totalMarks: true,
         scorePercentage: true, trustScore: true, violationCount: true, status: true,
       },
     }),
+    prisma.sectionAttempt.findMany({
+      where: { section: { examId }, passed: false },
+      select: { attemptId: true },
+    }),
   ]);
   const attemptMap = new Map(attempts.map(a => [a.studentId, a]));
+  const failedAttemptIds = new Set(failedSectionAttempts.map(sa => sa.attemptId));
   return enrollments.map(e => {
     const attempt = attemptMap.get(e.studentId);
     const submitted = attempt?.status === 'submitted' || attempt?.status === 'auto_submitted';
@@ -99,6 +108,7 @@ export async function getStudentResults(examId: string): Promise<StudentResult[]
       trustScore: attempt?.trustScore ?? 100,
       violationCount: attempt?.violationCount ?? 0,
       submitted,
+      sectionsFailed: attempt ? failedAttemptIds.has(attempt.id) : false,
     };
   });
 }
@@ -175,6 +185,19 @@ export type StudentSubmissionAnswer = {
   isCorrect: boolean | null;
   studentAnswer: string;
   correctAnswer: string;
+  sectionId: string | null;
+  sectionTitle: string | null;
+};
+
+export type StudentSubmissionSectionResult = {
+  sectionId: string;
+  title: string;
+  score: number | null;
+  totalMarks: number | null;
+  scorePercentage: number | null;
+  passed: boolean | null;
+  sectionWeight: number;
+  passingThreshold: number | null;
 };
 
 export type StudentSubmissionDetail = {
@@ -185,6 +208,7 @@ export type StudentSubmissionDetail = {
     scorePercentage: number | null; submittedAt: string | null;
   } | null;
   answers: StudentSubmissionAnswer[];
+  sections: StudentSubmissionSectionResult[];
 };
 
 /**
@@ -220,7 +244,7 @@ export async function getStudentSubmissionDetail(examId: string, studentId: stri
   const questions = await prisma.question.findMany({
     where: { examId, OR: [{ attemptId: null }, { attemptId: attempt?.id ?? '__none__' }] },
     orderBy: { order: 'asc' },
-    include: { options: { orderBy: { order: 'asc' } } },
+    include: { options: { orderBy: { order: 'asc' } }, section: { select: { id: true, title: true } } },
   });
 
   const answerByQuestionId = new Map((attempt?.answers ?? []).map(a => [a.questionId, a]));
@@ -237,8 +261,20 @@ export async function getStudentSubmissionDetail(examId: string, studentId: stri
       isCorrect: a?.isCorrect ?? null,
       studentAnswer: formatResponse(q, response),
       correctAnswer: formatCorrectAnswer(q),
+      sectionId: q.section?.id ?? null,
+      sectionTitle: q.section?.title ?? null,
     };
   });
+
+  // Sectioned exams also carry a per-section score breakdown (hierarchical scoring) —
+  // this stays empty for a normal, non-sectioned exam (zero ExamSection rows).
+  const sectionAttempts = attempt
+    ? await prisma.sectionAttempt.findMany({
+        where: { attemptId: attempt.id },
+        include: { section: true },
+        orderBy: { section: { orderIndex: 'asc' } },
+      })
+    : [];
 
   return {
     student: { id: student.id, name: student.name, email: student.email },
@@ -252,6 +288,16 @@ export async function getStudentSubmissionDetail(examId: string, studentId: stri
       submittedAt: attempt.submittedAt?.toISOString() ?? null,
     } : null,
     answers,
+    sections: sectionAttempts.map(sa => ({
+      sectionId: sa.sectionId,
+      title: sa.section.title,
+      score: sa.score,
+      totalMarks: sa.totalMarks,
+      scorePercentage: sa.scorePercentage,
+      passed: sa.passed,
+      sectionWeight: sa.section.sectionWeight,
+      passingThreshold: sa.section.passingThreshold,
+    })),
   };
 }
 

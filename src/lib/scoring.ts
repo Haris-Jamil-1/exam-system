@@ -1,4 +1,4 @@
-import type { Question } from '@/types';
+import type { Question, ExamSection } from '@/types';
 
 export type PerQuestion = {
   questionId: string;
@@ -112,4 +112,70 @@ export function scoreAnswers(questions: Question[], answers: Record<string, stri
   }
 
   return { score, totalMarks, perQuestion };
+}
+
+export type SectionScore = {
+  sectionId: string;
+  title: string;
+  rawScore: number;
+  totalMarks: number;
+  // 0-100, this section's own performance independent of its weight in the composite
+  scaledScore: number;
+  weight: number;
+  // scaledScore * (weight / 100) — this section's contribution to the composite total
+  weightedContribution: number;
+  passingThreshold?: number;
+  passed: boolean;
+};
+
+export type HierarchicalScore = {
+  sections: SectionScore[];
+  // Sum of every section's weightedContribution — the exam's actual final grade (0-100) when
+  // sections are used, per spec: TotalScore = Σ(SectionScaledScore × SectionWeight)
+  compositeScore: number;
+  // True if ANY section has a passingThreshold that wasn't met — overrides a passing
+  // compositeScore per spec: "the overall exam status is flagged as Failed regardless of the
+  // TotalScore."
+  failed: boolean;
+};
+
+/**
+ * Rolls a flat scoreAnswers() result up into a per-section breakdown + weighted composite.
+ * Pure/DB-free — sections and questions are both already-fetched plain data. Questions with no
+ * sectionId (a non-sectioned exam, or a sectioned exam's incidental unsectioned questions) are
+ * excluded from the section breakdown entirely; the caller decides whether that's expected.
+ */
+export function computeSectionScores(
+  perQuestion: PerQuestion[],
+  questions: Question[],
+  sections: ExamSection[],
+): HierarchicalScore {
+  const sectionIdByQuestionId = new Map(questions.map(q => [q.id, q.sectionId]));
+
+  const sectionResults: SectionScore[] = sections
+    .slice()
+    .sort((a, b) => a.orderIndex - b.orderIndex)
+    .map(section => {
+      const sectionAnswers = perQuestion.filter(pq => sectionIdByQuestionId.get(pq.questionId) === section.id);
+      const rawScore = sectionAnswers.reduce((s, pq) => s + pq.marksAwarded, 0);
+      const totalMarks = sectionAnswers.reduce((s, pq) => s + pq.marks, 0);
+      const scaledScore = totalMarks > 0 ? (rawScore / totalMarks) * 100 : 0;
+      const passed = section.passingThreshold === undefined || scaledScore >= section.passingThreshold;
+      return {
+        sectionId: section.id,
+        title: section.title,
+        rawScore,
+        totalMarks,
+        scaledScore: Math.round(scaledScore * 100) / 100,
+        weight: section.sectionWeight,
+        weightedContribution: Math.round(scaledScore * (section.sectionWeight / 100) * 100) / 100,
+        passingThreshold: section.passingThreshold,
+        passed,
+      };
+    });
+
+  const compositeScore = Math.round(sectionResults.reduce((s, r) => s + r.weightedContribution, 0) * 100) / 100;
+  const failed = sectionResults.some(r => !r.passed);
+
+  return { sections: sectionResults, compositeScore, failed };
 }

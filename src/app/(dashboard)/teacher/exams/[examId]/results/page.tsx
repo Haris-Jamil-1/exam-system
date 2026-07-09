@@ -57,7 +57,7 @@ export default function ResultsPage() {
   if (!exam) return <div className="text-center py-12 text-muted-foreground">Loading...</div>;
 
   const submitted = studentResults.filter(s => s.submitted);
-  const passed = submitted.filter(s => (s.scorePercentage ?? 0) >= (exam.passingMarks / exam.totalMarks * 100)).length;
+  const passed = submitted.filter(s => (s.scorePercentage ?? 0) >= (exam.passingMarks / exam.totalMarks * 100) && !s.sectionsFailed).length;
   const passData = [
     { name: 'Pass', value: passed },
     { name: 'Fail', value: submitted.length - passed },
@@ -183,7 +183,7 @@ export default function ResultsPage() {
                 {studentResults.map(s => {
                   const pct = s.scorePercentage ?? null;
                   const passPct = exam.passingMarks / exam.totalMarks * 100;
-                  const pass = pct !== null && pct >= passPct;
+                  const pass = pct !== null && pct >= passPct && !s.sectionsFailed;
                   return (
                     <tr key={s.id} className="hover:bg-muted/30">
                       <td className="px-4 py-3 font-medium">{s.name}</td>
@@ -200,7 +200,9 @@ export default function ResultsPage() {
                       <td className="px-4 py-3">{s.violationCount}</td>
                       <td className="px-4 py-3">
                         {s.submitted
-                          ? <Badge variant={pass ? 'success' : 'danger'}>{pass ? 'Pass' : 'Fail'}</Badge>
+                          ? <Badge variant={pass ? 'success' : 'danger'} title={s.sectionsFailed ? 'Missed a section passing threshold' : undefined}>
+                              {pass ? 'Pass' : s.sectionsFailed ? 'Fail (section)' : 'Fail'}
+                            </Badge>
                           : <Badge variant="outline">Pending</Badge>}
                       </td>
                       <td className="px-4 py-3">

@@ -36,6 +36,12 @@ export interface ExamSettings {
   // Question rows. Absent/empty blueprint = normal fixed exam-wide question set (unchanged).
   dynamicPoolingBankIds?: string[];
   dynamicPoolingBlueprint?: Record<string, number>;
+  // Multi-section exams only (Exam.sections.length > 0):
+  // locks a section from further access once the student submits it
+  isSectionSequential?: boolean;
+  // locks a question within the active section once the student answers it (auto-advances,
+  // hides Previous) — independent of isSectionSequential
+  isItemSequential?: boolean;
   // Phase 2: CAT engine — adjusts next question difficulty based on attempt.lastResponseCorrect
   adaptiveTesting?: boolean;
 }
@@ -130,6 +136,36 @@ export interface Question {
   // Set only for a stratified-pooled question drawn privately for one attempt; undefined for
   // the normal fixed/shared question every student of a non-pooled exam sees identically.
   attemptId?: string;
+  // Set only when the exam uses multi-section architecture; undefined for a normal flat exam.
+  sectionId?: string;
+}
+
+export interface ExamSection {
+  id: string;
+  examId: string;
+  title: string;
+  instructions?: string;
+  durationMinutes?: number;
+  orderIndex: number;
+  sectionWeight: number;
+  passingThreshold?: number;
+  createdAt: string;
+  questionCount?: number;
+}
+
+export type SectionAttemptStatus = AttemptStatus;
+
+export interface SectionAttempt {
+  id: string;
+  attemptId: string;
+  sectionId: string;
+  status: SectionAttemptStatus;
+  startedAt?: string;
+  submittedAt?: string;
+  score?: number;
+  totalMarks?: number;
+  scorePercentage?: number;
+  passed?: boolean;
 }
 
 export type ItemStatus = 'draft' | 'review' | 'approved' | 'archived';

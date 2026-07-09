@@ -19,6 +19,18 @@ type PerQuestionResult = {
   marksAwarded: number;
 };
 
+type SectionResult = {
+  sectionId: string;
+  title: string;
+  status: string;
+  score: number | null;
+  totalMarks: number | null;
+  scorePercentage: number | null;
+  passed: boolean | null;
+  sectionWeight: number;
+  passingThreshold: number | null;
+};
+
 export default function ExamCompletePage() {
   const params = useSearchParams();
   const score = Number(params.get('score') ?? 0);
@@ -29,6 +41,7 @@ export default function ExamCompletePage() {
 
   const { violationCount, trustScore } = useProctoringStore();
   const [perQuestion, setPerQuestion] = useState<PerQuestionResult[]>([]);
+  const [sectionResults, setSectionResults] = useState<SectionResult[]>([]);
   const [showBreakdown, setShowBreakdown] = useState(false);
 
   // Fetched fresh from the server on every load (including reloads) instead
@@ -38,14 +51,19 @@ export default function ExamCompletePage() {
     let cancelled = false;
     fetch(`/api/attempts/${attemptId}`)
       .then(r => r.json())
-      .then((data: { perQuestion?: PerQuestionResult[] }) => {
-        if (!cancelled && data.perQuestion) setPerQuestion(data.perQuestion);
+      .then((data: { perQuestion?: PerQuestionResult[]; sectionResults?: SectionResult[] }) => {
+        if (cancelled) return;
+        if (data.perQuestion) setPerQuestion(data.perQuestion);
+        if (data.sectionResults) setSectionResults(data.sectionResults);
       })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [attemptId]);
 
-  const scoreColor = pct >= 70 ? 'text-green-600' : pct >= 50 ? 'text-yellow-600' : 'text-red-600';
+  // A sectioned exam can fail a per-section threshold even with a passing composite score
+  // (see Section Breakdown below) — that override takes priority over the raw percentage cutoff.
+  const sectionsFailed = sectionResults.some(s => s.passed === false);
+  const scoreColor = sectionsFailed ? 'text-red-600' : pct >= 70 ? 'text-green-600' : pct >= 50 ? 'text-yellow-600' : 'text-red-600';
   const needsGrading = perQuestion.some(q => q.type === 'essay' || q.type === 'coding' || q.type === 'file_upload');
 
   return (
@@ -93,11 +111,50 @@ export default function ExamCompletePage() {
               </div>
               <Progress value={pct} className="h-3" />
               <p className="text-xs text-muted-foreground text-center">
-                {pct}% — {pct >= 70 ? 'Pass' : 'Needs improvement'}
+                {pct}% — {sectionsFailed ? 'Section threshold not met' : pct >= 70 ? 'Pass' : 'Needs improvement'}
               </p>
               {needsGrading && (
                 <p className="text-xs text-muted-foreground text-center bg-yellow-50 rounded p-2">
                   Essay / coding questions require manual grading. Final score may be higher once graded.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Section breakdown — only present for multi-section exams */}
+        {!held && sectionResults.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold">Section Breakdown</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0 space-y-3">
+              {sectionResults.map(s => {
+                const pctS = s.scorePercentage ?? 0;
+                const failedThreshold = s.passed === false;
+                return (
+                  <div key={s.sectionId} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-gray-800">{s.title}</span>
+                      <span className={`font-semibold ${failedThreshold ? 'text-red-600' : 'text-gray-700'}`}>
+                        {s.score ?? 0}/{s.totalMarks ?? 0} ({Math.round(pctS)}%)
+                      </span>
+                    </div>
+                    <Progress value={pctS} className="h-1.5" />
+                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                      <span>{s.sectionWeight}% of grade</span>
+                      {s.passingThreshold !== null && (
+                        <span className={failedThreshold ? 'text-red-600 font-medium' : ''}>
+                          pass ≥ {s.passingThreshold}% {failedThreshold ? '— not met' : ''}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {sectionResults.some(s => s.passed === false) && (
+                <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                  One or more sections did not meet their passing threshold — this can override an otherwise passing overall score.
                 </p>
               )}
             </CardContent>
