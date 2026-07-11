@@ -2,7 +2,7 @@
 hand-rolled bugs, so every formula is validated against known values)."""
 import math
 
-from stats import (
+from _stats import (
     corrected_discrimination,
     cronbach_alpha,
     distractor_analysis,

@@ -1,30 +1,25 @@
-"""Psychometrics service (Phase 3, doc 05 / decision 8).
+"""Psychometrics compute — Vercel Python Function (follow-up task 2).
 
-Small FastAPI service, deployed separately from the Next.js app (Fly.io /
-Railway / any container host). The app calls POST /compute with an exam id;
-this service reads the response matrix from Postgres (IDs and numeric data
-only — no student names or emails ever enter this process), computes classical
-test statistics, and writes ONLY the two stats tables plus the Item rolling
-aggregates. Idempotent: recomputing an administration upserts the same rows.
+Formerly a standalone FastAPI service; now deployed inside this Vercel project
+(auto-detected via requirements.txt) and called internally at
+POST /api/psychometrics/compute. All calculation logic is unchanged from the
+Phase 3 service (see _stats.py); this is a hosting change only. Stateless,
+batch/on-demand — nothing here needs a persistent worker, and a full exam
+recompute is a few hundred rows of arithmetic, far under Vercel's duration cap.
 
-Env:
-  DATABASE_URL           Postgres connection string (Supabase: use the direct
-                         5432 connection, not pgBouncer)
-  PSYCHOMETRICS_SECRET   shared secret; requests must send it as X-Service-Key
-
-Run:  uvicorn main:app --host 0.0.0.0 --port 8000
+Env: DATABASE_URL (direct 5432 connection), PSYCHOMETRICS_SECRET (optional
+shared secret, checked against the X-Service-Key header).
 """
 from __future__ import annotations
 
+import json
 import os
 import uuid
-from collections import defaultdict
+from http.server import BaseHTTPRequestHandler
 
 import psycopg
-from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel
 
-from stats import (
+from _stats import (
     MIN_N_FACILITY,
     corrected_discrimination,
     cronbach_alpha,
@@ -34,47 +29,20 @@ from stats import (
     kr20,
 )
 
-app = FastAPI(title="ExamPro Psychometrics", version="1.0.0")
 
-
-class ComputeRequest(BaseModel):
-    exam_id: str
-
-
-def _connect() -> psycopg.Connection:
+def compute_exam(exam_id: str) -> dict:
     url = os.environ.get("DATABASE_URL")
     if not url:
-        raise HTTPException(500, "DATABASE_URL not configured")
-    return psycopg.connect(url)
-
-
-def _authorize(key: str | None) -> None:
-    expected = os.environ.get("PSYCHOMETRICS_SECRET")
-    if expected and key != expected:
-        raise HTTPException(401, "Invalid service key")
-
-
-@app.get("/healthz")
-def healthz() -> dict:
-    return {"ok": True}
-
-
-@app.post("/compute")
-def compute(req: ComputeRequest, x_service_key: str | None = Header(default=None)) -> dict:
-    _authorize(x_service_key)
+        raise RuntimeError("DATABASE_URL not configured")
     run_id = str(uuid.uuid4())
 
-    with _connect() as conn, conn.cursor() as cur:
-        cur.execute(
-            'SELECT "institutionId" FROM "Exam" WHERE id = %s', (req.exam_id,)
-        )
+    with psycopg.connect(url) as conn, conn.cursor() as cur:
+        cur.execute('SELECT "institutionId" FROM "Exam" WHERE id = %s', (exam_id,))
         exam_row = cur.fetchone()
         if not exam_row:
-            raise HTTPException(404, "Exam not found")
+            return {"error": "Exam not found", "_status": 404}
         institution_id = exam_row[0]
 
-        # Response matrix: submitted attempts only, joined to each question's
-        # marks and its durable bank-item link.
         cur.execute(
             '''
             SELECT a."attemptId", a."questionId", a."marksAwarded", a.response,
@@ -85,33 +53,30 @@ def compute(req: ComputeRequest, x_service_key: str | None = Header(default=None
             WHERE att."examId" = %s
               AND att.status IN ('submitted', 'auto_submitted')
             ''',
-            (req.exam_id,),
+            (exam_id,),
         )
         rows = cur.fetchall()
         if not rows:
-            return {"examId": req.exam_id, "computed": 0, "reason": "no submitted answers"}
+            return {"examId": exam_id, "computed": 0, "reason": "no submitted answers"}
 
         attempts = sorted({r[0] for r in rows})
         questions = sorted({r[1] for r in rows})
         attempt_idx = {a: i for i, a in enumerate(attempts)}
         question_idx = {q: i for i, q in enumerate(questions)}
-        question_marks = {r[1]: r[4] for r in rows}
         source_item = {r[1]: r[5] for r in rows}
         question_type = {r[1]: r[6] for r in rows}
 
-        matrix: list[list[float | None]] = [
-            [None] * len(questions) for _ in attempts
-        ]
+        matrix: list[list[float | None]] = [[None] * len(questions) for _ in attempts]
         response_by_cell: dict[tuple[str, str], object] = {}
         for attempt_id, question_id, awarded, response, marks, _, _ in rows:
             fraction = (awarded or 0) / marks if marks else 0.0
             matrix[attempt_idx[attempt_id]][question_idx[question_id]] = fraction
             response_by_cell[(attempt_id, question_id)] = response
 
-        # Per-student normalized totals (their own received set) for distractors.
         student_total = {
             attempts[i]: (
-                sum(s for s in row if s is not None) / max(1, sum(1 for s in row if s is not None))
+                sum(s for s in row if s is not None)
+                / max(1, sum(1 for s in row if s is not None))
             )
             for i, row in enumerate(matrix)
         }
@@ -138,8 +103,6 @@ def compute(req: ComputeRequest, x_service_key: str | None = Header(default=None
                 if picks:
                     distractors = distractor_analysis(picks)
 
-            # Stat identity: the bank Item when linked, else the exam-local
-            # question (exam-scoped stats only — doc 05 stated limitation).
             item_key = source_item[question_id] or question_id
             cur.execute(
                 '''
@@ -158,7 +121,7 @@ def compute(req: ComputeRequest, x_service_key: str | None = Header(default=None
                   "computedAt" = NOW()
                 ''',
                 (
-                    str(uuid.uuid4()), item_key, req.exam_id, institution_id, run_id,
+                    str(uuid.uuid4()), item_key, exam_id, institution_id, run_id,
                     n, fi, disc,
                     psycopg.types.json.Jsonb(distractors) if distractors else None,
                     n < MIN_N_FACILITY,
@@ -166,8 +129,6 @@ def compute(req: ComputeRequest, x_service_key: str | None = Header(default=None
             )
             computed += 1
 
-        # Reliability — classical alpha only for complete (non-pooled) matrices;
-        # a sparse matrix honestly reports "not applicable" via NULLs (doc 05).
         alpha = cronbach_alpha(matrix) if is_complete_matrix(matrix) else None
         kr = kr20(matrix) if is_complete_matrix(matrix) else None
         cur.execute(
@@ -184,20 +145,15 @@ def compute(req: ComputeRequest, x_service_key: str | None = Header(default=None
               "nItems" = EXCLUDED."nItems",
               "computedAt" = NOW()
             ''',
-            (str(uuid.uuid4()), req.exam_id, institution_id, run_id, alpha, kr,
+            (str(uuid.uuid4()), exam_id, institution_id, run_id, alpha, kr,
              len(attempts), len(questions)),
         )
 
-        # Rolling aggregates on the bank Item (what teachers see in the bank
-        # list): response-count-weighted mean across administrations. Gated by
-        # MIN_N at the aggregate level.
         linked_items = {v for v in source_item.values() if v}
         for item_id in linked_items:
             cur.execute(
-                '''
-                SELECT "facilityIndex", discrimination, "nResponses"
-                FROM "ItemAdministrationStat" WHERE "itemId" = %s
-                ''',
+                'SELECT "facilityIndex", discrimination, "nResponses" '
+                'FROM "ItemAdministrationStat" WHERE "itemId" = %s',
                 (item_id,),
             )
             stat_rows = cur.fetchall()
@@ -216,9 +172,37 @@ def compute(req: ComputeRequest, x_service_key: str | None = Header(default=None
         conn.commit()
 
     return {
-        "examId": req.exam_id,
+        "examId": exam_id,
         "computeRunId": run_id,
         "computed": computed,
         "nStudents": len(attempts),
         "reliability": {"cronbachAlpha": alpha, "kr20": kr},
     }
+
+
+class handler(BaseHTTPRequestHandler):
+    def _send(self, status: int, body: dict) -> None:
+        payload = json.dumps(body).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def do_POST(self) -> None:  # noqa: N802 (Vercel handler convention)
+        expected = os.environ.get("PSYCHOMETRICS_SECRET")
+        if expected and self.headers.get("X-Service-Key") != expected:
+            self._send(401, {"error": "Invalid service key"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+            exam_id = body.get("exam_id")
+            if not exam_id:
+                self._send(400, {"error": "exam_id is required"})
+                return
+            result = compute_exam(exam_id)
+            status = result.pop("_status", 200)
+            self._send(status, result)
+        except Exception as err:  # noqa: BLE001 — surface as clean JSON 500
+            self._send(500, {"error": str(err)})

@@ -308,6 +308,5 @@ AI_MODEL              # optional — overrides the default claude-sonnet-5 for g
 CRON_SECRET           # optional — protects /api/cron/* routes (Vercel sends it automatically when set)
 JUDGE0_API_URL        # hosted pay-per-use Judge0 (judge0.com Shared Cloud, e.g. https://judge0-ce.p.sulu.sh); unset = coding graded manually
 JUDGE0_API_KEY        # key for the hosted Judge0 API
-PSYCHOMETRICS_URL     # Phase 3 — psychometrics FastAPI service (psychometrics/); unset = stats stay at last computed values
-PSYCHOMETRICS_SECRET  # shared secret with the psychometrics service (X-Service-Key)
+PSYCHOMETRICS_SECRET  # optional shared secret for the internal psychometrics function (X-Service-Key)
 ```
