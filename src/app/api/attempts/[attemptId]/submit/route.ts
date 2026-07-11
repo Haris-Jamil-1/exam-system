@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } from '@/lib/api-auth';
 import { scoreAnswers } from '@/lib/scoring';
+import { computeTrustScore, type TrustScoreInput } from '@/lib/trust-score';
 import type { Question } from '@/types';
 
 const submitSchema = z.object({
@@ -65,8 +66,12 @@ export const POST = withErrorHandling(async (
 
   const { score, totalMarks, perQuestion } = scoreAnswers(questions, answers);
 
-  const violationCount = await prisma.violation.count({ where: { attemptId } });
-  const trustScore = Math.max(0, 100 - violationCount * 15);
+  const violationRows = await prisma.violation.findMany({
+    where: { attemptId },
+    select: { type: true, severity: true, confidence: true, timestamp: true, endedAt: true },
+  });
+  const violationCount = violationRows.length;
+  const trustScore = computeTrustScore(violationRows as TrustScoreInput[]);
   const scorePercentage = totalMarks > 0 ? Math.round((score / totalMarks) * 100) : 0;
 
   // Availability window vs. duration: the deadline is whichever comes first — the student's

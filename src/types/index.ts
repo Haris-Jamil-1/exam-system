@@ -265,7 +265,9 @@ export type ViolationType =
   | 'no_face'
   | 'multiple_faces'
   | 'audio_detected'
-  | 'phone_detected';
+  | 'phone_detected'
+  | 'gaze_away'
+  | 'prohibited_object';
 
 export interface Violation {
   id: string;
@@ -277,6 +279,9 @@ export interface Violation {
   timestamp: string;
   description: string;
   screenshotUrl?: string;
+  confidence?: number;
+  endedAt?: string;
+  clientSeq?: number;
 }
 
 export interface MonitorStudent {
