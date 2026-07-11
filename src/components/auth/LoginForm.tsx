@@ -29,7 +29,6 @@ export function LoginForm() {
   const {
     register,
     handleSubmit,
-    setValue,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({ resolver: zodResolver(schema) });
 
@@ -59,17 +58,6 @@ export function LoginForm() {
     persistSession(user);
     router.push(`/${user.role}`);
     router.refresh();
-  }
-
-  async function loginAsDemo(role: 'admin' | 'teacher' | 'student') {
-    const emails: Record<string, string> = {
-      admin:   'admin@demo.exampro.com',
-      teacher: 'teacher@demo.exampro.com',
-      student: 'student@demo.exampro.com',
-    };
-    setValue('email', emails[role]);
-    setValue('password', 'Demo@1234');
-    await handleSubmit(onSubmit)();
   }
 
   return (
@@ -107,27 +95,6 @@ export function LoginForm() {
           {isSubmitting ? 'Signing in...' : 'Sign In'}
         </Button>
       </form>
-
-      <div className="relative">
-        <div className="absolute inset-0 flex items-center">
-          <span className="w-full border-t border-gray-200" />
-        </div>
-        <div className="relative flex justify-center text-xs text-gray-400">
-          <span className="bg-white px-2">Quick demo access</span>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-3 gap-2">
-        <Button variant="outline" size="sm" onClick={() => loginAsDemo('teacher')} className="text-xs">
-          Login as Teacher
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => loginAsDemo('student')} className="text-xs">
-          Login as Student
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => loginAsDemo('admin')} className="text-xs">
-          Login as Admin
-        </Button>
-      </div>
     </div>
   );
 }

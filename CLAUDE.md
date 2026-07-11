@@ -293,15 +293,6 @@ Deferred (tracked in IMPLEMENTATION_PROGRESS.md): live end-to-end QA (network bl
 
 ---
 
-## Demo Accounts (Supabase Auth)
-| Role | Email | Password |
-|---|---|---|
-| Admin | admin@demo.exampro.com | Demo@1234 |
-| Teacher | teacher@demo.exampro.com | Demo@1234 |
-| Student | student@demo.exampro.com | Demo@1234 |
-
----
-
 ## Environment Variables (Vercel)
 ```
 NEXT_PUBLIC_SUPABASE_URL

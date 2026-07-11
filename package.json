@@ -9,7 +9,6 @@
     "lint": "eslint",
     "postinstall": "prisma generate",
     "db:push": "prisma db push",
-    "db:seed": "tsx prisma/seed.ts",
     "test:unit": "vitest run",
     "test:e2e:seed": "tsx tests/fixtures/seed-tenants.ts",
     "test:e2e:teardown": "tsx tests/fixtures/teardown-tenants.ts",
