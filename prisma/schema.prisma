@@ -118,6 +118,10 @@ model Institution {
   aiMonthlyQuota Int    @default(1000)
   aiUsageCount   Int    @default(0)
   aiUsageMonth   String @default("")
+  // Follow-up task 1: hosted Judge0 is pay-per-use — same quota pattern, one
+  // count per test-case submission. Shares aiUsageMonth for the rollover.
+  judgeMonthlyQuota Int @default(1000)
+  judgeUsageCount   Int @default(0)
 
   users     User[]
   exams     Exam[]
@@ -568,6 +572,22 @@ model AnswerGrading {
 
   @@index([answerId, createdAt])
   @@index([attemptId])
+}
+
+// Follow-up task 1: per-call attribution for the hosted (pay-per-use) Judge0
+// API — Judge0 has no tenant concept, so this log is the only way to attribute
+// cost per institution. One row per coding-answer grading event.
+model JudgeUsageLog {
+  id             String   @id @default(cuid())
+  institutionId  String
+  examAttemptId  String
+  questionId     String
+  // submissions actually sent (test cases run) — the billing unit
+  submissionCount Int     @default(0)
+  status         String // executed | unavailable | quota_exceeded | error
+  submittedAt    DateTime @default(now())
+
+  @@index([institutionId, submittedAt])
 }
 
 model Violation {

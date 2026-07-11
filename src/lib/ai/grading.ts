@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { AI_MODEL } from './claude-generator';
-import { consumeAiQuota } from './quota';
+import { consumeAiQuota, consumeJudgeQuota, AiQuotaExceededError } from './quota';
 import { runTestCases } from './judge0';
 import { computeSectionScores, type PerQuestion } from '@/lib/scoring';
 import type { Question, ExamSection } from '@/types';
@@ -173,6 +173,7 @@ async function gradeEssayAnswer(args: {
 async function gradeCodingAnswer(args: {
   answerId: string;
   attemptId: string;
+  questionId: string;
   stem: string;
   sourceCode: string;
   language: string;
@@ -182,7 +183,47 @@ async function gradeCodingAnswer(args: {
   maxMarks: number;
   institutionId: string;
 }): Promise<void> {
+  // Hosted Judge0 is pay-per-use (follow-up task 1): every grading event is
+  // attributed to the institution via JudgeUsageLog, and the per-institution
+  // monthly submission counter (same mechanism as the AI quota) hard-stops
+  // before any billable call.
+  async function logJudgeUsage(status: string, submissionCount: number) {
+    await prisma.judgeUsageLog.create({
+      data: {
+        institutionId: args.institutionId,
+        examAttemptId: args.attemptId,
+        questionId: args.questionId,
+        submissionCount,
+        status,
+      },
+    });
+  }
+
+  try {
+    // One submission per test case — the billing unit.
+    await consumeJudgeQuota(args.institutionId, args.testCases.length);
+  } catch (err) {
+    if (err instanceof AiQuotaExceededError) {
+      await logJudgeUsage('quota_exceeded', 0);
+      await prisma.answerGrading.create({
+        data: {
+          answerId: args.answerId,
+          attemptId: args.attemptId,
+          kind: 'ai_suggestion',
+          totalScore: 0,
+          rationale: { note: 'Judge0 monthly quota reached — answer held for manual grading' },
+        },
+      });
+      return; // stays pending_ai
+    }
+    throw err;
+  }
+
   const execution = await runTestCases(args.language, args.sourceCode, args.testCases);
+  await logJudgeUsage(
+    execution.available ? 'executed' : 'unavailable',
+    execution.available ? execution.results.length : 0,
+  );
   if (!execution.available) {
     // Never award marks on "execution unavailable" (doc 03) — hold for manual.
     await prisma.answerGrading.create({
@@ -310,6 +351,7 @@ export async function runGradingForAttempt(attemptId: string): Promise<void> {
         await gradeCodingAnswer({
           answerId: answer.id,
           attemptId,
+          questionId: answer.questionId,
           stem: q.stem,
           sourceCode: typeof answer.response === 'string' ? answer.response : JSON.stringify(answer.response ?? ''),
           language: q.codeLanguage ?? 'python',

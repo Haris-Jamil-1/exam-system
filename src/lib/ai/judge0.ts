@@ -1,11 +1,21 @@
-// Judge0 execution client (Phase 3, doc 03 / decision 7): student code runs in
-// a self-hosted Judge0 sandbox (docker-compose in /judge0), NEVER in the app
-// process. The service receives only { language, source, stdin } — no tenant
-// data. When JUDGE0_URL is unconfigured or unreachable, execution is reported
-// unavailable and the answer stays pending for manual grading — marks are
-// never awarded on "execution unavailable".
+// Judge0 execution client (Phase 3, doc 03 — follow-up task 1): student code
+// runs on the HOSTED pay-per-use Judge0 Shared Cloud API (judge0.com), never
+// in the app process. The service receives only { language, source, stdin } —
+// no tenant data; per-institution cost attribution happens on our side via
+// JudgeUsageLog + the judge quota counter. When JUDGE0_API_URL is
+// unconfigured or unreachable, execution is reported unavailable and the
+// answer stays pending for manual grading — marks are never awarded on
+// "execution unavailable".
 
-const JUDGE0_URL = process.env.JUDGE0_URL; // e.g. http://localhost:2358
+const JUDGE0_API_URL = process.env.JUDGE0_API_URL; // e.g. https://judge0-ce.p.sulu.sh
+const JUDGE0_API_KEY = process.env.JUDGE0_API_KEY;
+
+function authHeaders(): Record<string, string> {
+  if (!JUDGE0_API_KEY) return {};
+  // Shared Cloud (Sulu) uses Authorization: Bearer; Judge0's own extra-auth
+  // uses X-Auth-Token. Sending both keeps the client provider-agnostic.
+  return { Authorization: `Bearer ${JUDGE0_API_KEY}`, 'X-Auth-Token': JUDGE0_API_KEY };
+}
 
 // Judge0 language IDs for the languages the question editor offers.
 const LANGUAGE_IDS: Record<string, number> = {
@@ -50,7 +60,7 @@ interface Judge0Submission {
 }
 
 export function isJudge0Configured(): boolean {
-  return Boolean(JUDGE0_URL);
+  return Boolean(JUDGE0_API_URL);
 }
 
 export async function runTestCases(
@@ -59,23 +69,23 @@ export async function runTestCases(
   testCases: { input: string; expectedOutput: string; isHidden?: boolean }[],
 ): Promise<ExecutionResult> {
   const languageId = LANGUAGE_IDS[language.toLowerCase()];
-  if (!JUDGE0_URL || !languageId) {
+  if (!JUDGE0_API_URL || !languageId) {
     return {
       available: false,
       language,
       results: [],
       passedCount: 0,
       totalCount: testCases.length,
-      error: !JUDGE0_URL ? 'Execution sandbox not configured' : `Unsupported language: ${language}`,
+      error: !JUDGE0_API_URL ? 'Execution service not configured' : `Unsupported language: ${language}`,
     };
   }
 
   const results: TestCaseResult[] = [];
   try {
     for (const tc of testCases) {
-      const res = await fetch(`${JUDGE0_URL}/submissions?base64_encoded=true&wait=true`, {
+      const res = await fetch(`${JUDGE0_API_URL.replace(/\/$/, '')}/submissions?base64_encoded=true&wait=true`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
           language_id: languageId,
           source_code: Buffer.from(sourceCode).toString('base64'),

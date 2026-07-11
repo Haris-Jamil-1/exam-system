@@ -306,7 +306,8 @@ DIRECT_URL            # direct connection — port 5432 (used by prisma db push)
 ANTHROPIC_API_KEY     # Phase 3 — enables real AI generation + grading (mock/manual fallback without it)
 AI_MODEL              # optional — overrides the default claude-sonnet-5 for generation/grading
 CRON_SECRET           # optional — protects /api/cron/* routes (Vercel sends it automatically when set)
-JUDGE0_URL            # Phase 3 — self-hosted Judge0 (judge0/docker-compose.yml); unset = coding answers graded manually
+JUDGE0_API_URL        # hosted pay-per-use Judge0 (judge0.com Shared Cloud, e.g. https://judge0-ce.p.sulu.sh); unset = coding graded manually
+JUDGE0_API_KEY        # key for the hosted Judge0 API
 PSYCHOMETRICS_URL     # Phase 3 — psychometrics FastAPI service (psychometrics/); unset = stats stay at last computed values
 PSYCHOMETRICS_SECRET  # shared secret with the psychometrics service (X-Service-Key)
 ```
