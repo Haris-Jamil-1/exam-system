@@ -150,6 +150,7 @@ model User {
   itemBankAccessGrant ItemBankAccess[] @relation("ItemBankAccessAssignedBy")
   monitorDirectives   MonitorDirective[]
   generationJobs      GenerationJob[]
+  answerGradings      AnswerGrading[] @relation("AnswerGrader")
 
   @@index([institutionId])
   @@index([institutionId, role])
@@ -262,6 +263,11 @@ model Question {
   allowedFileTypes    String[]
   maxFileSizeMB       Int?
   timeLimitSeconds    Int?
+  // Phase 3 (doc 03): grading rubric for essay/coding — criteria array
+  // [{name, description, maxPoints}]. No rubric = no AI grading (manual only).
+  // gradingWeights (coding): {testWeight, qualityWeight}, default 70/30.
+  rubric              Json?
+  gradingWeights      Json?
   createdAt           DateTime     @default(now())
 
   exam              Exam               @relation(fields: [examId], references: [id], onDelete: Cascade)
@@ -349,6 +355,8 @@ model Item {
   allowedFileTypes    String[]
   maxFileSizeMB       Int?
   timeLimitSeconds    Int?
+  rubric              Json?
+  gradingWeights      Json?
   facilityIndex       Float?
   discriminationIndex Float?
   version             Int          @default(1)
@@ -501,11 +509,60 @@ model Answer {
   marksAwarded Float?
   gradedAt     DateTime?
   createdAt    DateTime  @default(now())
+  // Null = deterministic-scored (all pre-Phase-3 rows and every non-essay/
+  // coding answer). The essay/coding grading state machine lives here.
+  gradingStatus GradingStatus?
 
   attempt  ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
   question Question    @relation(fields: [questionId], references: [id])
+  gradings AnswerGrading[]
 
   @@unique([attemptId, questionId])
+}
+
+// AI-assisted grading (Phase 3, doc 03). Append-only log — one row per grading
+// event on an answer. The AI's suggestion, the teacher's confirmation or
+// override, and the exact rubric snapshot each was made under together form
+// the dispute trail: for any published mark you can replay what standard was
+// applied, what the AI said, and who changed what. Answer.marksAwarded is only
+// ever set by teacher rows (decision 4: no auto-confirm, ever).
+enum GradingStatus {
+  pending_ai
+  ai_suggested
+  confirmed
+  overridden
+}
+
+enum GradingKind {
+  ai_suggestion
+  teacher_confirmation
+  teacher_override
+}
+
+model AnswerGrading {
+  id              String      @id @default(cuid())
+  answerId        String
+  attemptId       String
+  kind            GradingKind
+  // Exact rubric this event was made under (criteria array) — the versioned
+  // standard, snapshotted so later rubric edits can't rewrite history.
+  rubricSnapshot  Json?
+  criterionScores Json?
+  totalScore      Float
+  feedback        String?
+  rationale       Json?
+  executionResult Json? // coding: per-test pass/fail, stderr, limits
+  model           String?
+  inputTokens     Int?
+  outputTokens    Int?
+  gradedById      String?
+  createdAt       DateTime    @default(now())
+
+  answer   Answer @relation(fields: [answerId], references: [id], onDelete: Cascade)
+  gradedBy User?  @relation("AnswerGrader", fields: [gradedById], references: [id])
+
+  @@index([answerId, createdAt])
+  @@index([attemptId])
 }
 
 model Violation {

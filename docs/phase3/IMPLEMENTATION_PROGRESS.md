@@ -30,11 +30,11 @@ Note: `CLAUDE.md` has uncommitted edits by Haris (his own Phase 3 notes) — lea
 
 ## Track 3a — AI exam creation (doc 02)
 
-- [ ] 3a.1 Schema: `GenerationJob`, `Item` +`generationJobId`/`aiGenerated`/`reviewedById`; Institution AI quota fields (decision 5: monthly quota default 1000 + usage counter, hard stop)
-- [ ] 3a.2 Real Claude API call (structured output), async job via Vercel background pattern (decision 6), model in one config constant
-- [ ] 3a.3 Dup detection: prompt-side stems + pg_trgm post-check flag
-- [ ] 3a.4 Review queue UI: draft filter/tab + batch review on bank page; job status polling endpoint
-- [ ] 3a.5 Verification pass
+- [x] 3a.1 Schema: `GenerationJob`, `Item` +`generationJobId`/`aiGenerated`/`reviewedById`; Institution quota fields — applied+verified live; pg_trgm extension enabled
+- [x] 3a.2 Real Claude call (`claude-sonnet-5` via `AI_MODEL` env-overridable constant, structured output, zod, retry≤2, injection-hardened frame); async via `after()` + job row; **mock fallback when no ANTHROPIC_API_KEY** (this env has none — real path activates when key lands on Vercel, job.model records which ran)
+- [x] 3a.3 Dup detection: 30 recent approved stems in prompt + pg_trgm >0.6 → `ai-possible-duplicate` tag
+- [x] 3a.4 Review affordances: 'AI' + 'possible duplicate' badges on bank list (status filter already existed); AiGeneratePanel polls `/api/ai/jobs/[jobId]` (3s), reports partial batches; quota 429 surfaces in panel. NOTE: `Item.reviewedById` stamping on approve/reject not yet wired into the approve flow — do with 3b review UI or F.1
+- [x] 3a.5 Verification: tsc clean · 91/91 tests · lint baseline · build green (live QA still blocked by network)
 
 ## Track 3b — AI grading (doc 03)
 

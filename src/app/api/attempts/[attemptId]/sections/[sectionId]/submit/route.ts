@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } from '@/lib/api-auth';
+import { runGradingForAttempt } from '@/lib/ai/grading';
 import { scoreAnswers, computeSectionScores, type PerQuestion } from '@/lib/scoring';
 import type { Question, ExamSection } from '@/types';
 
@@ -73,12 +75,18 @@ export const POST = withErrorHandling(async (
     ? true
     : sectionScorePct >= section.passingThreshold;
 
+  // Essay/coding answers enter the grading state machine (doc 03) — same
+  // two-stage flow as the non-sectioned submit route.
+  const needsGrading = new Set(
+    questions.filter(q => q.type === 'essay' || q.type === 'coding').map(q => q.id),
+  );
+
   await prisma.$transaction([
     ...perQuestion.map(a =>
       prisma.answer.upsert({
         where: { attemptId_questionId: { attemptId, questionId: a.questionId } },
-        create: { attemptId, questionId: a.questionId, response: a.response as object, isCorrect: a.isCorrect, marksAwarded: a.marksAwarded, gradedAt: new Date() },
-        update: { response: a.response as object, isCorrect: a.isCorrect, marksAwarded: a.marksAwarded, gradedAt: new Date() },
+        create: { attemptId, questionId: a.questionId, response: a.response as object, isCorrect: a.isCorrect, marksAwarded: a.marksAwarded, gradedAt: new Date(), gradingStatus: needsGrading.has(a.questionId) ? 'pending_ai' : null },
+        update: { response: a.response as object, isCorrect: a.isCorrect, marksAwarded: a.marksAwarded, gradedAt: new Date(), gradingStatus: needsGrading.has(a.questionId) ? 'pending_ai' : null },
       })
     ),
     prisma.sectionAttempt.update({
@@ -153,6 +161,12 @@ export const POST = withErrorHandling(async (
       score: rawScoreSum, totalMarks: rawTotalSum, scorePercentage: hierarchical.compositeScore,
       failed: hierarchical.failed, status: overallStatus,
     };
+  }
+
+  // AI grading runs once the whole attempt is finalized — a mid-exam pass
+  // would race with sections still being written.
+  if (isLastSection) {
+    after(() => runGradingForAttempt(attemptId));
   }
 
   const nextSection = allSections.find(s => s.orderIndex > section.orderIndex);

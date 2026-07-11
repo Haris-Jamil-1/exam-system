@@ -22,6 +22,7 @@ type PrismaQuestion = {
   explanation: string | null; correctAnswer: unknown; learningObjectiveId: string | null;
   codeLanguage: string | null; starterCode: string | null; testCases: unknown;
   allowedFileTypes: string[]; maxFileSizeMB: number | null; timeLimitSeconds: number | null;
+  rubric: unknown; gradingWeights: unknown;
   options: PrismaOption[];
 };
 
@@ -46,6 +47,8 @@ function mapQuestion(q: PrismaQuestion): Question {
     allowedFileTypes: q.allowedFileTypes.length ? q.allowedFileTypes : undefined,
     maxFileSizeMB: q.maxFileSizeMB ?? undefined,
     timeLimitSeconds: q.timeLimitSeconds ?? undefined,
+    rubric: (q.rubric as Question['rubric']) ?? undefined,
+    gradingWeights: (q.gradingWeights as Question['gradingWeights']) ?? undefined,
     options: q.options.length ? q.options.map(mapOption) : undefined,
   };
 }
@@ -204,6 +207,8 @@ export async function createQuestion(data: Omit<Question, 'id'>): Promise<Questi
         allowedFileTypes: rest.allowedFileTypes ?? [],
         maxFileSizeMB: rest.maxFileSizeMB ?? null,
         timeLimitSeconds: rest.timeLimitSeconds ?? null,
+        ...(rest.rubric !== undefined && { rubric: rest.rubric as object }),
+        ...(rest.gradingWeights !== undefined && { gradingWeights: rest.gradingWeights as object }),
         options: options?.length
           ? { create: options.map((o, i) => ({ text: o.text, isCorrect: o.isCorrect, order: i })) }
           : undefined,
@@ -245,6 +250,8 @@ export async function updateQuestion(id: string, data: Partial<Question>): Promi
       ...(data.allowedFileTypes && { allowedFileTypes: data.allowedFileTypes }),
       ...(data.maxFileSizeMB !== undefined && { maxFileSizeMB: data.maxFileSizeMB ?? null }),
       ...(data.timeLimitSeconds !== undefined && { timeLimitSeconds: data.timeLimitSeconds ?? null }),
+      ...(data.rubric !== undefined && { rubric: data.rubric as object }),
+      ...(data.gradingWeights !== undefined && { gradingWeights: data.gradingWeights as object }),
     },
     include: { options: { orderBy: { order: 'asc' } } },
   });

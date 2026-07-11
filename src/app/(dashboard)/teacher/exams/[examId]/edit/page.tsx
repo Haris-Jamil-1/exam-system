@@ -34,6 +34,7 @@ export default function EditExamPage() {
   const [newDifficulty, setNewDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
   const [newTimeLimitSeconds, setNewTimeLimitSeconds] = useState<number | undefined>(undefined);
   const [newSectionId, setNewSectionId] = useState<string>('none');
+  const [newRubricText, setNewRubricText] = useState('');
   const [saved, setSaved] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [instructions, setInstructions] = useState('');
@@ -49,6 +50,19 @@ export default function EditExamPage() {
 
   async function addQuestion() {
     if (!newStem.trim()) return;
+    // Rubric lines: "name | max points | description" (description optional).
+    const rubric = newType === 'essay' && newRubricText.trim()
+      ? newRubricText
+          .split('\n')
+          .map(line => {
+            const [name, points, ...desc] = line.split('|').map(p => p.trim());
+            const maxPoints = Number(points);
+            return name && Number.isFinite(maxPoints) && maxPoints > 0
+              ? { name, maxPoints, description: desc.join(' | ') || undefined }
+              : null;
+          })
+          .filter((c): c is NonNullable<typeof c> => c !== null)
+      : undefined;
     const q = await createQuestion({
       examId,
       type: newType,
@@ -58,10 +72,12 @@ export default function EditExamPage() {
       order: questions.length + 1,
       timeLimitSeconds: newTimeLimitSeconds,
       sectionId: newSectionId === 'none' ? undefined : newSectionId,
+      rubric: rubric?.length ? rubric : undefined,
     });
     setQuestions(prev => [...prev, q]);
     setNewStem('');
     setNewTimeLimitSeconds(undefined);
+    setNewRubricText('');
     setSaved(false);
   }
 
@@ -422,6 +438,22 @@ export default function EditExamPage() {
               </div>
             )}
           </div>
+          {newType === 'essay' && (
+            <div className="space-y-2">
+              <Label>
+                Grading rubric <span className="text-muted-foreground font-normal">(optional — enables AI-suggested grading)</span>
+              </Label>
+              <Textarea
+                placeholder={'One criterion per line:  name | max points | description\ne.g.  Thesis clarity | 4 | States a clear, arguable thesis'}
+                rows={3}
+                value={newRubricText}
+                onChange={e => setNewRubricText(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Without a rubric, essay answers are graded manually. AI suggestions always require your confirmation before the student sees a mark.
+              </p>
+            </div>
+          )}
           <Button onClick={addQuestion} disabled={!newStem.trim()} className="gap-2">
             <Plus className="h-4 w-4" /> Add Question
           </Button>

@@ -176,6 +176,16 @@ function formatCorrectAnswer(q: QuestionWithOptions): string {
   }
 }
 
+export type GradingSuggestion = {
+  totalScore: number;
+  feedback: string | null;
+  criterionScores: { name: string; points: number; evidence: string }[] | null;
+  rationale: unknown;
+  executionResult: unknown;
+  model: string | null;
+  createdAt: string;
+};
+
 export type StudentSubmissionAnswer = {
   questionId: string;
   stem: string;
@@ -187,6 +197,10 @@ export type StudentSubmissionAnswer = {
   correctAnswer: string;
   sectionId: string | null;
   sectionTitle: string | null;
+  // Phase 3 (doc 03): AI-assisted grading state for essay/coding answers.
+  answerId: string | null;
+  gradingStatus: string | null;
+  suggestion: GradingSuggestion | null;
 };
 
 export type StudentSubmissionSectionResult = {
@@ -234,7 +248,13 @@ export async function getStudentSubmissionDetail(examId: string, studentId: stri
 
   const attempt = await prisma.examAttempt.findUnique({
     where: { examId_studentId: { examId, studentId } },
-    include: { answers: true },
+    include: {
+      answers: {
+        include: {
+          gradings: { where: { kind: 'ai_suggestion' }, orderBy: { createdAt: 'desc' }, take: 1 },
+        },
+      },
+    },
   });
 
   // OR [attemptId: null, attemptId: this attempt] — this student's actual question set,
@@ -263,6 +283,19 @@ export async function getStudentSubmissionDetail(examId: string, studentId: stri
       correctAnswer: formatCorrectAnswer(q),
       sectionId: q.section?.id ?? null,
       sectionTitle: q.section?.title ?? null,
+      answerId: a?.id ?? null,
+      gradingStatus: a?.gradingStatus ?? null,
+      suggestion: a?.gradings?.[0]
+        ? {
+            totalScore: a.gradings[0].totalScore,
+            feedback: a.gradings[0].feedback,
+            criterionScores: (a.gradings[0].criterionScores as GradingSuggestion['criterionScores']) ?? null,
+            rationale: a.gradings[0].rationale,
+            executionResult: a.gradings[0].executionResult,
+            model: a.gradings[0].model,
+            createdAt: a.gradings[0].createdAt.toISOString(),
+          }
+        : null,
     };
   });
 

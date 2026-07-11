@@ -6,6 +6,7 @@ import { getStudentSubmissionDetail } from '@/lib/data/students';
 import type { StudentSubmissionDetail } from '@/lib/data/students';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { GradingPanel } from '@/components/grading/GradingPanel';
 import { CheckCircle2, XCircle, HelpCircle } from 'lucide-react';
 
 export default function StudentSubmissionPage() {
@@ -102,7 +103,10 @@ export default function StudentSubmissionPage() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.title}</p>
               )}
               {group.answers.map((a, i) => {
-                const isPending = a.type === 'essay' || a.type === 'coding' || a.type === 'file_upload';
+                // Graded (confirmed/overridden) essay/coding answers show their real
+                // mark; anything still in the grading pipeline shows Pending.
+                const gradingResolved = a.gradingStatus === 'confirmed' || a.gradingStatus === 'overridden';
+                const isPending = (a.type === 'essay' || a.type === 'coding' || a.type === 'file_upload') && !gradingResolved;
                 const statusIcon = isPending
                   ? <HelpCircle className="h-4 w-4 text-amber-500 shrink-0" />
                   : a.isCorrect
@@ -134,6 +138,15 @@ export default function StudentSubmissionPage() {
                         </div>
                       )}
                     </div>
+                    {a.answerId && a.gradingStatus && (
+                      <GradingPanel
+                        answerId={a.answerId}
+                        maxMarks={a.marks}
+                        gradingStatus={a.gradingStatus}
+                        suggestion={a.suggestion}
+                        onChanged={() => void getStudentSubmissionDetail(examId, studentId).then(d => setDetail(d ?? null))}
+                      />
+                    )}
                   </div>
                 );
               })}

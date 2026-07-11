@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
+import { runGradingForAttempt } from '@/lib/ai/grading';
 import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } from '@/lib/api-auth';
 import { scoreAnswers } from '@/lib/scoring';
 import { computeTrustScore, type TrustScoreInput } from '@/lib/trust-score';
@@ -86,6 +88,14 @@ export const POST = withErrorHandling(async (
     if (Date.now() > deadlineMs + GRACE_MS) status = 'auto_submitted';
   }
 
+  // Two-stage completion (Phase 3, doc 03): deterministic types are scored
+  // exactly as before; essay/coding answers enter the grading state machine as
+  // pending_ai and the AI grading pass runs as background work after this
+  // response. Their marks stay 0 until a teacher confirms/overrides (decision 4).
+  const needsGrading = new Set(
+    questions.filter(q => q.type === 'essay' || q.type === 'coding').map(q => q.id),
+  );
+
   await prisma.$transaction([
     ...perQuestion.map(a =>
       prisma.answer.upsert({
@@ -97,12 +107,14 @@ export const POST = withErrorHandling(async (
           isCorrect: a.isCorrect,
           marksAwarded: a.marksAwarded,
           gradedAt: new Date(),
+          gradingStatus: needsGrading.has(a.questionId) ? 'pending_ai' : null,
         },
         update: {
           response: a.response as object,
           isCorrect: a.isCorrect,
           marksAwarded: a.marksAwarded,
           gradedAt: new Date(),
+          gradingStatus: needsGrading.has(a.questionId) ? 'pending_ai' : null,
         },
       })
     ),
@@ -119,6 +131,10 @@ export const POST = withErrorHandling(async (
       },
     }),
   ]);
+
+  if (needsGrading.size > 0) {
+    after(() => runGradingForAttempt(attemptId));
+  }
 
   return NextResponse.json({
     id: attemptId,

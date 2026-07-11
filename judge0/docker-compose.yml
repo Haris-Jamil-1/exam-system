@@ -1,0 +1,52 @@
+# Self-hosted Judge0 code-execution sandbox (Phase 3, doc 03 / decision 7).
+# Runs as its own service, NEVER inside the Next.js app or a serverless
+# function. Student code executes here with per-run CPU/memory caps and no
+# outbound network from the runners.
+#
+#   cd judge0 && docker compose up -d
+#   → API at http://localhost:2358 ; set JUDGE0_URL=http://localhost:2358 in
+#     the app's environment (Vercel env var pointing at the deployed host).
+#
+# For production, deploy on a small VM (Fly.io/Railway/any Docker host) and
+# front it with a private network or auth token; the app is its only client.
+services:
+  server:
+    image: judge0/judge0:1.13.1
+    volumes:
+      - ./judge0.conf:/judge0.conf:ro
+    ports:
+      - "2358:2358"
+    privileged: true # required by isolate (Judge0's sandboxing layer)
+    restart: always
+    depends_on:
+      - db
+      - redis
+
+  workers:
+    image: judge0/judge0:1.13.1
+    command: ["./scripts/workers"]
+    volumes:
+      - ./judge0.conf:/judge0.conf:ro
+    privileged: true
+    restart: always
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: judge0-local-only
+      POSTGRES_DB: judge0
+    volumes:
+      - judge0-db:/var/lib/postgresql/data
+    restart: always
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "no"]
+    restart: always
+
+volumes:
+  judge0-db:

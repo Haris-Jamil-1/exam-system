@@ -110,6 +110,15 @@ export interface TestCase {
   isHidden?: boolean;
 }
 
+// Phase 3 (doc 03): grading rubric for essay/coding questions — the standard
+// an AI suggestion and a teacher's mark are made against. No rubric = no AI
+// grading for that question (manual only).
+export interface RubricCriterion {
+  name: string;
+  description?: string;
+  maxPoints: number;
+}
+
 export interface Question {
   id: string;
   examId: string;
@@ -133,6 +142,9 @@ export interface Question {
   maxFileSizeMB?: number;
   // Optional per-question countdown; on expiry, response auto-saves and the student auto-advances
   timeLimitSeconds?: number;
+  // Phase 3 (doc 03): essay/coding grading rubric + coding score weights.
+  rubric?: RubricCriterion[];
+  gradingWeights?: { testWeight: number; qualityWeight: number };
   // Set only for a stratified-pooled question drawn privately for one attempt; undefined for
   // the normal fixed/shared question every student of a non-pooled exam sees identically.
   attemptId?: string;
