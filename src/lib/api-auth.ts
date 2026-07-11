@@ -6,8 +6,27 @@ export async function getAuthUser() {
   const supabase = await createClient();
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return null;
-  const prismaUser = await prisma.user.findUnique({ where: { supabaseId: user.id } });
+  const prismaUser = await prisma.user.findUnique({
+    where: { supabaseId: user.id },
+    include: { institution: { select: { suspendedAt: true } } },
+  });
+  if (!prismaUser) return null;
+  // Soft suspension (follow-up task 3): a suspended user, or any user of a
+  // suspended institution, is treated as unauthenticated. Super admins are
+  // exempt from their host institution's suspension (never from their own).
+  if (prismaUser.suspendedAt) return null;
+  if (prismaUser.institution.suspendedAt && !prismaUser.isSuperAdmin) return null;
   return prismaUser;
+}
+
+/**
+ * Platform-level Super Admin gate (follow-up task 3). Deliberately its own
+ * check against User.isSuperAdmin — NOT part of the role-based RBAC, and not
+ * reachable via institution-admin permissions. Returns the user or null.
+ */
+export async function getSuperAdmin() {
+  const user = await getAuthUser();
+  return user?.isSuperAdmin ? user : null;
 }
 
 export function unauthorized() {

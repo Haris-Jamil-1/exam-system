@@ -122,6 +122,9 @@ model Institution {
   // count per test-case submission. Shares aiUsageMonth for the rollover.
   judgeMonthlyQuota Int @default(1000)
   judgeUsageCount   Int @default(0)
+  // Follow-up task 3: soft suspension — blocks access for every user of the
+  // institution, no hard delete.
+  suspendedAt       DateTime?
 
   users     User[]
   exams     Exam[]
@@ -140,6 +143,11 @@ model User {
   avatarUrl     String?
   institutionId String
   createdAt     DateTime @default(now())
+  // Follow-up task 3: platform-level Super Admin — deliberately NOT a Role
+  // enum value (own auth gate, not reachable via institution RBAC). Set
+  // manually via SQL. suspendedAt = soft suspension (blocks access, no delete).
+  isSuperAdmin  Boolean   @default(false)
+  suspendedAt   DateTime?
 
   institution         Institution      @relation(fields: [institutionId], references: [id])
   exams               Exam[]           @relation("ExamTeacher")

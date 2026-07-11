@@ -50,6 +50,13 @@ export async function middleware(request: NextRequest) {
   const role = user.user_metadata?.role as string | undefined;
   const allowed = ROLE_PATHS[role ?? ''] ?? [];
 
+  // /super (platform Super Admin panel) is authenticated-only here; the real
+  // gate is the User.isSuperAdmin DB flag checked by every /api/super route —
+  // non-supers reaching the page just see a 403 message.
+  if (pathname.startsWith('/super')) {
+    return response;
+  }
+
   if (!allowed.some(prefix => pathname.startsWith(prefix))) {
     const url = request.nextUrl.clone();
     url.pathname = role ? `/${role}` : '/login';
