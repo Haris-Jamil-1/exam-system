@@ -9,13 +9,13 @@ Note: `CLAUDE.md` has uncommitted edits by Haris (his own Phase 3 notes) — lea
 - [x] 1.1 Schema: `ViolationType` +`gaze_away`+`prohibited_object`; `Violation` +`confidence`/`endedAt`/`clientSeq`; new `ProctoringHeartbeat` table → applied + verified on live DB
 - [x] 1.2 Trust score v2: server-side pure function (`src/lib/trust-score.ts`) with severity/duration/confidence weighting + per-type caps; unit tests; wired into submit route + violation ingest
 - [x] 1.3 Batch ingest: `POST /api/violations` accepts event batches; server-side severity re-derivation (`src/lib/proctoring/severity.ts`); heartbeat upsert; clientSeq idempotency; NEW ownership check (student can only write to own attempt — was missing pre-Phase-3)
-- [ ] 1.4 Client event pipeline: `ProctoringEventBuffer` (10s/20-event/immediate-high flush, sessionStorage mirror, clientSeq, 30s heartbeat); guards (Tab/Fullscreen) rewired through it
-- [ ] 1.5 Real face detection: face-api.js (@vladmandic/face-api fork), self-hosted models in `public/models/`, episode-based no_face/multiple_faces with hysteresis; replaces `Math.random()` mock
-- [ ] 1.6 Gaze: MediaPipe Face Landmarker (tasks-vision), coarse yaw/iris heuristic, sustained-episode `gaze_away`
-- [ ] 1.7 Object detection: TF.js COCO-SSD on sampled frames (~10s), `phone_detected` / `prohibited_object`
-- [ ] 1.8 Audio VAD upgrade: sustained-speech episodes (>5s) instead of instant RMS threshold spam
-- [ ] 1.9 Evidence: snapshot auto-capture on high-severity only (decision 1), student-visible capture indicator (decision 3), 30-day retention purge job
-- [ ] 1.10 Consent notice line on the pre-exam instructions screen (decision 1)
+- [x] 1.4 Client event pipeline: `ProctoringEventBuffer` (10s/20-event/immediate-high flush, sessionStorage mirror, clientSeq, 30s heartbeat); guards rewired; dead `useProctoring` hook removed
+- [x] 1.5 Real face detection — **ADAPTATION**: used MediaPipe Face Landmarker for BOTH face count and gaze instead of face-api.js + MediaPipe (one runtime/model instead of three; same signals). Episode hysteresis via `ConditionEpisode`; long episodes chunk at 60s for monitor timeliness
+- [x] 1.6 Gaze: coarse nose-to-cheek ratio + both-irises-cornered heuristic (`src/lib/proctoring/gaze.ts`), sustained-episode `gaze_away`
+- [x] 1.7 Object detection: COCO-SSD self-hosted (`public/models/coco-ssd`, ~19MB in repo), phone=emit-at-open+snapshot, book/laptop=`prohibited_object` at close
+- [x] 1.8 Audio VAD upgrade: sustained ≥5s episodes, 2s-quiet close, confidence from mean level
+- [x] 1.9 Evidence: snapshot (320px JPEG → private storage path in screenshotUrl) only on multi-face/phone/sustained-no-face; capture indicator in widget; `/api/cron/purge-evidence` daily (30-day retention, vercel.json cron)
+- [x] 1.10 Consent notice on instructions screen (proctored exams only)
 - [ ] 1.11 Verification: tsc/lint/build/vitest + live QA of event flow end-to-end
 
 ## Track 2 — Live monitoring (doc 04)

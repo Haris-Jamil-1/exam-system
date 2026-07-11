@@ -143,6 +143,7 @@ model User {
   studentTeachers     TeacherStudent[] @relation("StudentTeachers")
   itemBankAccess      ItemBankAccess[] @relation("ItemBankAccessUser")
   itemBankAccessGrant ItemBankAccess[] @relation("ItemBankAccessAssignedBy")
+  monitorDirectives   MonitorDirective[]
 
   @@index([institutionId])
   @@index([institutionId, role])
@@ -432,6 +433,7 @@ model ExamAttempt {
   pooledQuestions  Question[]
   sectionAttempts  SectionAttempt[]
   heartbeat        ProctoringHeartbeat?
+  directives       MonitorDirective[]
 
   @@unique([examId, studentId])
   @@index([studentId])
@@ -480,6 +482,40 @@ model Violation {
   @@index([examId])
   @@index([studentId])
   @@index([examId, severity])
+}
+
+// Teacher → student monitor actions (Phase 3, doc 04): on-demand snapshot
+// pulls, warning banners, force-submit. Append-only — every teacher action on
+// a live attempt is audited (who asked, when, of whom). Students receive
+// pending directives over Realtime (RLS-scoped to their own attempt) with a
+// polling fallback.
+enum DirectiveKind {
+  snapshot
+  warning
+  force_submit
+}
+
+enum DirectiveStatus {
+  pending
+  fulfilled
+  failed
+}
+
+model MonitorDirective {
+  id            String          @id @default(cuid())
+  attemptId     String
+  kind          DirectiveKind
+  message       String?
+  status        DirectiveStatus @default(pending)
+  resultPath    String? // snapshot: private storage path of the captured frame
+  requestedById String
+  createdAt     DateTime        @default(now())
+  fulfilledAt   DateTime?
+
+  attempt     ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  requestedBy User        @relation(fields: [requestedById], references: [id])
+
+  @@index([attemptId, status])
 }
 
 // One upserted row per attempt (not an append log) — liveness signal for the
