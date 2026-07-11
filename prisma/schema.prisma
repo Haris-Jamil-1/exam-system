@@ -69,6 +69,8 @@ enum ViolationType {
   multiple_faces
   audio_detected
   phone_detected
+  gaze_away
+  prohibited_object
 }
 
 enum ViolationSeverity {
@@ -429,6 +431,7 @@ model ExamAttempt {
   violations       Violation[]
   pooledQuestions  Question[]
   sectionAttempts  SectionAttempt[]
+  heartbeat        ProctoringHeartbeat?
 
   @@unique([examId, studentId])
   @@index([studentId])
@@ -463,6 +466,12 @@ model Violation {
   screenshotUrl String?
   metadata      Json?
   timestamp     DateTime          @default(now())
+  // Phase 3 unified proctoring events: detector confidence (1.0 for deterministic
+  // signals), episode end (null = instantaneous or still ongoing at flush), and a
+  // per-attempt monotonic counter so the server can detect suppressed/lost batches.
+  confidence    Float?
+  endedAt       DateTime?
+  clientSeq     Int?
 
   attempt ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
   student User        @relation(fields: [studentId], references: [id])
@@ -471,6 +480,19 @@ model Violation {
   @@index([examId])
   @@index([studentId])
   @@index([examId, severity])
+}
+
+// One upserted row per attempt (not an append log) — liveness signal for the
+// proctoring runtime. A stale lastSeenAt on an in_progress attempt means the
+// detectors died or were suppressed; surfaced on the teacher monitor.
+model ProctoringHeartbeat {
+  id         String   @id @default(cuid())
+  attemptId  String   @unique
+  lastSeq    Int      @default(0)
+  lastSeenAt DateTime @default(now())
+  metadata   Json?
+
+  attempt ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
 }
 
 model Course {
