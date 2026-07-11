@@ -113,6 +113,11 @@ model Institution {
   domain    String
   joinCode  String   @unique @default(cuid())
   createdAt DateTime @default(now())
+  // Phase 3 decision 5: per-institution monthly AI-call ceiling (generation +
+  // grading), hard stop at quota. Usage resets when aiUsageMonth rolls over.
+  aiMonthlyQuota Int    @default(1000)
+  aiUsageCount   Int    @default(0)
+  aiUsageMonth   String @default("")
 
   users     User[]
   exams     Exam[]
@@ -144,6 +149,7 @@ model User {
   itemBankAccess      ItemBankAccess[] @relation("ItemBankAccessUser")
   itemBankAccessGrant ItemBankAccess[] @relation("ItemBankAccessAssignedBy")
   monitorDirectives   MonitorDirective[]
+  generationJobs      GenerationJob[]
 
   @@index([institutionId])
   @@index([institutionId, role])
@@ -351,6 +357,11 @@ model Item {
   authorId            String
   learningObjectiveId String?
   bankId              String?
+  // Phase 3 (doc 02): provenance for AI-generated items. null generationJobId =
+  // human-authored (backward compatible). reviewedById = who approved/rejected.
+  generationJobId     String?
+  aiGenerated         Boolean      @default(false)
+  reviewedById        String?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
@@ -358,10 +369,49 @@ model Item {
   author            User               @relation("ItemAuthor", fields: [authorId], references: [id])
   learningObjective LearningObjective? @relation(fields: [learningObjectiveId], references: [id])
   bank              ItemBank?          @relation(fields: [bankId], references: [id])
+  generationJob     GenerationJob?     @relation(fields: [generationJobId], references: [id])
   options           ItemOption[]
 
   @@index([bankId])
   @@index([bankId, learningObjectiveId])
+  @@index([generationJobId])
+}
+
+// Async AI item-generation job (Phase 3, doc 02): the row IS the durability —
+// the runtime (Vercel background work, decision 6) is disposable. Carries the
+// full audit/cost trail: what was asked, which model, what it cost.
+enum GenerationJobStatus {
+  queued
+  running
+  succeeded
+  partial
+  failed
+}
+
+model GenerationJob {
+  id                  String              @id @default(cuid())
+  institutionId       String
+  requestedById       String
+  itemBankId          String
+  learningObjectiveId String?
+  status              GenerationJobStatus @default(queued)
+  requestedCount      Int
+  producedCount       Int                 @default(0)
+  promptParams        Json
+  model               String?
+  inputTokens         Int?
+  outputTokens        Int?
+  error               String?
+  createdAt           DateTime            @default(now())
+  startedAt           DateTime?
+  finishedAt          DateTime?
+
+  requestedBy User     @relation(fields: [requestedById], references: [id])
+  bank        ItemBank @relation(fields: [itemBankId], references: [id], onDelete: Cascade)
+  items       Item[]
+
+  @@index([itemBankId, status])
+  @@index([institutionId, createdAt])
 }
 
 model ItemBank {
@@ -378,6 +428,7 @@ model ItemBank {
   institution Institution      @relation(fields: [institutionId], references: [id])
   items       Item[]
   access      ItemBankAccess[]
+  generationJobs GenerationJob[]
 
   @@index([institutionId])
   @@index([institutionId, bankLevel])

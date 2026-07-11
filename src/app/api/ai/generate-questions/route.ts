@@ -1,12 +1,20 @@
 import { NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { z } from 'zod';
-import { generateQuestions } from '@/lib/ai/question-generator';
 import { MAX_BATCH_SIZE } from '@/lib/ai/constants';
+import { consumeAiQuota, AiQuotaExceededError } from '@/lib/ai/quota';
+import { runGenerationJob } from '@/lib/ai/generation-job';
 import { getAuthUser, unauthorized, forbidden, notFound, withErrorHandling } from '@/lib/api-auth';
 import { getCallerAndBankPermission } from '@/lib/data/item-banks';
 import { canEdit as bankCanEdit } from '@/lib/item-bank-permissions';
 import { prisma } from '@/lib/prisma';
-import type { QuestionType } from '@/types';
+
+// Phase 3 (doc 02): generation is asynchronous. This route validates, checks
+// the per-institution AI quota (decision 5, hard stop), creates a
+// GenerationJob row, and schedules the actual generation as Vercel background
+// work (decision 6) — responding 202 { jobId } immediately. The client polls
+// GET /api/ai/jobs/[jobId]. Items land in the bank as drafts; nothing AI-made
+// reaches a student without teacher approval (ItemStatus lifecycle).
 
 const schema = z.object({
   text: z.string().min(10),
@@ -51,55 +59,34 @@ export const POST = withErrorHandling(async (request: Request) => {
     cloText = clo.text;
   }
 
-  // Phase 3: call Anthropic API here using @anthropic-ai/sdk
-  // import Anthropic from '@anthropic-ai/sdk';
-  // const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  // const systemPrompt = cloText
-  //   ? `${basePrompt}\n\nThe generated questions must strictly align with and accurately ` +
-  //     `assess the following Course Learning Objective: ${cloText}. Ensure distractors ` +
-  //     `reflect common student misconceptions related to this specific objective.`
-  //   : basePrompt;
-  // const response = await client.messages.create({ model: 'claude-sonnet-4-6', system: systemPrompt, ... });
-  const generated = generateQuestions({ ...genInput, cloText } as {
-    text: string; count: number; difficulty: 'easy' | 'medium' | 'hard'; type: QuestionType; cloText?: string;
+  // Hard stop at the monthly institution quota — checked before any job exists.
+  try {
+    await consumeAiQuota(permission.bank.institutionId, 1);
+  } catch (err) {
+    if (err instanceof AiQuotaExceededError) {
+      return NextResponse.json(
+        { error: `Monthly AI quota reached (${err.used}/${err.quota}). Contact your administrator.` },
+        { status: 429 },
+      );
+    }
+    throw err;
+  }
+
+  const job = await prisma.generationJob.create({
+    data: {
+      institutionId: permission.bank.institutionId,
+      requestedById: user.id,
+      itemBankId,
+      learningObjectiveId: learningObjectiveId ?? null,
+      requestedCount: genInput.count,
+      promptParams: { ...genInput, cloText },
+    },
   });
 
-  // Direct save: generated questions are committed straight to the Item table under this
-  // bank, as drafts (matching the manual "Add Question" default) — the teacher reviews,
-  // edits, and submits them for approval from the bank view like any other item.
-  //
-  // Deliberately NOT wrapped in prisma.$transaction: each Item is independent (no
-  // cross-row invariant needs atomicity — a partially-succeeded batch of drafts is
-  // harmless, the teacher just reviews or deletes what landed), and a shared transaction's
-  // default 5s interactive-transaction timeout is comfortably exceeded by a MAX_BATCH_SIZE
-  // (15) batch of sequential creates once real network latency is in play — confirmed by
-  // reproducing a hard 500 on a batch of 8 during QA. Plain concurrent creates have no such
-  // ceiling.
-  const created = await Promise.all(
-    generated.map(q =>
-      prisma.item.create({
-        data: {
-          type: q.type,
-          stem: q.stem,
-          marks: q.marks,
-          difficulty: q.difficulty,
-          order: 0,
-          status: 'draft',
-          tags: [],
-          correctAnswer: q.correctAnswer as object,
-          explanation: q.explanation ?? null,
-          authorId: user.id,
-          institutionId: permission.bank.institutionId,
-          bankId: itemBankId,
-          learningObjectiveId: learningObjectiveId ?? null,
-          options: q.options?.length
-            ? { create: q.options.map((text, i) => ({ text, isCorrect: text === q.correctAnswer || (Array.isArray(q.correctAnswer) && q.correctAnswer.includes(text)), order: i })) }
-            : undefined,
-        },
-        include: { options: { orderBy: { order: 'asc' } } },
-      })
-    )
-  );
+  // Vercel background work: runs after the response is sent, within this
+  // function invocation's lifetime. The job row is the durability mechanism —
+  // if this runtime dies, the staleness sweep marks the job failed.
+  after(() => runGenerationJob(job.id));
 
-  return NextResponse.json({ items: created });
+  return NextResponse.json({ jobId: job.id, status: 'queued' }, { status: 202 });
 });

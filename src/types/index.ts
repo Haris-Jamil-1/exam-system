@@ -184,6 +184,7 @@ export interface Item {
   status: ItemStatus;
   usageCount: number;
   tags: string[];
+  aiGenerated?: boolean;
   createdAt: string;
   authorId: string;
   // Phase 2: FK → learning_objectives.id (replaces free-text topic/bloom fields)

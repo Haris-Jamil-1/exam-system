@@ -20,13 +20,13 @@ Note: `CLAUDE.md` has uncommitted edits by Haris (his own Phase 3 notes) — lea
 
 ## Track 2 — Live monitoring (doc 04)
 
-- [ ] 2.1 Surgical RLS on `Violation`/`ExamAttempt`/`ProctoringHeartbeat` (decision 2 — narrows SEC-08 accepted-risk scope: RLS added ONLY to these 3 tables to gate Realtime reads; app routes keep using service-role connection; annotate CLAUDE.md, don't erase the sign-off)
-- [ ] 2.2 Realtime subscriptions on teacher monitor pages (replace 10s polling; keep polling as websocket fallback)
-- [ ] 2.3 Roster grid: attempt state, trust score, heartbeat freshness, needs-attention sort
-- [ ] 2.4 `SnapshotRequest` table + on-demand snapshot round trip + student-side indicator
-- [ ] 2.5 Teacher actions: warn student (banner via per-attempt channel), force-submit
-- [ ] 2.6 Alerts: badge default; push only for multi-face/phone/sustained-no-face (decision 12; Web Push may slip to follow-up — scope valve per doc 04)
-- [ ] 2.7 Verification pass
+- [x] 2.1 Surgical RLS — 4 tables (`Violation`/`ExamAttempt`/`ProctoringHeartbeat`/`MonitorDirective`), SELECT-only policies for authenticated, no write policies (bonus: direct PostgREST writes now denied). Prisma unaffected (connects as table owner, non-FORCE RLS). Applied+verified live via Management API. CLAUDE.md annotation pending (F.2)
+- [x] 2.2 Realtime on per-exam monitor: `useMonitorRealtime` (debounced refresh triggers), polling fallback (10s down/60s live), Live/Polling badge. **Scope note**: cross-exam `teacher/monitor` overview page left on its existing polling (no single examId to filter on; v1 call)
+- [x] 2.3 Roster: heartbeat-stale (90s) → 'disconnected', 'not_started', needs-attention sort, flagged on any high-severity or trust<60
+- [x] 2.4 **ADAPTATION**: one `MonitorDirective` table (kind: snapshot|warning|force_submit) instead of separate SnapshotRequest — covers all teacher actions + audit in one mechanism. Snapshot round trip: directive → student Realtime/20s-poll → captureRef → upload → fulfilled → teacher polls → signed URL via `/api/evidence`. Capture indicator fires on student widget
+- [x] 2.5 Teacher actions: warning banner (amber, dismissible) + force-submit (directive for live clients / `force-finalize` endpoint for dead ones — closes the browser-died-mid-exam gap)
+- [x] 2.6 Decision 12: browser `Notification` when monitor tab hidden, high-severity only; full Web Push (service worker) deferred per doc 04's scope valve
+- [ ] 2.7 Verification pass (tsc/lint/build/vitest green at baseline; live QA still blocked by network — see blocker note)
 
 ## Track 3a — AI exam creation (doc 02)
 
@@ -61,5 +61,7 @@ Note: `CLAUDE.md` has uncommitted edits by Haris (his own Phase 3 notes) — lea
 
 ## Status notes
 
-Last state: 1.1 done and committed. **ENVIRONMENT BLOCKER**: current network blocks outbound Postgres ports (5432/6543) — `prisma db push` and any live pg connection (including the dev server) cannot reach the DB from this machine right now. Workaround in place: `scripts/mgmt-sql.sh` runs SQL over HTTPS via the Supabase Management API (CLI keychain token); schema changes applied + verified that way. Live-server QA is blocked until the network allows pg egress — lean on unit tests/build; queue live QA steps in a checklist for when connectivity returns.
-Next step: 1.2 trust score v2 (`src/lib/trust-score.ts` + tests, wire into submit route).
+**ENVIRONMENT BLOCKER (still active)**: this network blocks outbound Postgres ports (5432/6543) — the dev server cannot reach the DB, so live end-to-end QA is impossible this session. Workaround for DDL/verification: `scripts/mgmt-sql.sh` (SQL over HTTPS via Supabase Management API, CLI keychain token). All schema changes applied + row-level verified that way. **Deferred live-QA checklist** (run when pg egress returns): (1) student exam flow with proctoring on — verify batched events land in Violation with server-derived severity, heartbeat row updates every 30s, trust score updates mid-exam; (2) face/gaze/object detectors against a real webcam (model loading, episode debounce, snapshot on multi-face/phone); (3) teacher monitor — Realtime badge shows Live, roster disconnected state after killing student tab (90s), snapshot round trip <5s, warning banner, force-submit both paths; (4) evidence signed-URL view + purge cron dry run.
+
+Last state: tracks 1 and 2 fully committed (3 commits); tsc/lint/build/vitest all green at pre-existing baseline (91 tests).
+Next step: track 3a — AI exam creation (schema: GenerationJob + Item columns + institution AI quota, then Claude call + job runner + review queue).

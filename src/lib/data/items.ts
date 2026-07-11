@@ -27,6 +27,7 @@ type PrismaItem = {
   maxFileSizeMB: number | null; timeLimitSeconds: number | null; facilityIndex: number | null;
   discriminationIndex: number | null; version: number; previousVersionId: string | null;
   authorId: string; learningObjectiveId: string | null; bankId: string | null; createdAt: Date;
+  aiGenerated: boolean;
   options: PrismaItemOption[];
 };
 
@@ -44,6 +45,7 @@ function mapItem(i: PrismaItem): Item {
     status: i.status as Item['status'],
     usageCount: i.usageCount,
     tags: i.tags,
+    aiGenerated: i.aiGenerated,
     codeLanguage: i.codeLanguage ?? undefined,
     starterCode: i.starterCode ?? undefined,
     testCases: i.testCases as TestCase[] | undefined,

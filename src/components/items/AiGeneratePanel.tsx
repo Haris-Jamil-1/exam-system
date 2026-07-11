@@ -1,6 +1,6 @@
 'use client';
-import { useState, useRef } from 'react';
-import type { QuestionType, Item } from '@/types';
+import { useState, useRef, useEffect } from 'react';
+import type { QuestionType } from '@/types';
 import { MAX_BATCH_SIZE } from '@/lib/ai/constants';
 import { CurriculumPicker, type CurriculumSelection } from '@/components/shared/CurriculumPicker';
 import { Button } from '@/components/ui/button';
@@ -24,8 +24,17 @@ const ALL_QUESTION_TYPES: { value: QuestionType; label: string }[] = [
 
 interface AiGeneratePanelProps {
   bankId: string;
-  onGenerated: (items: Item[]) => void;
+  /** Called when a generation job finishes with at least one item created. */
+  onGenerated: () => void;
   onClose: () => void;
+}
+
+interface GenerationJobStatus {
+  id: string;
+  status: 'queued' | 'running' | 'succeeded' | 'partial' | 'failed';
+  producedCount: number;
+  requestedCount: number;
+  error: string | null;
 }
 
 export function AiGeneratePanel({ bankId, onGenerated, onClose }: AiGeneratePanelProps) {
@@ -36,8 +45,10 @@ export function AiGeneratePanel({ bankId, onGenerated, onClose }: AiGeneratePane
   const [quantity, setQuantity] = useState(5);
   const [cloSelection, setCloSelection] = useState<CurriculumSelection | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generatedCount, setGeneratedCount] = useState<number | null>(null);
+  const [partialNote, setPartialNote] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const quantityInvalid = quantity < 1 || quantity > MAX_BATCH_SIZE;
@@ -67,11 +78,47 @@ export function AiGeneratePanel({ bankId, onGenerated, onClose }: AiGeneratePane
     }
   }
 
+  // Generation is an async job (Phase 3): POST returns 202 {jobId}; this
+  // effect polls the job until it reaches a terminal state. Polling matches
+  // the codebase's established idiom (notifications 30s, results 15s).
+  useEffect(() => {
+    if (!jobId) return;
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/ai/jobs/${jobId}`);
+        if (!res.ok || cancelled) return;
+        const job = (await res.json()) as GenerationJobStatus;
+        if (job.status === 'queued' || job.status === 'running') return;
+        clearInterval(timer);
+        setIsGenerating(false);
+        setJobId(null);
+        if (job.status === 'failed') {
+          setError(job.error ?? 'Generation failed');
+          return;
+        }
+        setGeneratedCount(job.producedCount);
+        if (job.status === 'partial') {
+          setPartialNote(`Only ${job.producedCount} of ${job.requestedCount} requested items could be created.`);
+        }
+        onGenerated();
+      } catch {
+        // Transient polling failure — next tick retries.
+      }
+    }, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onGenerated is a fresh closure per parent render; jobId alone drives the poll lifecycle
+  }, [jobId]);
+
   async function handleGenerate() {
     if (!docText.trim() || quantityInvalid) return;
     setIsGenerating(true);
     setError(null);
     setGeneratedCount(null);
+    setPartialNote(null);
     try {
       const res = await fetch('/api/ai/generate-questions', {
         method: 'POST',
@@ -87,14 +134,12 @@ export function AiGeneratePanel({ bankId, onGenerated, onClose }: AiGeneratePane
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error?.toString() ?? 'Generation failed');
+        throw new Error(typeof body.error === 'string' ? body.error : 'Generation failed');
       }
-      const { items } = await res.json() as { items: Item[] };
-      setGeneratedCount(items.length);
-      onGenerated(items);
+      const { jobId: createdJobId } = (await res.json()) as { jobId: string };
+      setJobId(createdJobId); // polling effect takes over; isGenerating stays true
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Generation failed');
-    } finally {
       setIsGenerating(false);
     }
   }
@@ -185,12 +230,13 @@ export function AiGeneratePanel({ bankId, onGenerated, onClose }: AiGeneratePane
         )}
         <Button onClick={handleGenerate} disabled={isGenerating || !docText.trim() || quantityInvalid} className="gap-2">
           <Sparkles className="h-4 w-4" />
-          {isGenerating ? 'Generating…' : `Generate ${quantity} Question${quantity === 1 ? '' : 's'}`}
+          {isGenerating ? (jobId ? 'Generating… (you can keep working, this runs in the background)' : 'Starting…') : `Generate ${quantity} Question${quantity === 1 ? '' : 's'}`}
         </Button>
         {error && <p className="text-sm text-red-600">{error}</p>}
+        {partialNote && <p className="text-sm text-amber-700">{partialNote}</p>}
         {generatedCount !== null && (
           <p className="text-sm text-green-700 flex items-center gap-1.5">
-            <Check className="h-4 w-4" /> {generatedCount} question{generatedCount !== 1 ? 's' : ''} added to this bank as drafts — review and submit them for approval below.
+            <Check className="h-4 w-4" /> {generatedCount} question{generatedCount !== 1 ? 's' : ''} added to this bank as drafts — review and submit them for approval below. Items flagged as possible duplicates carry a &quot;possible duplicate&quot; badge.
           </p>
         )}
       </CardContent>
