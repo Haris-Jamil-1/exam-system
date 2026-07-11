@@ -13,7 +13,7 @@
 //   carrying full duration (server derives severity from it); open episodes are
 //   force-chunked at MAX_EPISODE_MS so a student who walks away surfaces on the
 //   monitor within ~1 minute, not when they return.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useProctoringStore } from '@/store/proctoringStore';
 import { ConditionEpisode } from '@/lib/proctoring/episodes';
 import { readGaze } from '@/lib/proctoring/gaze';
@@ -22,6 +22,8 @@ import { SUSTAINED_NO_FACE_SECONDS } from '@/lib/proctoring/severity';
 
 interface FaceDetectorProps {
   buffer: ProctoringEventBuffer;
+  /** Registered so DirectiveListener can serve teacher snapshot requests. */
+  captureRef?: RefObject<(() => Promise<string | null>) | null>;
 }
 
 const TICK_MS = 2_000;
@@ -36,7 +38,7 @@ const OBJECT_CLASSES: Record<string, 'phone_detected' | 'prohibited_object'> = {
 
 type FaceStatus = 'loading' | 'ok' | 'no_face' | 'multiple' | 'degraded' | 'error';
 
-export function FaceDetector({ buffer }: FaceDetectorProps) {
+export function FaceDetector({ buffer, captureRef }: FaceDetectorProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [status, setStatus] = useState<FaceStatus>('loading');
   const [snapshotFlash, setSnapshotFlash] = useState(false);
@@ -311,8 +313,12 @@ export function FaceDetector({ buffer }: FaceDetectorProps) {
 
     void init();
 
+    // Expose the capture path for teacher-requested snapshots.
+    if (captureRef) captureRef.current = captureSnapshot;
+
     return () => {
       cancelled = true;
+      if (captureRef) captureRef.current = null;
       if (intervalId) clearInterval(intervalId);
       // Flush any open close-emitted episodes so their duration isn't lost.
       const now = Date.now();
@@ -323,7 +329,7 @@ export function FaceDetector({ buffer }: FaceDetectorProps) {
       landmarker?.close();
       stream?.getTracks().forEach(t => t.stop());
     };
-  }, [buffer, addViolation]);
+  }, [buffer, addViolation, captureRef]);
 
   const label: Record<FaceStatus, { text: string; cls: string }> = {
     loading: { text: 'Starting…', cls: 'bg-gray-600 text-white' },

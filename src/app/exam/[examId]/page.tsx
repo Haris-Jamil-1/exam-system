@@ -591,7 +591,9 @@ export default function ExamPage() {
   return (
     <DesktopGuard>
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {exam.isProctoringEnabled && <ProctoringOverlay examId={examId} attemptId={attemptId || 'attempt-loading'} />}
+      {exam.isProctoringEnabled && (
+        <ProctoringOverlay examId={examId} attemptId={attemptId || 'attempt-loading'} onForceSubmit={handleTimeUp} />
+      )}
 
       {/* ── Pause overlay ── */}
       {paused && (

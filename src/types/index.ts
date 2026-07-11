@@ -288,10 +288,13 @@ export interface MonitorStudent {
   id: string;
   name: string;
   avatarUrl?: string;
-  status: 'active' | 'warning' | 'flagged' | 'submitted';
+  status: 'active' | 'warning' | 'flagged' | 'submitted' | 'disconnected' | 'not_started';
   violationCount: number;
   trustScore: number;
   lastSeen: string;
+  attemptId?: string;
+  attemptStatus?: string;
+  lastHeartbeat?: string;
 }
 
 export interface StatValue {

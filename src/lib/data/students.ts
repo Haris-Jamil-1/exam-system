@@ -301,26 +301,49 @@ export async function getStudentSubmissionDetail(examId: string, studentId: stri
   };
 }
 
+// An in_progress attempt whose proctoring heartbeat is older than this is
+// treated as disconnected — detectors died, tab killed, or suppressed (doc 01's
+// anti-suppression signal, surfaced as a first-class monitoring state).
+const HEARTBEAT_STALE_MS = 90_000;
+
+// Needs-attention ordering for the monitor roster.
+const STATUS_PRIORITY: Record<MonitorStudent['status'], number> = {
+  flagged: 0,
+  disconnected: 1,
+  warning: 2,
+  active: 3,
+  not_started: 4,
+  submitted: 5,
+};
+
 export async function getMonitorStudents(examId: string): Promise<MonitorStudent[]> {
   const [enrollments, attempts, violations] = await Promise.all([
     prisma.examEnrollment.findMany({
       where: { examId },
       include: { student: true },
     }),
-    prisma.examAttempt.findMany({ where: { examId } }),
+    prisma.examAttempt.findMany({ where: { examId }, include: { heartbeat: true } }),
     prisma.violation.findMany({ where: { examId } }),
   ]);
 
-  return enrollments.map(e => {
+  const students = enrollments.map(e => {
     const attempt = attempts.find(a => a.studentId === e.studentId);
     const studentViolations = violations.filter(v => v.studentId === e.studentId);
     const vCount = studentViolations.length;
+    const highCount = studentViolations.filter(v => v.severity === 'high').length;
+    const heartbeatAt = attempt?.heartbeat?.lastSeenAt ?? null;
+    const heartbeatStale =
+      attempt?.status === 'in_progress' &&
+      heartbeatAt !== null &&
+      Date.now() - heartbeatAt.getTime() > HEARTBEAT_STALE_MS;
 
-    let status: MonitorStudent['status'] = 'active';
-    if (!attempt) status = 'active';
+    let status: MonitorStudent['status'];
+    if (!attempt) status = 'not_started';
     else if (attempt.status === 'submitted' || attempt.status === 'auto_submitted') status = 'submitted';
-    else if (vCount >= 3) status = 'flagged';
+    else if (heartbeatStale) status = 'disconnected';
+    else if (highCount >= 1 || vCount >= 3 || attempt.trustScore < 60) status = 'flagged';
     else if (vCount >= 1) status = 'warning';
+    else status = 'active';
 
     return {
       id: e.student.id,
@@ -330,6 +353,13 @@ export async function getMonitorStudents(examId: string): Promise<MonitorStudent
       violationCount: vCount,
       trustScore: attempt?.trustScore ?? 100,
       lastSeen: attempt?.startedAt.toISOString() ?? new Date().toISOString(),
+      attemptId: attempt?.id,
+      attemptStatus: attempt?.status,
+      lastHeartbeat: heartbeatAt?.toISOString(),
     };
   });
+
+  return students.sort(
+    (a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status] || a.trustScore - b.trustScore,
+  );
 }
