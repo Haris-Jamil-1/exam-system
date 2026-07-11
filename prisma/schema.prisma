@@ -268,6 +268,11 @@ model Question {
   // gradingWeights (coding): {testWeight, qualityWeight}, default 70/30.
   rubric              Json?
   gradingWeights      Json?
+  // Phase 3 (doc 05): durable link back to the bank Item this question was
+  // materialized from — item-level psychometrics aggregate across
+  // administrations through this. Null = authored directly on the exam
+  // (exam-scoped stats only) or created before Phase 3 (stated limitation).
+  sourceItemId        String?
   createdAt           DateTime     @default(now())
 
   exam              Exam               @relation(fields: [examId], references: [id], onDelete: Cascade)
@@ -637,6 +642,44 @@ model ProctoringHeartbeat {
   metadata   Json?
 
   attempt ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+}
+
+// Psychometrics (Phase 3, doc 05): versioned per-administration item stats.
+// One row per (item, exam administration), upserted by the Python stats
+// service on recompute (idempotent — regrades just overwrite the same
+// administration's row). Item.facilityIndex/discriminationIndex hold the
+// response-count-weighted rolling aggregate across administrations.
+model ItemAdministrationStat {
+  id              String   @id @default(cuid())
+  itemId          String
+  examId          String
+  institutionId   String
+  computeRunId    String
+  nResponses      Int
+  facilityIndex   Float?
+  discrimination  Float? // corrected point-biserial (item vs total-minus-item)
+  distractorStats Json?
+  // Decision 10: stats from <10 responses are stored but display-gated;
+  // <30 responses render as "low confidence" for discrimination.
+  insufficientN   Boolean  @default(false)
+  computedAt      DateTime @default(now())
+
+  @@unique([itemId, examId])
+  @@index([examId])
+  @@index([itemId])
+}
+
+model ExamReliabilityStat {
+  id            String   @id @default(cuid())
+  examId        String   @unique
+  institutionId String
+  computeRunId  String
+  cronbachAlpha Float?
+  kr20          Float?
+  nStudents     Int
+  nItems        Int
+  sectionAlphas Json?
+  computedAt    DateTime @default(now())
 }
 
 model Course {

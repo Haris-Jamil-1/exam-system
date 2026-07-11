@@ -38,13 +38,13 @@ Note: `CLAUDE.md` has uncommitted edits by Haris (his own Phase 3 notes) — lea
 
 ## Track 3b — AI grading (doc 03)
 
-- [ ] 3b.1 Schema: `Rubric`, `AnswerGrading`, `Answer.gradingStatus`, question rubric/testCases fields
-- [ ] 3b.2 Two-stage submit: essay/coding → pending_ai; deterministic types unchanged; finalize recomputes via existing scoring
-- [ ] 3b.3 Essay grading job (Claude structured output, rubric-based, injection-hardened prompt frame)
-- [ ] 3b.4 Judge0 self-hosted via Docker (decision 7): docker-compose + execution client + hidden test cases
-- [ ] 3b.5 Coding combined score (test weight + AI quality review)
-- [ ] 3b.6 Teacher review UI on TCH-03 page: confirm/override/regrade; grading dashboard queue (decision 4: always-explicit confirm)
-- [ ] 3b.7 Verification pass
+- [x] 3b.1 Schema — **ADAPTATION**: `AnswerGrading` (append-only, with `rubricSnapshot` per event = the versioned dispute trail) + `Answer.gradingStatus` + `Question/Item.rubric`/`gradingWeights` JSON, instead of a separate versioned `Rubric` entity and `GradingJob` table. Applied+verified live
+- [x] 3b.2 Two-stage submit in both routes (normal + sectioned); grading runs via `after()` on final submission; `recomputeAttemptScore` re-enters existing scoring incl. section composites
+- [x] 3b.3 Essay grading: Claude structured suggestion per rubric criterion with quoted evidence, injection-hardened, off-topic/injection flags; no key or no rubric → stays pending for manual grading (no mock — decision: grading suggestions are real-AI-only)
+- [x] 3b.4 Judge0: `judge0/docker-compose.yml` + `judge0.conf` (network-isolated runners, resource caps) + `src/lib/ai/judge0.ts` client (`JUDGE0_URL` env, unset → execution 'unavailable', marks never awarded on unavailable)
+- [x] 3b.5 Combined coding score: testWeight×pass-fraction + qualityWeight×Claude review (default 70/30, per-question override via gradingWeights)
+- [x] 3b.6 GradingPanel on TCH-03 per-student page (confirm/override+reason/regrade, criterion evidence, per-test chips); rubric editor in Add Question form (essay). Grading *dashboard queue* deferred — the per-student page is the v1 queue entry point (results table doesn't yet badge pending-grading attempts)
+- [x] 3b.7 Verification: tsc clean · 91/91 · lint baseline · build green
 
 ## Track 4 — Psychometrics (doc 05)
 

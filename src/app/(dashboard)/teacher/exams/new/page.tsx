@@ -316,6 +316,7 @@ export default function NewExamPage() {
       for (const item of selectedBankItems.values()) {
         await createQuestion({
           examId: exam.id,
+          sourceItemId: item.id, // psychometrics link back to the bank item
           type: item.type,
           stem: item.stem,
           options: item.options,
@@ -324,6 +325,9 @@ export default function NewExamPage() {
           difficulty: item.difficulty,
           order: order++,
           explanation: item.explanation,
+          rubric: item.rubric,
+          gradingWeights: item.gradingWeights,
+          timeLimitSeconds: item.timeLimitSeconds,
         });
         await incrementItemUsage(item.id);
       }

@@ -150,6 +150,9 @@ export interface Question {
   attemptId?: string;
   // Set only when the exam uses multi-section architecture; undefined for a normal flat exam.
   sectionId?: string;
+  // Phase 3 (doc 05): the bank Item this question was materialized from —
+  // item-level psychometrics aggregate across administrations through this.
+  sourceItemId?: string;
 }
 
 export interface ExamSection {
@@ -210,6 +213,9 @@ export interface Item {
   allowedFileTypes?: string[];
   maxFileSizeMB?: number;
   timeLimitSeconds?: number;
+  // Phase 3 (doc 03): essay/coding grading rubric + coding score weights.
+  rubric?: RubricCriterion[];
+  gradingWeights?: { testWeight: number; qualityWeight: number };
   // Phase 2: computed from exam_answers aggregate — facility_index = correct_count / attempt_count
   facilityIndex?: number;
   // Phase 2: point-biserial correlation between item score and total score

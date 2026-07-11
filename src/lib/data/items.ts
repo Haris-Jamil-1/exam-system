@@ -24,7 +24,8 @@ type PrismaItem = {
   order: number; required: boolean; explanation: string | null; correctAnswer: unknown;
   status: string; usageCount: number; tags: string[]; codeLanguage: string | null;
   starterCode: string | null; testCases: unknown; allowedFileTypes: string[];
-  maxFileSizeMB: number | null; timeLimitSeconds: number | null; facilityIndex: number | null;
+  maxFileSizeMB: number | null; timeLimitSeconds: number | null;
+  rubric: unknown; gradingWeights: unknown; facilityIndex: number | null;
   discriminationIndex: number | null; version: number; previousVersionId: string | null;
   authorId: string; learningObjectiveId: string | null; bankId: string | null; createdAt: Date;
   aiGenerated: boolean;
@@ -52,6 +53,8 @@ function mapItem(i: PrismaItem): Item {
     allowedFileTypes: i.allowedFileTypes.length ? i.allowedFileTypes : undefined,
     maxFileSizeMB: i.maxFileSizeMB ?? undefined,
     timeLimitSeconds: i.timeLimitSeconds ?? undefined,
+    rubric: (i.rubric as Item['rubric']) ?? undefined,
+    gradingWeights: (i.gradingWeights as Item['gradingWeights']) ?? undefined,
     facilityIndex: i.facilityIndex ?? undefined,
     discriminationIndex: i.discriminationIndex ?? undefined,
     version: i.version,

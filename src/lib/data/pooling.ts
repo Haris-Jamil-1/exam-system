@@ -123,6 +123,9 @@ export async function materializePooledQuestions(params: {
         data: {
           examId,
           attemptId,
+          // Durable link back to the source bank Item — item-level
+          // psychometrics aggregate across administrations through this.
+          sourceItemId: item.id,
           type: item.type,
           stem: item.stem,
           marks: item.marks,
