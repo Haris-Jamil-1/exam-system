@@ -253,13 +253,21 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 
 ## Phase 3 Next Steps
 Not started — awaiting a separate kickoff from the user (Phase 2 hardening is fully closed as of 2026-07-06, nothing carried over).
-- **AI grading**: `POST /api/grade` via Claude API (`claude-sonnet-4-6`) for essay + coding questions
+- **AI graing**: `POST /api/grade` via Claude API (`claude-sonnet-4-6`) for essay + coding questions
 - **Face detection**: replace `FaceDetector.tsx` mock with `face-api.js` (load models from `/public/models/`)
 - **Supabase Realtime**: replace 10s polling in `teacher/monitor` with channel subscriptions
 - **Trust score**: violation-count formula (`Math.max(0, 100 - violationCount * 15)`) is already computed and persisted server-side in `ExamAttempt.trustScore` on submit (fixed 2026-06-25); this item is about revisiting whether that formula itself is the right one, not about wiring persistence (already done)
 - **Psychometrics**: replace random FI%/DI% in `teacher/items` with real answer-based calculation
 - **Worth considering alongside Phase 3**: RLS policies for `Question`/`ExamAttempt`/`Answer`/`Exam` (currently an accepted risk, see Current Status), and a human check of the camera-widget/Submit-button overlap (`QA_MANUAL.md`)
+phase#3
 
+AI creation of exam 
+ AI grading of essay/coding answers by claude 
+
+ 
+ face detection +double face detection+ tab switch detection + background noise detection + abnormal gaze detection + anything except face like mobile or notes etc detection 
+Live real-time monitoring by teacher
+Real psychometric stats 
 ---
 
 ## Demo Accounts (Supabase Auth)

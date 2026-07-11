@@ -1,15 +1,13 @@
 'use client';
 import { useEffect } from 'react';
 import { useProctoringStore } from '@/store/proctoringStore';
-import { logViolation } from '@/lib/data';
+import type { ProctoringEventBuffer } from '@/lib/proctoring/event-buffer';
 
 interface FullscreenGuardProps {
-  examId: string;
-  attemptId: string;
-  studentId: string;
+  buffer: ProctoringEventBuffer;
 }
 
-export function FullscreenGuard({ examId, attemptId, studentId }: FullscreenGuardProps) {
+export function FullscreenGuard({ buffer }: FullscreenGuardProps) {
   const { addViolation } = useProctoringStore();
 
   useEffect(() => {
@@ -23,14 +21,13 @@ export function FullscreenGuard({ examId, attemptId, studentId }: FullscreenGuar
 
     function handleFullscreenChange() {
       if (!document.fullscreenElement) {
-        addViolation({ type: 'fullscreen_exit', timestamp: new Date().toISOString(), description: 'Fullscreen exited' });
-        logViolation({
-          attemptId,
-          studentId,
-          examId,
+        const now = new Date().toISOString();
+        addViolation({ type: 'fullscreen_exit', timestamp: now, description: 'Fullscreen exited' });
+        buffer.emit({
           type: 'fullscreen_exit',
           severity: 'high',
-          timestamp: new Date().toISOString(),
+          confidence: 1,
+          timestamp: now,
           description: 'Student exited fullscreen mode',
         });
       }
@@ -43,7 +40,7 @@ export function FullscreenGuard({ examId, attemptId, studentId }: FullscreenGuar
         document.exitFullscreen().catch(() => {});
       }
     };
-  }, [examId, attemptId, studentId, addViolation]);
+  }, [buffer, addViolation]);
 
   return null;
 }

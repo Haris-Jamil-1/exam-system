@@ -21,6 +21,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Self-hosted third-party model runtimes (MediaPipe wasm loader JS) — not our code.
+    "public/models/**",
   ]),
 ]);
 

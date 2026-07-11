@@ -500,6 +500,14 @@ export default function ExamPage() {
               ) : (
                 <p className="text-sm text-muted-foreground italic">No special instructions provided for this exam.</p>
               )}
+              {exam.isProctoringEnabled && (
+                <p className="text-xs text-muted-foreground border-t pt-3">
+                  This exam is proctored: your camera and microphone are analyzed on your device to
+                  detect rule violations. Only violation events are recorded — no continuous video or
+                  audio is stored. A single camera snapshot may be saved as evidence for serious flags,
+                  and you will see an on-screen indicator whenever that happens.
+                </p>
+              )}
             </div>
             <Button onClick={handleStartExam} disabled={startingExam || (!isPooled && !isSectioned && questions.length === 0)} className="w-full" size="lg">
               {startingExam ? 'Starting…' : 'Start Exam'}
