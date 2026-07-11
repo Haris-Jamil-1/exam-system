@@ -2,6 +2,19 @@
 
 ## Session Log
 
+### 2026-07-11 — Phase 3 implementation ✅ (all 5 areas; architecture docs in `docs/phase3/`, progress log in `docs/phase3/IMPLEMENTATION_PROGRESS.md`)
+
+Implemented per the 6 architecture docs written earlier the same day (`docs/phase3/01–06`) under Haris's autonomous-kickoff prompt with 12 locked decisions. 8 commits, each independently verified (tsc / lint baseline / build / vitest — now 91 tests — plus 10 pytest fixtures for the stats service). **Live-server QA was impossible this session**: the local network blocks outbound Postgres ports (5432/6543), so the dev server can't reach the DB. All DDL was applied and row-level verified over HTTPS via the Supabase Management API (`scripts/mgmt-sql.sh`, reusable helper, CLI keychain token). A deferred live-QA checklist is in IMPLEMENTATION_PROGRESS.md — run it when pg egress returns.
+
+- **Proctoring (doc 01)**: real client-side detection replaces every mock — MediaPipe Face Landmarker (face count + coarse gaze via nose-cheek ratio + both-irises heuristic; adaptation: one runtime instead of face-api.js + MediaPipe), COCO-SSD phone/book/laptop on sampled frames, sustained-episode audio VAD; all models self-hosted in `public/models/` (~23MB, no external calls). `ProctoringEventBuffer` batches events (10s/20-event/immediate-high) to a batched `POST /api/violations` with server-side severity re-derivation, clientSeq idempotency, and a 30s heartbeat (`ProctoringHeartbeat`) that makes detector suppression visible. Trust score v2 (severity/duration/confidence-weighted, per-type caps) recomputed live on every ingest. Evidence per decision 1: snapshot only on multi-face/phone/sustained-no-face, private storage path, visible capture indicator (decision 3), 30-day purge cron, consent line on the instructions screen. Also fixed a pre-existing hole: students could write violations against other students' attemptIds (no ownership check).
+- **Live monitoring (doc 04)**: per-exam monitor now runs on Supabase Realtime (debounced refresh triggers; polling retained as fallback — 10s down/60s live, with a Live/Polling badge). Roster gains heartbeat-staleness "Disconnected" state, needs-attention sort, trust<60/high-severity flagging. The Phase-1 fake "live feed" (teacher's own camera!) is replaced by on-demand snapshots via a new `MonitorDirective` table (snapshot/warning/force_submit — one mechanism, doubles as the audit log of teacher actions). Force-submit: directive for live clients, `/api/monitor/force-finalize` for dead ones (finally closes the browser-died-mid-exam gap). Browser `Notification` for high-severity when tab hidden (decision 12; Web Push infra deferred per doc 04's scope valve).
+- **AI generation (doc 02)**: now async — 202 + `GenerationJob` row + Vercel background work (`after()`), polled via `/api/ai/jobs/[jobId]` with a 5-min staleness sweep. Real Claude call (`claude-sonnet-5` per doc 02 via one `AI_MODEL` env-overridable constant, structured output, zod-validated, retry≤2, injection-hardened source framing) with **mock fallback when `ANTHROPIC_API_KEY` is absent** — job records `model: 'mock'`. Dup detection both layers: 30 recent stems in-prompt + pg_trgm >0.6 → `ai-possible-duplicate` tag + badge. Decision 5: `Institution.aiMonthlyQuota` (default 1000) with atomic monthly counter and hard 429.
+- **AI grading (doc 03)**: two-stage completion — essay/coding answers enter `Answer.gradingStatus = pending_ai` at submit (both normal and sectioned routes), AI suggestions run in background, and **only teacher confirm/override ever writes marks** (decision 4, no auto-confirm). Append-only `AnswerGrading` log with per-event `rubricSnapshot` = the dispute trail (adaptation: JSON rubric on the question + snapshots, instead of a separate versioned Rubric entity; `gradingStatus` is the state machine instead of a GradingJob table). Essay: per-criterion scores with quoted evidence + injection flags. Coding: self-hosted Judge0 (`judge0/docker-compose.yml`, decision 7, `JUDGE0_URL` env) runs test cases, Claude reviews quality, combined 70/30 (per-question override); marks never awarded when the sandbox is unavailable. GradingPanel on the TCH-03 per-student page; minimal rubric editor (name | points | description lines) in Add Question for essays. AI unavailable in any way → answers stay pending for manual grading.
+- **Psychometrics (doc 05)**: `ItemAdministrationStat` (upsert per administration) + `ExamReliabilityStat` + `Question.sourceItemId` (stamped by both materialization paths — item-8 pooling and wizard fixed selection). New `psychometrics/` FastAPI service (decision 8; adaptation: pure-Python formulas, each validated against hand-computed pytest fixtures — no numpy needed at this scale): partial-credit facility index, pooled-aware corrected point-biserial, alpha/KR-20 (NULL for sparse pooled matrices, honestly), distractor quartiles, insufficientN<10 (decision 10), no IRT (decision 11). Triggers: nightly cron sweep + teacher on-demand recompute; both no-op without `PSYCHOMETRICS_URL`. The bank's FI%/DI% columns finally show real data.
+- **SEC-08 annotation (decision 2 — narrows, does not erase, the 2026-07-06 sign-off)**: RLS is now ENABLED on exactly 4 tables — `Violation`, `ExamAttempt`, `ProctoringHeartbeat`, `MonitorDirective` — with SELECT-only policies for `authenticated` (students see own rows, teachers/admins their institution), added to gate Supabase Realtime reads. No write policies (side effect: direct PostgREST writes to these 4 tables, previously possible under default grants, are now denied). Prisma is unaffected (connects as table owner; non-FORCE RLS). **The rest of the schema remains app-layer-only enforcement — SEC-08 otherwise stands as accepted.**
+- **New services to deploy when wanted** (app degrades gracefully without them): Judge0 (Docker, own host) and the psychometrics FastAPI container; plus env vars below.
+- **Known deferred items**: live end-to-end QA (network blocker; checklist in IMPLEMENTATION_PROGRESS.md), grading-queue badges on the results table, per-administration stats drill-down UI, `Item.reviewedById` stamping on approve, Web Push, cross-exam `teacher/monitor` overview page still polls.
+
 ### 2026-07-09 (cont'd) — Multi-section exam architecture (spec item 9) ✅ (final item — all 9 spec items now complete)
 
 The largest, most invasive item in the whole pass — touches the schema, the exam builder, the entire student exam-taking page, scoring, and both teacher-facing results pages. Built 100% additively on top of the existing non-sectioned flow: a normal exam has zero `ExamSection` rows and is unaffected end-to-end (same JSX, same `useExamTimer`, same question-locking mechanism), gated everywhere behind `isSectioned = sections.length > 0`.
@@ -137,7 +150,7 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 - **Phase 1** ✅ — Full mock UI across all 3 dashboards (2026-06-21)
 - **Phase 2** ✅ — Supabase Auth + Prisma DB + all API routes wired to real data (2026-06-25, commit `1cfda61`)
 - **Phase 2 hardening** ✅ **COMPLETE** — every P0/P1 finding from the 2026-07-03 QA audit is now fixed, independently verified against live prod DB, and either shipped or explicitly resolved with user sign-off (2026-07-06, see Session Log, both rounds). Cross-tenant IDOR gaps closed (SEC-01–04), exam time-window enforced server-side (SEC-07/STU-01/TIME-02), silent score truncation fixed (SCR-05), all mutating routes return clean JSON on malformed input (ERR-01/02), the 2 real production rows affected by the pre-06-25 scoring bug were recalculated and logged in `CORRECTIONS.md` (DAT-01), the per-question-marks-lost-on-reload bug is fixed (STU-03), a full per-student answer review pane now exists for teachers (TCH-03), and the `resultsPublishedAt` API-contract nit is fixed. Nothing from that audit remains open except the camera-widget overlap (user checking it themselves in a real browser — not code) and RLS/SEC-08 (accepted as a known risk, see below).
-- **Phase 3** — Not started yet, explicitly held pending a separate kickoff from the user. Next: AI grading, face detection, Supabase Realtime, psychometrics (see Phase 3 Next Steps below).
+- **Phase 3** ✅ **IMPLEMENTED** (2026-07-11) — real proctoring signals (MediaPipe/COCO-SSD/VAD, events-only), Realtime live monitoring with teacher actions, async AI item generation, AI-assisted grading with mandatory teacher confirmation (Judge0 for code), and real psychometrics (Python service). See the 2026-07-11 Session Log entry and `docs/phase3/IMPLEMENTATION_PROGRESS.md`. Live end-to-end QA deferred (session network blocked pg egress); deploy steps: set `ANTHROPIC_API_KEY` on Vercel, optionally stand up Judge0 + the psychometrics service.
 - **Post-Phase-2 gap-analysis pass (`requirements.md`'s 9 items)** ✅ **COMPLETE** (2026-07-09) — Student UI & time controls (items 1–4: pre-exam instructions, availability-vs-duration auto-submit, per-item timers, proctoring toggle), Item Bank RBAC + AI-generation decoupling (items 5–6), CLO-aware batch AI generation (item 7), stratified dynamic pooling (item 8), and multi-section exam architecture (item 9) are all implemented, unit-tested, and independently live-QA'd against the real dev server + live DB. See Session Log for full detail on each item, including the judgment calls made where the spec was silent (especially item 9's teacher-facing section-threshold-failure display and item 8's teacher-facing pooled-question review).
 
 **Pending manual action**: Supabase dashboard → Authentication → URL Configuration → set Site URL to `https://exam-system-sigma.vercel.app` and add it to Additional Redirect URLs (without this, invite emails redirect to localhost).
@@ -147,10 +160,11 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Build Status
-- `npm run build` → **PASSES** (0 errors, 51 routes)
+- `npm run build` → **PASSES** (0 errors, 69 routes)
 - `npm run lint` → 4 pre-existing baseline problems (3 errors/1 warning in `useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this gap-analysis pass, confirmed via `git stash` diff, not introduced by any fix here)
 - `npx tsc --noEmit` → clean
-- `npx vitest run` → 63/63 passing
+- `npx vitest run` → 91/91 passing (+ `pytest` 10/10 in `psychometrics/`)
+- Last verified: 2026-07-11 (Phase 3 implementation, all tracks)
 - Last verified: 2026-07-09 (multi-section exam architecture, item 9, final item of the gap-analysis pass)
 - Last verified: 2026-07-06 (QA_RESULTS.md priority fix pass, both rounds)
 - Live: https://exam-system-sigma.vercel.app
@@ -247,27 +261,29 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 | `/api/invites/token/[token]` | GET | Validate invite token (public) |
 | `/api/users/me` | GET, PATCH | Current user profile |
 | `/api/upload` | POST | Supabase Storage upload (bucket: `exam-uploads`); accepts pdf, doc, docx, md, txt, etc. |
-| `/api/ai/generate-questions` | POST | AI question generation (mock) |
+| `/api/ai/generate-questions` | POST | Async AI generation → 202 {jobId} (real Claude or mock fallback) |
+| `/api/ai/jobs/[jobId]` | GET | Generation job status polling |
+| `/api/grading/answers/[answerId]` | POST | Teacher confirm/override/regrade an AI-graded answer |
+| `/api/monitor/directives` | GET, POST | Teacher monitor actions (snapshot/warning/force-submit) + student fallback poll |
+| `/api/monitor/directives/[id]` | PATCH | Student fulfils a directive |
+| `/api/monitor/force-finalize` | POST | Server-side finalization of a dead attempt |
+| `/api/evidence` | GET | Signed URL for violation/directive evidence (teacher-scoped) |
+| `/api/psychometrics/recompute` | POST | On-demand stat run for one exam |
+| `/api/cron/purge-evidence` | GET | Daily 30-day evidence retention purge |
+| `/api/cron/psychometrics` | GET | Nightly stats sweep |
 
 ---
 
-## Phase 3 Next Steps
-Not started — awaiting a separate kickoff from the user (Phase 2 hardening is fully closed as of 2026-07-06, nothing carried over).
-- **AI graing**: `POST /api/grade` via Claude API (`claude-sonnet-4-6`) for essay + coding questions
-- **Face detection**: replace `FaceDetector.tsx` mock with `face-api.js` (load models from `/public/models/`)
-- **Supabase Realtime**: replace 10s polling in `teacher/monitor` with channel subscriptions
-- **Trust score**: violation-count formula (`Math.max(0, 100 - violationCount * 15)`) is already computed and persisted server-side in `ExamAttempt.trustScore` on submit (fixed 2026-06-25); this item is about revisiting whether that formula itself is the right one, not about wiring persistence (already done)
-- **Psychometrics**: replace random FI%/DI% in `teacher/items` with real answer-based calculation
-- **Worth considering alongside Phase 3**: RLS policies for `Question`/`ExamAttempt`/`Answer`/`Exam` (currently an accepted risk, see Current Status), and a human check of the camera-widget/Submit-button overlap (`QA_MANUAL.md`)
-phase#3
+## Phase 3 Status — IMPLEMENTED 2026-07-11 ✅
+All five areas from Haris's kickoff list are implemented (see the 2026-07-11 Session Log entry and `docs/phase3/IMPLEMENTATION_PROGRESS.md`):
+- **AI creation of exam** → async, quota-capped, dedup-checked item generation into banks (real Claude when `ANTHROPIC_API_KEY` set, mock fallback otherwise)
+- **AI grading of essay/coding by Claude** → suggestion + mandatory teacher confirmation; Judge0 sandbox for code execution
+- **Face / double-face / tab-switch / background-noise / abnormal-gaze / prohibited-object detection** → real client-side models (MediaPipe + COCO-SSD + VAD), episode-based, events-only (no raw media)
+- **Live real-time monitoring by teacher** → Supabase Realtime + on-demand snapshots + warnings + force-submit
+- **Real psychometric stats** → `psychometrics/` FastAPI service, per-administration versioned stats, real FI/DI in the bank
 
-AI creation of exam 
- AI grading of essay/coding answers by claude 
+Deferred (tracked in IMPLEMENTATION_PROGRESS.md): live end-to-end QA (network blocked pg egress this session), grading-queue badges on results table, per-administration stats drill-down UI, Web Push, camera-widget overlap human check (`QA_MANUAL.md`).
 
- 
- face detection +double face detection+ tab switch detection + background noise detection + abnormal gaze detection + anything except face like mobile or notes etc detection 
-Live real-time monitoring by teacher
-Real psychometric stats 
 ---
 
 ## Demo Accounts (Supabase Auth)
@@ -287,5 +303,10 @@ SUPABASE_SECRET_KEY
 NEXT_PUBLIC_APP_URL=https://exam-system-sigma.vercel.app
 DATABASE_URL          # pgBouncer — port 6543
 DIRECT_URL            # direct connection — port 5432 (used by prisma db push)
-ANTHROPIC_API_KEY     # Phase 3 only
+ANTHROPIC_API_KEY     # Phase 3 — enables real AI generation + grading (mock/manual fallback without it)
+AI_MODEL              # optional — overrides the default claude-sonnet-5 for generation/grading
+CRON_SECRET           # optional — protects /api/cron/* routes (Vercel sends it automatically when set)
+JUDGE0_URL            # Phase 3 — self-hosted Judge0 (judge0/docker-compose.yml); unset = coding answers graded manually
+PSYCHOMETRICS_URL     # Phase 3 — psychometrics FastAPI service (psychometrics/); unset = stats stay at last computed values
+PSYCHOMETRICS_SECRET  # shared secret with the psychometrics service (X-Service-Key)
 ```
