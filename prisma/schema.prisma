@@ -105,6 +105,12 @@ enum ItemBankPermissionRole {
   viewer
 }
 
+enum ClassInviteStatus {
+  pending
+  accepted
+  expired
+}
+
 // ── Models ───────────────────────────────────────────────────────────────────
 
 model Institution {
@@ -131,6 +137,7 @@ model Institution {
   items     Item[]
   courses   Course[]
   itemBanks ItemBank[]
+  classes   Class[]
 }
 
 model User {
@@ -163,6 +170,9 @@ model User {
   monitorDirectives   MonitorDirective[]
   generationJobs      GenerationJob[]
   answerGradings      AnswerGrading[] @relation("AnswerGrader")
+  classes             Class[]           @relation("ClassTeacher")
+  classInvitesSent    ClassInvite[]     @relation("ClassInvitedBy")
+  classEnrollments    ClassEnrollment[] @relation("ClassEnrollmentStudent")
 
   @@index([institutionId])
   @@index([institutionId, role])
@@ -194,6 +204,65 @@ model InviteToken {
   createdAt     DateTime  @default(now())
 
   invitedBy User @relation("InvitedBy", fields: [invitedById], references: [id])
+}
+
+model Class {
+  id            String    @id @default(cuid())
+  name          String
+  teacherId     String
+  institutionId String
+  createdAt     DateTime  @default(now())
+  archivedAt    DateTime?
+
+  teacher     User              @relation("ClassTeacher", fields: [teacherId], references: [id])
+  institution Institution       @relation(fields: [institutionId], references: [id])
+  invites     ClassInvite[]
+  enrollments ClassEnrollment[]
+
+  @@index([teacherId])
+  @@index([institutionId])
+}
+
+model ClassInvite {
+  id          String            @id @default(cuid())
+  classId     String
+  email       String
+  status      ClassInviteStatus @default(pending)
+  token       String            @unique @default(cuid())
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime          @default(now())
+
+  class     Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+  invitedBy User  @relation("ClassInvitedBy", fields: [invitedById], references: [id])
+
+  @@index([classId])
+  @@index([email])
+}
+
+model ClassEnrollment {
+  id        String   @id @default(cuid())
+  classId   String
+  studentId String
+  joinedAt  DateTime @default(now())
+
+  class   Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+  student User  @relation("ClassEnrollmentStudent", fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([classId, studentId])
+  @@index([studentId])
+}
+
+// Rate-limit log for password-reset requests (per email — spec asks for
+// per-email throttling only, not per-IP). Checked/appended by
+// POST /api/auth/forgot-password before calling Supabase.
+model PasswordResetAttempt {
+  id        String   @id @default(cuid())
+  email     String
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
 }
 
 model Exam {

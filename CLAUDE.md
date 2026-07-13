@@ -2,6 +2,18 @@
 
 ## Session Log
 
+### 2026-07-14 — Password reset rework, Classes/ClassInvite/ClassEnrollment, admin deactivation ✅
+
+Four-part spec, each area independently verified against the live prod DB (schema DDL + RLS applied via `scripts/mgmt-sql.sh` — `DIRECT_URL`:5432 is blocked again this session, but `DATABASE_URL`:6543/pgBouncer is reachable, **a new finding**: the app itself (`lib/prisma.ts`) always connects via `DATABASE_URL`, so `npm run dev` works fully against the live DB even when direct Prisma CLI calls need the pooler override — unblocks real Playwright-driven QA that prior sessions couldn't do). 120/120 vitest green (29 new).
+
+- **Password reset** — moved off the earlier same-session `/forgot-password`+`/reset-password` pages to `/auth/forgot-password` + `/auth/reset-password` per spec (both under a new `src/app/auth/layout.tsx`, harmless for the sibling `/auth/callback` route handler). New `PasswordResetAttempt` log + `POST /api/auth/forgot-password` enforces per-email rate limiting (3/15min, `isRateLimited` in `class-permissions.ts`) before calling `resetPasswordForEmail` server-side (moved off the client to make the limit enforceable). `/auth/callback` now honors a same-site-only `next` param and redirects a failed/expired code-exchange to `/auth/reset-password?error=expired` instead of the generic login error, so `reset-password`'s server component can render a clear expired/invalid state distinct from the working form.
+- **Class / ClassInvite / ClassEnrollment** (new models) — one teacher → many `Class` rows; invite/accept deliberately reuses the *existing* `InviteToken`/`/invite/[token]` pattern's proven shape (token → public validate route → accept route creates-or-links the Supabase+Prisma account) rather than a new mechanism, layered as its own self-contained model per spec. Bulk invite (`parseBulkEmails` — comma/newline, deduped, invalid dropped) branches per email: an existing student in the same institution gets enrolled only once already authenticated as that exact account (`/classes/join/[token]`'s `needs_login` state sends them to `/login?redirect=...` instead of ever resetting their password); a brand-new email gets the same Supabase-admin-createUser signup form `/invite/[token]` already uses. `teacher/classes` (list+create) and `teacher/classes/[classId]` (roster, invite dialog, invite-status list) are new pages; nav + i18n (`nav.classes`) added.
+- **Removal / deactivation RBAC** — `src/lib/class-permissions.ts` (pure, mirrors `item-bank-permissions.ts`): `canManageClass`/`canRemoveEnrollment` (teacher-owns-class OR institution admin, cross-tenant hard-denied), `canDeactivateUser` (institution admin only, never another admin, never a super admin, never self — separate from and narrower than the Super Admin panel's own `/api/super/suspend`, same `User.suspendedAt` flag). Teacher roster removal deletes only the `ClassEnrollment` row (`window.confirm`, matching this codebase's existing delete-confirmation convention — no new dialog component). Admin deactivation (`setUserSuspension` in `lib/data/users.ts`, wired into `admin/teachers` and `admin/users`) cascades by archiving (not deleting) the teacher's classes; enrollment history and exams are untouched.
+- **RLS** — `Class`/`ClassInvite`/`ClassEnrollment` get the same SELECT-only, `authenticated`-role policy shape as the 4 tables from 2026-07-11 (narrows SEC-08 further; confirmed live via `pg_policies`).
+- **Bug found via live QA, fixed (not scope creep — this is the exact mechanism the deactivation feature depends on)**: `GET/PATCH /api/users/me` reimplemented its own auth check with a bare `supabase.auth.getUser()` instead of `getAuthUser()`, so a just-deactivated user's session-bootstrap call kept succeeding — the suspension had no effect on the one endpoint every login calls first. Fixed by routing both handlers through `getAuthUser()`.
+- **Known pre-existing, unrelated bug surfaced (not fixed, out of scope)**: `DashboardShell`'s avatar-initials computation reads `localStorage` client-side, causing a real SSR/client hydration mismatch on every dashboard page (not introduced this session — confirmed via `git stash`). It doesn't corrupt any mutation (server actions still complete correctly, verified via direct API calls alongside the UI-driven ones in QA), but it does cause React to discard and remount the page's component tree after the mismatch, which made pure UI-click-only QA assertions flaky. Worth a follow-up pass.
+- **Verification**: `tsc`/`lint` (3-error/1-warning baseline, unchanged) / `build` (74 routes) all clean · `vitest` 120/120 · disposable, self-cleaning Playwright + Prisma script against the live dev server + live DB (two throwaway institutions, admin/2 teachers/2 students) covering class creation, bulk invite → both accept paths, enrollment removal (teacher-owned and cross-tenant-denied), admin deactivation cascade, and the rate-limit 429 boundary — all passed, all QA data cleaned up afterward.
+
 ### 2026-07-12 — Phase 3 follow-up: hosted Judge0, Vercel Python psychometrics, Master Admin Panel ✅
 
 Three follow-up tasks (progress: `docs/phase3/FOLLOWUP_PROGRESS.md`), each committed separately, 91/91 vitest + 10/10 pytest green throughout:
@@ -154,6 +166,7 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Current Status
+- **Classes + password-reset rework + admin deactivation** ✅ **COMPLETE** (2026-07-14) — `Class`/`ClassInvite`/`ClassEnrollment` models with per-class bulk student invites (reusing the existing `InviteToken` accept-flow pattern), teacher roster removal, institution-admin account deactivation (cascades to archiving the teacher's classes), RLS on all 3 new tables, and password reset moved to `/auth/forgot-password`+`/auth/reset-password` with per-email rate limiting and explicit expired-link states. See Session Log for the `/api/users/me` suspension-bypass bug found and fixed along the way.
 - **Phase 1** ✅ — Full mock UI across all 3 dashboards (2026-06-21)
 - **Phase 2** ✅ — Supabase Auth + Prisma DB + all API routes wired to real data (2026-06-25, commit `1cfda61`)
 - **Phase 2 hardening** ✅ **COMPLETE** — every P0/P1 finding from the 2026-07-03 QA audit is now fixed, independently verified against live prod DB, and either shipped or explicitly resolved with user sign-off (2026-07-06, see Session Log, both rounds). Cross-tenant IDOR gaps closed (SEC-01–04), exam time-window enforced server-side (SEC-07/STU-01/TIME-02), silent score truncation fixed (SCR-05), all mutating routes return clean JSON on malformed input (ERR-01/02), the 2 real production rows affected by the pre-06-25 scoring bug were recalculated and logged in `CORRECTIONS.md` (DAT-01), the per-question-marks-lost-on-reload bug is fixed (STU-03), a full per-student answer review pane now exists for teachers (TCH-03), and the `resultsPublishedAt` API-contract nit is fixed. Nothing from that audit remains open except the camera-widget overlap (user checking it themselves in a real browser — not code) and RLS/SEC-08 (accepted as a known risk, see below).
@@ -167,10 +180,11 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Build Status
-- `npm run build` → **PASSES** (0 errors, 69 routes)
-- `npm run lint` → 4 pre-existing baseline problems (3 errors/1 warning in `useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this gap-analysis pass, confirmed via `git stash` diff, not introduced by any fix here)
+- `npm run build` → **PASSES** (0 errors, 74 routes)
+- `npm run lint` → 4 pre-existing baseline problems (3 errors/1 warning in `useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff)
 - `npx tsc --noEmit` → clean
-- `npx vitest run` → 91/91 passing (+ `pytest` 10/10 in `psychometrics/`)
+- `npx vitest run` → 120/120 passing (+ `pytest` 10/10 in `psychometrics/`)
+- Last verified: 2026-07-14 (Classes/ClassInvite/ClassEnrollment, password-reset rework, admin deactivation)
 - Last verified: 2026-07-11 (Phase 3 implementation, all tracks)
 - Last verified: 2026-07-09 (multi-section exam architecture, item 9, final item of the gap-analysis pass)
 - Last verified: 2026-07-06 (QA_RESULTS.md priority fix pass, both rounds)
@@ -235,6 +249,9 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 | `/invite/[token]` | Invite acceptance page |
 | `/invite/setup` | Name entry for newly invited users |
 | `/auth/callback` | Supabase OAuth / magic-link handler |
+| `/auth/forgot-password` | Request a password reset email |
+| `/auth/reset-password` | Set a new password (valid recovery session only) |
+| `/classes/join/[token]` | Class invite acceptance page |
 
 ### Exam-Taking (no dashboard shell, desktop-only)
 | Route | Description |
@@ -246,7 +263,7 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 `/admin` · `/admin/teachers` · `/admin/exams` · `/admin/items` · `/admin/analytics` · `/admin/settings` · `/admin/institutions` · `/admin/users` · `/admin/curriculum`
 
 ### Teacher (`/teacher/*`)
-`/teacher` · `/teacher/exams` · `/teacher/exams/new` · `/teacher/exams/[id]/edit` · `/teacher/exams/[id]/monitor` · `/teacher/exams/[id]/results` · `/teacher/items` · `/teacher/items/new` · `/teacher/monitor` · `/teacher/students` · `/teacher/analytics` · `/teacher/settings`
+`/teacher` · `/teacher/exams` · `/teacher/exams/new` · `/teacher/exams/[id]/edit` · `/teacher/exams/[id]/monitor` · `/teacher/exams/[id]/results` · `/teacher/items` · `/teacher/items/new` · `/teacher/classes` · `/teacher/classes/[id]` · `/teacher/monitor` · `/teacher/students` · `/teacher/analytics` · `/teacher/settings`
 
 ### Student (`/student/*`)
 `/student` · `/student/exams` · `/student/results` · `/student/settings`
@@ -266,6 +283,15 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 | `/api/notifications` | GET | Real notifications derived from DB (violations, pending exams, invites); polled every 30s |
 | `/api/invites` | POST | Send Supabase invite email |
 | `/api/invites/token/[token]` | GET | Validate invite token (public) |
+| `/api/auth/forgot-password` | POST | Request password reset (rate-limited per email, public) |
+| `/api/classes` | GET, POST | List / create classes (teacher; admin sees institution-wide) |
+| `/api/classes/[classId]` | GET, PATCH | Single class; rename / archive |
+| `/api/classes/[classId]/enrollments` | GET | List a class's roster |
+| `/api/classes/[classId]/enrollments/[studentId]` | DELETE | Remove a student from a class (enrollment only, not the account) |
+| `/api/classes/[classId]/invites` | GET, POST | List / bulk-send class invites |
+| `/api/class-invites/token/[token]` | GET | Validate a class invite token (public) |
+| `/api/class-invites/accept/[token]` | POST | Accept a class invite — creates the account if new, else requires the caller already be signed in as that account (public) |
+| `/api/users/[userId]` | PATCH | Admin deactivate/reactivate a teacher or student in their own institution |
 | `/api/users/me` | GET, PATCH | Current user profile |
 | `/api/upload` | POST | Supabase Storage upload (bucket: `exam-uploads`); accepts pdf, doc, docx, md, txt, etc. |
 | `/api/ai/generate-questions` | POST | Async AI generation → 202 {jobId} (real Claude or mock fallback) |

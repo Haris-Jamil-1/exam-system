@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
-const PUBLIC_PREFIXES = ['/', '/login', '/register', '/invite', '/api', '/_next', '/favicon', '/auth'];
+const PUBLIC_PREFIXES = ['/', '/login', '/register', '/invite', '/classes/join', '/api', '/_next', '/favicon', '/auth'];
 
 const ROLE_PATHS: Record<string, string[]> = {
   admin:   ['/admin'],

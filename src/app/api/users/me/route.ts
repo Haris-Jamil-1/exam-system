@@ -1,14 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
-import { withErrorHandling } from '@/lib/api-auth';
-
-async function getSupabaseUser() {
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  return error || !user ? null : user;
-}
+import { getAuthUser, unauthorized, withErrorHandling } from '@/lib/api-auth';
 
 function userResponse(u: { id: string; name: string; email: string; role: string; institutionId: string; avatarUrl: string | null }) {
   return NextResponse.json({
@@ -19,13 +12,12 @@ function userResponse(u: { id: string; name: string; email: string; role: string
 }
 
 export async function GET() {
-  const user = await getSupabaseUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const prismaUser = await prisma.user.findUnique({ where: { supabaseId: user.id } });
-  if (!prismaUser) return NextResponse.json({ error: 'User not found' }, { status: 404 });
-
-  return userResponse(prismaUser);
+  // getAuthUser() (not a bare supabase.auth.getUser() check) is what applies the suspendedAt
+  // gate — a deactivated user's session-bootstrap call must fail here too, not just on routes
+  // that happen to use it already.
+  const user = await getAuthUser();
+  if (!user) return unauthorized();
+  return userResponse(user);
 }
 
 const patchSchema = z.object({
@@ -34,8 +26,8 @@ const patchSchema = z.object({
 });
 
 export const PATCH = withErrorHandling(async (request: Request) => {
-  const user = await getSupabaseUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = await getAuthUser();
+  if (!user) return unauthorized();
 
   const body = await request.json();
   const parsed = patchSchema.safeParse(body);
@@ -44,7 +36,7 @@ export const PATCH = withErrorHandling(async (request: Request) => {
   }
 
   const prismaUser = await prisma.user.update({
-    where: { supabaseId: user.id },
+    where: { id: user.id },
     data: {
       ...(parsed.data.name && { name: parsed.data.name }),
       ...(parsed.data.avatarUrl && { avatarUrl: parsed.data.avatarUrl }),

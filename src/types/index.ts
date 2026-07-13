@@ -7,6 +7,7 @@ export interface CurrentUser {
   role: Role;
   institutionId: string;
   avatarUrl?: string;
+  suspendedAt?: string;
 }
 
 export interface Institution {
@@ -251,6 +252,38 @@ export interface ItemBankCollaborator {
   userEmail: string;
   permissionRole: ItemBankPermissionRole;
   assignedById: string;
+  createdAt: string;
+}
+
+export type ClassInviteStatus = 'pending' | 'accepted' | 'expired';
+
+export interface ClassSummary {
+  id: string;
+  name: string;
+  teacherId: string;
+  institutionId: string;
+  createdAt: string;
+  archivedAt?: string;
+  studentCount: number;
+}
+
+export interface ClassEnrollmentSummary {
+  id: string;
+  studentId: string;
+  studentName: string;
+  studentEmail: string;
+  studentAvatarUrl?: string;
+  joinedAt: string;
+}
+
+export interface ClassInviteSummary {
+  id: string;
+  classId: string;
+  email: string;
+  status: ClassInviteStatus;
+  invitedById: string;
+  expiresAt: string;
+  acceptedAt?: string;
   createdAt: string;
 }
 

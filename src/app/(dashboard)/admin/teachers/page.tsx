@@ -1,11 +1,14 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { getTeachersList, getMyInstitution } from '@/lib/data';
+import { getTeachersList, getMyInstitution, setUserSuspension } from '@/lib/data';
 import {
   UserPlus, Copy, Check, X, Mail, MoreHorizontal,
   GraduationCap, FileText, Users, ExternalLink,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const DEPT_COLOR: Record<string, string> = {
   'Computer Science': '#1E88E5',
@@ -17,7 +20,7 @@ const DEPT_COLOR: Record<string, string> = {
 
 type Teacher = {
   id: string; name: string; email: string; department: string;
-  exams: number; students: number; status: 'active' | 'invited';
+  exams: number; students: number; status: 'active' | 'invited' | 'suspended';
 };
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://exam-system-sigma.vercel.app';
@@ -32,8 +35,9 @@ export default function AdminTeachersPage() {
   const [emailInput, setEmailInput]     = useState('');
   const [sentEmails, setSentEmails]     = useState<string[]>([]);
   const [inviteError, setInviteError]   = useState('');
+  const [busyId, setBusyId]             = useState<string | null>(null);
 
-  useEffect(() => {
+  function refresh() {
     Promise.all([getTeachersList(), getMyInstitution()]).then(([t, inst]) => {
       setTeachers(t as Teacher[]);
       if (inst) {
@@ -41,7 +45,23 @@ export default function AdminTeachersPage() {
         setInviteLink(`${APP_URL}/register?institution=${inst.id}`);
       }
     });
-  }, []);
+  }
+
+  useEffect(refresh, []);
+
+  async function handleToggleSuspend(teacher: Teacher) {
+    const suspend = teacher.status !== 'suspended';
+    if (!confirm(`${suspend ? 'Deactivate' : 'Reactivate'} ${teacher.name}'s account?${suspend ? ' Their classes will be archived.' : ''}`)) return;
+    setBusyId(teacher.id);
+    try {
+      const updated = await setUserSuspension(teacher.id, suspend);
+      if (updated) {
+        setTeachers(prev => prev.map(t => t.id === teacher.id ? { ...t, status: suspend ? 'suspended' : 'active' } : t));
+      }
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   function copyLink() {
     navigator.clipboard.writeText(inviteLink).catch(() => {});
@@ -197,6 +217,9 @@ export default function AdminTeachersPage() {
                     {teacher.status === 'active' && (
                       <span className="rounded-full bg-emerald-50 border border-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-600">Active</span>
                     )}
+                    {teacher.status === 'suspended' && (
+                      <span className="rounded-full bg-red-50 border border-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-600">Suspended</span>
+                    )}
                   </div>
                   <p className="text-[12px] text-[#9CA3AF]">{teacher.email}</p>
                   <p className="text-[11px] text-[#C4C9D4]">{teacher.department}</p>
@@ -213,9 +236,24 @@ export default function AdminTeachersPage() {
                     </span>
                   </div>
                 </div>
-                <button className="rounded-lg p-1.5 text-[#9CA3AF] hover:bg-[#F4F7FC] hover:text-[#1A1D23]">
-                  <MoreHorizontal className="h-4 w-4" />
-                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      disabled={busyId === teacher.id}
+                      className="rounded-lg p-1.5 text-[#9CA3AF] hover:bg-[#F4F7FC] hover:text-[#1A1D23]"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={() => handleToggleSuspend(teacher)}
+                      className={teacher.status === 'suspended' ? '' : 'text-red-600 focus:text-red-600'}
+                    >
+                      {teacher.status === 'suspended' ? 'Reactivate Account' : 'Deactivate Account'}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </li>
             );
           })}

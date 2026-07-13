@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,8 +23,15 @@ function persistSession(user: CurrentUser) {
   document.cookie = `exam_role=${user.role}; path=/; max-age=86400`;
 }
 
+// Only a same-site relative path is ever honored — never forward `redirect` verbatim.
+function safeRedirect(target: string | null): string | null {
+  if (!target || !target.startsWith('/') || target.startsWith('//')) return null;
+  return target;
+}
+
 export function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [error, setError] = useState('');
   const {
     register,
@@ -56,7 +63,7 @@ export function LoginForm() {
 
     const user = (await res.json()) as CurrentUser;
     persistSession(user);
-    router.push(`/${user.role}`);
+    router.push(safeRedirect(searchParams.get('redirect')) ?? `/${user.role}`);
     router.refresh();
   }
 

@@ -9,3 +9,4 @@ export * from './curriculum';
 export * from './item-banks';
 export * from './pooling';
 export * from './sections';
+export * from './classes';

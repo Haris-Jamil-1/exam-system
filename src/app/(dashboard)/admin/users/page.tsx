@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { getAllUsers, getMyInstitution } from '@/lib/data';
+import { getAllUsers, getMyInstitution, setUserSuspension } from '@/lib/data';
 import type { CurrentUser, Role } from '@/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +18,7 @@ export default function UsersPage() {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [instFilter, setInstFilter] = useState('all');
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([getAllUsers(), getMyInstitution()]).then(([u, inst]) => {
@@ -25,6 +26,18 @@ export default function UsersPage() {
       if (inst) setInstitution({ id: inst.id, name: inst.name });
     });
   }, []);
+
+  async function handleToggleSuspend(user: CurrentUser) {
+    const suspend = !user.suspendedAt;
+    if (!confirm(`${suspend ? 'Deactivate' : 'Reactivate'} ${user.name}'s account?`)) return;
+    setBusyId(user.id);
+    try {
+      const updated = await setUserSuspension(user.id, suspend);
+      if (updated) setUsers(prev => prev.map(u => u.id === user.id ? updated : u));
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   const filtered = users.filter(u => {
     const matchSearch = u.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -100,17 +113,31 @@ export default function UsersPage() {
                     </td>
                     <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">{user.email}</td>
                     <td className="px-4 py-3">
-                      <Badge variant={ROLE_VARIANTS[user.role] as 'danger' | 'info' | 'secondary'} className="capitalize text-xs">
-                        {user.role}
-                      </Badge>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <Badge variant={ROLE_VARIANTS[user.role] as 'danger' | 'info' | 'secondary'} className="capitalize text-xs">
+                          {user.role}
+                        </Badge>
+                        {user.suspendedAt && (
+                          <Badge variant="destructive" className="text-xs">Suspended</Badge>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">
                       {inst?.name ?? '—'}
                     </td>
                     <td className="px-4 py-3 text-end">
                       <div className="flex justify-end gap-1">
-                        <Button size="sm" variant="outline">View</Button>
-                        <Button size="sm" variant="outline" className="text-red-500">Suspend</Button>
+                        {user.role !== 'admin' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className={user.suspendedAt ? '' : 'text-red-500'}
+                            disabled={busyId === user.id}
+                            onClick={() => handleToggleSuspend(user)}
+                          >
+                            {user.suspendedAt ? 'Reactivate' : 'Deactivate'}
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>

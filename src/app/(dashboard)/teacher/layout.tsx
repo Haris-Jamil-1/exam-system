@@ -1,5 +1,5 @@
 'use client';
-import { LayoutDashboard, FileText, Library, Activity, Users, BarChart3, Settings } from 'lucide-react';
+import { LayoutDashboard, FileText, Library, Activity, Users, GraduationCap, BarChart3, Settings } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { DashboardShell, type NavItem, type DashboardUser } from '@/components/shared/DashboardShell';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -19,6 +19,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
     { label: t('dashboard'), href: '/teacher', icon: LayoutDashboard },
     { label: t('exams'), href: '/teacher/exams', icon: FileText },
     { label: t('items'), href: '/teacher/items', icon: Library },
+    { label: t('classes'), href: '/teacher/classes', icon: GraduationCap },
     { label: t('monitor'), href: '/teacher/monitor', icon: Activity },
     { label: t('students'), href: '/teacher/students', icon: Users },
     { label: t('analytics'), href: '/teacher/analytics', icon: BarChart3 },

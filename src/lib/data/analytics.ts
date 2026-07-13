@@ -335,7 +335,7 @@ export async function getTeachersList() {
     department: t.department ?? '—',
     exams: t._count.exams,
     students: studentCounts[i],
-    status: 'active' as const,
+    status: (t.suspendedAt ? 'suspended' : 'active') as 'active' | 'suspended',
   }));
 }
 

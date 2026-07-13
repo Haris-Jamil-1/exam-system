@@ -6,12 +6,20 @@ export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
   const inviteTokenId = searchParams.get('invite');
+  const next = searchParams.get('next');
 
   if (code) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
+      // Password-recovery link: land on the reset-password screen, skipping the
+      // normal new-user/role redirect logic below (there's no dashboard to enter yet).
+      // Only allow a same-site relative path — never forward `next` verbatim into a redirect.
+      if (next && next.startsWith('/') && !next.startsWith('//')) {
+        return NextResponse.redirect(`${origin}${next}`);
+      }
+
       const { data: { user } } = await supabase.auth.getUser();
 
       if (user) {
@@ -52,6 +60,13 @@ export async function GET(request: NextRequest) {
         return NextResponse.redirect(`${origin}${redirectTo}`);
       }
     }
+  }
+
+  // Exchange failed (expired/already-used link) — if this was a password-recovery attempt,
+  // land back on the reset-password screen with an actionable message instead of the generic
+  // login error, so the user isn't stuck looking at a broken form.
+  if (next && next.startsWith('/') && !next.startsWith('//')) {
+    return NextResponse.redirect(`${origin}${next}?error=expired`);
   }
 
   return NextResponse.redirect(`${origin}/login?error=auth_callback_failed`);
