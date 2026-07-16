@@ -6,6 +6,7 @@ import { runGradingForAttempt } from '@/lib/ai/grading';
 import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } from '@/lib/api-auth';
 import { scoreAnswers } from '@/lib/scoring';
 import { computeTrustScore, type TrustScoreInput } from '@/lib/trust-score';
+import { computeSubmissionDeadline, isPastDeadline } from '@/lib/exam-deadline';
 import type { Question } from '@/types';
 
 const submitSchema = z.object({
@@ -82,10 +83,8 @@ export const POST = withErrorHandling(async (
   // reflects reality even if the client's own timer never fired.
   let status: 'submitted' | 'auto_submitted' = 'submitted';
   if (exam) {
-    const durationDeadlineMs = attempt.startedAt.getTime() + exam.duration * 60_000;
-    const deadlineMs = Math.min(durationDeadlineMs, exam.endTime.getTime());
-    const GRACE_MS = 5000; // network/client-timer latency allowance
-    if (Date.now() > deadlineMs + GRACE_MS) status = 'auto_submitted';
+    const deadline = computeSubmissionDeadline(attempt.startedAt, exam.duration, exam.endTime);
+    if (isPastDeadline(deadline, new Date())) status = 'auto_submitted';
   }
 
   // Two-stage completion (Phase 3, doc 03): deterministic types are scored

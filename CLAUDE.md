@@ -2,6 +2,38 @@
 
 ## Session Log
 
+### 2026-07-16 — Phase 5 spec audit: found already-complete, closed one test gap ✅
+
+A "Phase 5" spec landed asking for pre-exam instructions, availability-vs-duration auto-submit,
+per-item timers, and an optional proctoring toggle — nearly verbatim the 2026-07-09 session's spec
+items 1–4. Verified rather than assumed: read the schema, the student exam page, the submit route,
+and the wizard/edit UI, and confirmed live against Supabase (`rlbtdpnmdnaxlccelxdr`) that every
+field (`Exam.instructions`/`isProctoringEnabled`/`startTime`/`endTime`/`duration`,
+`Question.timeLimitSeconds`, `Item.timeLimitSeconds`) already exists in prod and the code paths
+described in the 2026-07-09 entry are all real. No feature code changed.
+
+- Closed the one genuine gap: the deadline math (whichever of duration-from-start or `endTime` comes
+  first) lived only as inline route code, exercised by manual QA, never as a directly unit-tested
+  function. Extracted to `src/lib/exam-deadline.ts` (`computeSubmissionDeadline`/`isPastDeadline`,
+  pure refactor, no behavior change) with 7 new tests covering both trigger paths independently —
+  including the spec's own worked example (60-min duration, closes 12:00, starts 11:30 → deadline
+  12:00, not 12:30).
+- **Explicitly declined, not overlooked**: adding a cron to proactively force-submit attempts whose
+  client died mid-exam. `POST /api/monitor/force-finalize` already exists for this and its own
+  comment states the design intent — dead attempts have no server-side answer record (no autosave;
+  answers live client-side until the final submit POST), so auto-finalizing can only score 0.
+  Automating that would reverse a deliberate Phase 3 decision ("a second, explicit teacher action,
+  never automatic"), not fix a bug — left for Haris to decide, not made unilaterally.
+- Live-verified the two auto-submit trigger paths against the real `submit` route (not just the
+  extracted unit) via a disposable Prisma + real-browser-login Playwright script: duration-expires-
+  first, endTime-expires-first (the spec's example), and neither-expired — all three matched
+  expected `submitted`/`auto_submitted` status. All QA rows confirmed deleted afterward.
+- Confirmed `Exam`/`Question`/`Item` still have `rowsecurity = false`, zero policies — consistent
+  with the standing SEC-08 accepted risk; nothing to add since no new tables/fields this pass.
+- Full detail in `PHASE_5_PROGRESS.md`.
+- **Verification**: `tsc` clean · `lint` at the unchanged 3-error/1-warning baseline · `build` 74
+  routes · `vitest` 127/127 (120 baseline + 7 new).
+
 ### 2026-07-14 — Password reset rework, Classes/ClassInvite/ClassEnrollment, admin deactivation ✅
 
 Four-part spec, each area independently verified against the live prod DB (schema DDL + RLS applied via `scripts/mgmt-sql.sh` — `DIRECT_URL`:5432 is blocked again this session, but `DATABASE_URL`:6543/pgBouncer is reachable, **a new finding**: the app itself (`lib/prisma.ts`) always connects via `DATABASE_URL`, so `npm run dev` works fully against the live DB even when direct Prisma CLI calls need the pooler override — unblocks real Playwright-driven QA that prior sessions couldn't do). 120/120 vitest green (29 new).
@@ -166,6 +198,7 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Current Status
+- **Phase 5 (pre-exam instructions, availability/duration auto-submit, per-item timers, proctoring toggle)** ✅ **ALREADY COMPLETE** — this spec duplicated 2026-07-09's items 1–4 almost verbatim; audited and confirmed live against Supabase 2026-07-16, one test gap closed (`src/lib/exam-deadline.ts` + unit tests). See `PHASE_5_PROGRESS.md` and the Session Log.
 - **Classes + password-reset rework + admin deactivation** ✅ **COMPLETE** (2026-07-14) — `Class`/`ClassInvite`/`ClassEnrollment` models with per-class bulk student invites (reusing the existing `InviteToken` accept-flow pattern), teacher roster removal, institution-admin account deactivation (cascades to archiving the teacher's classes), RLS on all 3 new tables, and password reset moved to `/auth/forgot-password`+`/auth/reset-password` with per-email rate limiting and explicit expired-link states. See Session Log for the `/api/users/me` suspension-bypass bug found and fixed along the way.
 - **Phase 1** ✅ — Full mock UI across all 3 dashboards (2026-06-21)
 - **Phase 2** ✅ — Supabase Auth + Prisma DB + all API routes wired to real data (2026-06-25, commit `1cfda61`)
@@ -183,7 +216,8 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 - `npm run build` → **PASSES** (0 errors, 74 routes)
 - `npm run lint` → 4 pre-existing baseline problems (3 errors/1 warning in `useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff)
 - `npx tsc --noEmit` → clean
-- `npx vitest run` → 120/120 passing (+ `pytest` 10/10 in `psychometrics/`)
+- `npx vitest run` → 127/127 passing (+ `pytest` 10/10 in `psychometrics/`)
+- Last verified: 2026-07-16 (Phase 5 spec audit — confirmed already-complete, closed one test gap)
 - Last verified: 2026-07-14 (Classes/ClassInvite/ClassEnrollment, password-reset rework, admin deactivation)
 - Last verified: 2026-07-11 (Phase 3 implementation, all tracks)
 - Last verified: 2026-07-09 (multi-section exam architecture, item 9, final item of the gap-analysis pass)
