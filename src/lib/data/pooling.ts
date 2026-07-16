@@ -2,6 +2,8 @@
 import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';
 import { getAccessibleBankIds } from './item-banks';
+import type { Prisma } from '@/generated/prisma/client';
+import { InsufficientPoolError } from './pooling-errors';
 
 export interface CloPoolRow {
   cloId: string;
@@ -9,6 +11,12 @@ export interface CloPoolRow {
   cloText: string;
   available: number;
 }
+
+// A Prisma delegate that works both as the top-level client and as an interactive
+// transaction's client — materializePooledQuestions is always called from inside
+// POST /api/attempts' transaction (see route.ts) so the insufficient-pool check and
+// the row inserts are atomic with the attempt-creation race fix.
+type PoolingDb = Prisma.TransactionClient | typeof prisma;
 
 async function getInstitutionId(): Promise<string | null> {
   const supabase = await createClient();
@@ -73,28 +81,62 @@ export async function getBanksForBlueprint(): Promise<{ id: string; name: string
  * via getAccessibleBankIds), this does NOT check caller bank permissions. It instead
  * independently re-verifies every bankId actually belongs to the exam's own institution,
  * since the caller here has no "accessible banks" concept at all.
+ *
+ * `db` must be the same interactive-transaction client the caller used to create the
+ * ExamAttempt row (see route.ts) — the insufficient-pool check below and every row insert
+ * needs to be atomic with attempt creation: if the pool has shrunk since the blueprint was
+ * saved, this throws InsufficientPoolError and the whole transaction (attempt included)
+ * rolls back, rather than leaving a half-materialized attempt with too few questions.
  */
-export async function materializePooledQuestions(params: {
-  examId: string;
-  institutionId: string;
-  attemptId: string;
-  bankIds: string[];
-  blueprint: Record<string, number>;
-}): Promise<void> {
+export async function materializePooledQuestions(
+  db: PoolingDb,
+  params: {
+    examId: string;
+    institutionId: string;
+    attemptId: string;
+    bankIds: string[];
+    blueprint: Record<string, number>;
+  },
+): Promise<void> {
   const { examId, institutionId, attemptId, bankIds, blueprint } = params;
   const entries = Object.entries(blueprint).filter(([, count]) => count > 0);
   if (bankIds.length === 0 || entries.length === 0) return;
 
-  const verifiedBanks = await prisma.itemBank.findMany({
+  const verifiedBanks = await db.itemBank.findMany({
     where: { id: { in: bankIds }, institutionId },
     select: { id: true },
   });
   const verifiedBankIds = verifiedBanks.map(b => b.id);
   if (verifiedBankIds.length === 0) return;
 
+  // Re-validate the blueprint against the ACTUAL current pool before drawing anything — the
+  // approved pool for a CLO can have shrunk (item deleted/unapproved) since the blueprint was
+  // saved. A silent under-draw would serve a shorter exam with no signal to anyone; instead
+  // fail the whole exam-start attempt clearly if any CLO can no longer satisfy its target.
+  const cloIds = entries.map(([cloId]) => cloId);
+  const availableCounts = await db.item.groupBy({
+    by: ['learningObjectiveId'],
+    where: { bankId: { in: verifiedBankIds }, learningObjectiveId: { in: cloIds }, status: 'approved' },
+    _count: { _all: true },
+  });
+  const availableByClo = new Map(availableCounts.map(c => [c.learningObjectiveId as string, c._count._all]));
+  const shortfalls = entries
+    .map(([cloId, needed]) => ({ cloId, needed, available: availableByClo.get(cloId) ?? 0 }))
+    .filter(s => s.available < s.needed);
+  if (shortfalls.length > 0) {
+    const clos = await db.learningObjective.findMany({
+      where: { id: { in: shortfalls.map(s => s.cloId) } },
+      select: { id: true, text: true },
+    });
+    const textByClo = new Map(clos.map(c => [c.id, c.text]));
+    throw new InsufficientPoolError(
+      shortfalls.map(s => ({ ...s, cloText: textByClo.get(s.cloId) ?? s.cloId })),
+    );
+  }
+
   const drawnItemIds: string[] = [];
   for (const [cloId, count] of entries) {
-    const rows = await prisma.$queryRaw<{ id: string }[]>`
+    const rows = await db.$queryRaw<{ id: string }[]>`
       SELECT id FROM "Item"
       WHERE "bankId" = ANY(${verifiedBankIds})
         AND "learningObjectiveId" = ${cloId}
@@ -106,7 +148,7 @@ export async function materializePooledQuestions(params: {
   }
   if (drawnItemIds.length === 0) return;
 
-  const items = await prisma.item.findMany({
+  const items = await db.item.findMany({
     where: { id: { in: drawnItemIds } },
     include: { options: { orderBy: { order: 'asc' } } },
   });
@@ -119,7 +161,7 @@ export async function materializePooledQuestions(params: {
 
   await Promise.all(
     shuffled.map((item, index) =>
-      prisma.question.create({
+      db.question.create({
         data: {
           examId,
           attemptId,

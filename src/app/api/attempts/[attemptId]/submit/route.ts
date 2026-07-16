@@ -7,7 +7,7 @@ import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } fro
 import { scoreAnswers } from '@/lib/scoring';
 import { computeTrustScore, type TrustScoreInput } from '@/lib/trust-score';
 import { computeSubmissionDeadline, isPastDeadline } from '@/lib/exam-deadline';
-import type { Question } from '@/types';
+import type { Question, ExamSettings } from '@/types';
 
 const submitSchema = z.object({
   examId: z.string(),
@@ -40,7 +40,7 @@ export const POST = withErrorHandling(async (
     return NextResponse.json({ error: 'Attempt already submitted' }, { status: 409 });
   }
 
-  const exam = await prisma.exam.findUnique({ where: { id: examId }, select: { duration: true, endTime: true } });
+  const exam = await prisma.exam.findUnique({ where: { id: examId }, select: { duration: true, endTime: true, settings: true } });
 
   // OR [attemptId: null, attemptId: this attempt] — the exam's fixed/shared questions plus
   // this one attempt's own privately-drawn stratified-pooled questions (if any), never
@@ -67,7 +67,22 @@ export const POST = withErrorHandling(async (
     options: q.options.map(o => ({ id: o.id, text: o.text, isCorrect: o.isCorrect })),
   }));
 
-  const { score, totalMarks, perQuestion } = scoreAnswers(questions, answers);
+  // Phase 7: isItemSequential defense-in-depth — a locked question's answer is never taken
+  // from the client's bulk submit payload, even if the client stopped calling the per-item
+  // lock endpoint partway through and tried to smuggle a different value here instead.
+  const settings = exam?.settings as unknown as ExamSettings | undefined;
+  let effectiveAnswers = answers;
+  if (settings?.isItemSequential) {
+    const locks = await prisma.itemLock.findMany({ where: { attemptId }, select: { questionId: true, response: true } });
+    if (locks.length > 0) {
+      effectiveAnswers = { ...answers };
+      for (const lock of locks) {
+        if (lock.response !== null) effectiveAnswers[lock.questionId] = lock.response as typeof answers[string];
+      }
+    }
+  }
+
+  const { score, totalMarks, perQuestion } = scoreAnswers(questions, effectiveAnswers);
 
   const violationRows = await prisma.violation.findMany({
     where: { attemptId },

@@ -117,6 +117,11 @@ export default function ExamPage() {
   // Questions" toggle. Reuses the exact same isSequential/forwardOnly gating logic below either way.
   const isSequential = isSectioned ? !!settings?.isItemSequential : settings?.navigationMode === 'sequential';
   const forwardOnly  = isSectioned ? isSequential : (isSequential && !!settings?.forwardOnly);
+  // Phase 7: isItemSequential specifically (not the older non-sectioned navigationMode flag)
+  // has real server-side enforcement via POST .../items/[questionId]/lock — best-effort here,
+  // since the server independently re-applies any lock at submit time regardless of whether
+  // this call succeeds (see the submit routes' defense-in-depth read of ItemLock rows).
+  const itemLockActive = isSectioned && isSequential;
   const autoAdvance  = !!settings?.autoAdvance;
   const allowPause   = settings?.allowPause !== false; // default true
 
@@ -419,6 +424,27 @@ export default function ExamPage() {
   // Hooks must run on every render (before any early return below), even while questions
   // are still loading — q is undefined until then, and useItemTimer tolerates that.
   const q = questions[currentQuestionIndex];
+
+  // Best-effort — the server independently re-locks via ItemLock rows read at submit time
+  // regardless of whether this call lands, so a dropped request here never lets a client
+  // bypass the lock, it only means the lock becomes server-visible slightly later.
+  const lockItem = useCallback((questionId: string, response: unknown) => {
+    if (!itemLockActive || !attemptId) return;
+    fetch(`/api/attempts/${attemptId}/items/${questionId}/lock`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ response }),
+    }).catch(() => {});
+  }, [itemLockActive, attemptId]);
+
+  const handleNextClick = useCallback(() => {
+    if (q) lockItem(q.id, answers[q.id]);
+    nextQuestion();
+  }, [q, answers, lockItem, nextQuestion]);
+
+  // Most restrictive wins when both isItemSequential and the Phase 5 per-item timer both
+  // apply to the same item: expiry already force-advances past it, so it must lock here too,
+  // exactly like a manual "Next" click would — the item stays locked either way it was left.
   const handleItemExpire = useCallback(() => {
     setExpiredIndices(prev => {
       if (prev.has(currentQuestionIndex)) return prev;
@@ -426,8 +452,9 @@ export default function ExamPage() {
       next.add(currentQuestionIndex);
       return next;
     });
+    if (q) lockItem(q.id, answers[q.id]);
     if (currentQuestionIndex < questions.length - 1) nextQuestion();
-  }, [currentQuestionIndex, questions.length, nextQuestion]);
+  }, [currentQuestionIndex, questions.length, nextQuestion, q, answers, lockItem]);
 
   // ── Pre-exam waiting room ─────────────────────────────────────────────────────
   if (waitSeconds !== null && exam) {
@@ -585,6 +612,7 @@ export default function ExamPage() {
     if (isSequential && Math.abs(i - currentQuestionIndex) > 1) return;
     if (forwardOnly && i < currentQuestionIndex) return;
     if (expiredIndices.has(i)) return;
+    if (forwardOnly && i > currentQuestionIndex) lockItem(q.id, answers[q.id]);
     goToQuestion(i);
   }
 
@@ -967,7 +995,7 @@ export default function ExamPage() {
         <span className="text-sm text-muted-foreground">{currentQuestionIndex + 1} / {questions.length}</span>
         {currentQuestionIndex < questions.length - 1 ? (
           <Button
-            onClick={nextQuestion}
+            onClick={handleNextClick}
             disabled={!!isRequired}
             className="gap-2"
             title={isRequired ? 'This question is required — please answer before continuing.' : undefined}

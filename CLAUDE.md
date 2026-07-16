@@ -2,6 +2,134 @@
 
 ## Session Log
 
+### 2026-07-17 (cont'd) — Phase 7: multi-section locking + grading bulk-approve, closed real server-enforcement gaps ✅
+
+Phase 7's Task 1 (Multi-Section Exam Architecture) duplicates the 2026-07-09 session's "item 9"
+almost entirely — `ExamSection`/`SectionAttempt`/`isSectionSequential`/`isItemSequential`/
+composite scoring were all already built. Audited first, same as Phase 5/6, before writing
+anything. Found and fixed two real server-side enforcement holes in Task 1, and built the
+genuinely-missing bulk-approve endpoint plus a real enforcement gap in Task 2.
+
+- [x] Task 1 — two real gaps closed:
+  1. **Section-weight-sums-to-100% was never enforced server-side** — only a non-blocking UI
+     warning existed. `POST /api/attempts` now rejects starting a brand-new attempt on a
+     sectioned exam whose `sectionWeight`s don't sum to 100% (400, clear message), never blocks
+     resuming an existing attempt, deliberately not auto-normalized.
+  2. **`isItemSequential` had zero server enforcement surface** — the exam-taking architecture
+     has no per-question autosave at all (every answer lands server-side once, via one bulk
+     submit; this is the same reason dead attempts can only force-finalize to 0, per the Phase 5
+     progress note). Added a new, narrowly-scoped `ItemLock` table + `POST
+     /api/attempts/[attemptId]/items/[questionId]/lock` — the client calls it once per question
+     on advance; a second call for the same question is rejected (403), which is the literal
+     server-side test of "can't re-edit a past-answered item." Both submit routes now honor any
+     locked value over whatever the client's bulk payload claims for that question (defense in
+     depth). Scoped to `isItemSequential` exams only — every other exam is completely
+     unaffected, and the "no autosave" property everything else relies on is unchanged for them.
+  - Live-verified end-to-end via a real Playwright student session: section-sequential lock
+    (403 starting section 2 early), item lock (403 re-locking), defense-in-depth (tampered bulk
+    submit still scored using the locked value), section resubmit rejected (409), and the
+    composite-scoring threshold-override case against a real seeded 2-section exam (100%/50%
+    scores, 60/40 weights, 50/90 thresholds → 80% composite but `failed: true`, matching the
+    spec's own worked example, live not just unit-tested).
+- [x] Task 2 — bulk-approve built from scratch (didn't exist at all); finalized-answer
+  re-override gap closed:
+  - New `POST /api/grading/attempts/[attemptId]/bulk-approve` — transitions every `ai_suggested`
+    answer in one attempt to `confirmed` in a single transaction + one `recomputeAttemptScore`
+    call. **Flagged judgment call**: already-`overridden` answers are counted in the response
+    but left untouched (not rewritten to `confirmed` with the AI's original suggestion,
+    discarding the teacher's own explicit mark — that would be the exact double-processing the
+    spec warns against); `pending_ai` answers report as not-ready. New "Approve All (N)" button
+    on the per-student results page.
+  - `POST /api/grading/answers/[answerId]` previously had no check at all for an already-
+    `confirmed` answer — a second override/confirm/regrade would silently overwrite marks and
+    append another audit log row. Now returns 409 once `confirmed`. **Narrower interpretation
+    taken deliberately**: only `confirmed` blocks further mutation; an `overridden`-but-not-yet-
+    finalized answer is still adjustable (a teacher changing their mind before finalizing is a
+    reasonable workflow the spec doesn't ask to block). No reopen flow was built — flagged as a
+    UX gap per the spec's own explicit instruction.
+- RLS added to the new `ItemLock` table (SELECT-only `authenticated`, scoped to the attempt's
+  own student or a teacher/admin in the exam's institution), live-verified with 3 real
+  cross-institution/cross-user queries via `SET ROLE authenticated` + `SET request.jwt.claims`.
+  `ExamSection`/`SectionAttempt` confirmed via live query to still lack RLS — they predate this
+  phase (2026-07-09), so per the guardrail ("any **new** table needs RLS") weren't brought into
+  scope; same pre-existing SEC-08 accepted risk, now confirmed live rather than assumed.
+- Did not touch the Phase 5 auto-finalize decision or any Phase 6 item-bank ambiguity, per
+  explicit instruction.
+- Full detail, including both flagged judgment calls with the defaults taken, in
+  `PHASE_7_PROGRESS.md`.
+- **Verification**: `tsc` clean · `lint` at the unchanged 3-error/1-warning baseline · `build`
+  passes with both new routes registered · `vitest` 188/188 (156 baseline + 32 new).
+
+### 2026-07-17 — Phase 6: item bank RBAC/pooling audit, closed real pooling concurrency + insufficient-pool bugs ✅
+
+A "Phase 6" spec landed with 4 tasks (Item Bank RBAC, decouple AI generation from the wizard,
+CLO-aware batch generation, stratified dynamic pooling) — same pattern as Phase 5: tasks 1–3 are
+near-verbatim restatements of the 2026-07-09 session's spec items 5–7, already fully implemented
+in prod. Audited each task against the current code (4 parallel research passes) before writing
+anything, per this repo's established practice of verifying rather than re-implementing.
+
+- [x] Task 1 — Item Bank RBAC. Already implemented (`ItemBank`/`ItemBankAccess`,
+      `resolveBankPermission`, collaborator endpoints, 3-tab dashboard). Both "flag-don't-guess"
+      questions were already resolved matching the spec's own stated defaults. **Real gap
+      found and closed**: `ItemBank`/`ItemBankAccess` had RLS disabled (confirmed live via
+      `pg_class.relrowsecurity = false`) — enabled it with SELECT-only `authenticated` policies,
+      hit and fixed a genuine infinite-recursion bug from the two tables' policies mutually
+      referencing each other (fixed with `SECURITY DEFINER` helper functions), and live-verified
+      with real cross-user/cross-institution queries. Added `tests/unit/item-bank-data.test.ts`
+      (11 tests, first mocked-Prisma test file in this repo) for the spec's 4 required scenarios,
+      previously only covered by manual/live QA.
+- [x] Task 2 — Decouple AI generation from the wizard. Already implemented, confirmed via
+      full-codebase grep that no dead `examId`-based path remains anywhere. Added
+      `tests/unit/generate-questions-route.test.ts` (first route-handler-level test in this repo).
+- [x] Task 3 — CLO-aware batch generation. Already implemented (`MAX_BATCH_SIZE`, server-side
+      enforcement, CLO resolution + institution check, prompt injection, FK stamping). Added the
+      3 previously-missing tests: server-side over-limit rejection bypassing the client, every
+      item in a batch getting `learningObjectiveId` stamped (`tests/unit/generation-job.test.ts`),
+      invalid/nonexistent CLO_ID rejected clearly.
+- [x] Task 4 — Stratified dynamic pooling. **Two real, previously-unaddressed bugs found and
+      fixed**, exactly matching the spec's own "highest-risk" callouts:
+      1. **Insufficient pool at runtime was silently swallowed** — `materializePooledQuestions`
+         drew `ORDER BY RANDOM() LIMIT count` with no check that `count` rows actually existed;
+         a shrunk pool (item deleted/unapproved after the blueprint was saved) silently served a
+         shorter exam with zero signal to anyone. Fixed: the actual approved count per CLO is
+         checked before drawing anything; a shortfall throws `InsufficientPoolError` (new
+         `src/lib/data/pooling-errors.ts`, kept separate from `pooling.ts` because that file is
+         `'use server'` and a thrown Error class isn't a valid Server Action export — a first
+         draft that exported it from `pooling.ts` broke the Next build with "module has no
+         exports at all"). `POST /api/attempts` now returns 409 with per-CLO shortfall detail.
+      2. **Concurrent exam-start could double-materialize a pooled exam** — the old code read
+         `existing` via a separate query, then `upsert`ed the attempt, then materialized pooled
+         questions `if (!existing)`; two near-simultaneous requests for the same student+exam
+         could both observe `existing === null` and both draw their own private question set for
+         the same attempt. Fixed: attempt creation + materialization now run inside one
+         `prisma.$transaction` using `create` (not `upsert`) — the DB's unique constraint on
+         `(examId, studentId)` is the sole arbiter, the losing concurrent call catches the P2002
+         violation and never materializes, and an `InsufficientPoolError` rolls back the whole
+         transaction (no orphaned half-created attempt).
+      - **Product decision flagged, not made silently**: chose to block the exam-start attempt
+        entirely on insufficient pool (safest — never serve a mis-scoped exam unnoticed) rather
+        than auto-adjust the draw count down. Auto-adjust is more student-friendly but changes
+        what the exam measures without instructor sign-off — left for Haris's call, with the
+        code path noted for how small the swap would be if preferred.
+      - Added `tests/unit/pooling.test.ts` (4 tests) and, per the spec's explicit ask,
+        `tests/unit/attempts-pooling-concurrency.test.ts` (3 tests) including a real concurrent
+        `Promise.all` double-`POST /api/attempts` test confirming exactly one materialization
+        call and one attempt id.
+- **Live-verified against Supabase** (`rlbtdpnmdnaxlccelxdr`) via a disposable, self-cleaning
+  Playwright + Prisma script (real browser login/session, direct Postgres egress was reachable
+  this session): RLS cross-tenant behavior (4 real query attempts, all correct), the JIT
+  assembler on a healthy pool (exactly 3/3 questions materialized), the JIT assembler on an
+  insufficient pool (409, zero orphaned attempt rows — the transaction rollback is real, not
+  just unit-tested), and the batch-size cap (`count: 50` direct POST → 400, zero jobs created).
+  All fixtures confirmed deleted afterward.
+- Did not touch the Phase 5 auto-finalize-dead-attempts decision, per explicit instruction —
+  no cron job added.
+- Full detail, including the "flag, don't guess" defaults and the ES-module-import-hoisting
+  gotcha that broke the first live-QA script attempt, in `PHASE_6_PROGRESS.md`.
+- **Verification**: `tsc` clean · `lint` at the unchanged 3-error/1-warning baseline · `build` 74
+  routes (unchanged — no new pages/routes, two small production-code fixes plus tests) ·
+  `vitest` 156/156 (127 baseline + 29 new).
+
 ### 2026-07-16 — Phase 5 spec audit: found already-complete, closed one test gap ✅
 
 A "Phase 5" spec landed asking for pre-exam instructions, availability-vs-duration auto-submit,
@@ -198,6 +326,8 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Current Status
+- **Phase 7 (Multi-Section Exam Architecture, AI Grading Override & Bulk-Approve)** ✅ **COMPLETE** (2026-07-17) — Task 1 duplicated 2026-07-09's "item 9" almost entirely; closed two real server-enforcement gaps instead (section-weight-sum-to-100% wasn't checked at exam start; `isItemSequential` had zero server enforcement surface — new `ItemLock` table + lock endpoint closes it, scoped only to exams that opt in). Task 2 built the missing bulk-approve endpoint and closed a real gap where finalized (`confirmed`) grades could be silently re-overridden. RLS added to the new `ItemLock` table, live-verified. See `PHASE_7_PROGRESS.md` and the Session Log.
+- **Phase 6 (Item Bank RBAC, decouple AI generation, CLO-aware batch generation, stratified dynamic pooling)** ✅ **COMPLETE** (2026-07-17) — tasks 1–3 duplicated the 2026-07-09 session's items 5–7 almost verbatim and were already implemented; closed the test-coverage gap on all three. Task 4 (pooling) had two real bugs closed this pass: insufficient-pool-at-runtime now fails gracefully (409) instead of silently under-drawing, and a genuine concurrent-exam-start double-materialization race is fixed via a transaction. RLS enabled on `ItemBank`/`ItemBankAccess` (previously missing), live-verified. See `PHASE_6_PROGRESS.md` and the Session Log.
 - **Phase 5 (pre-exam instructions, availability/duration auto-submit, per-item timers, proctoring toggle)** ✅ **ALREADY COMPLETE** — this spec duplicated 2026-07-09's items 1–4 almost verbatim; audited and confirmed live against Supabase 2026-07-16, one test gap closed (`src/lib/exam-deadline.ts` + unit tests). See `PHASE_5_PROGRESS.md` and the Session Log.
 - **Classes + password-reset rework + admin deactivation** ✅ **COMPLETE** (2026-07-14) — `Class`/`ClassInvite`/`ClassEnrollment` models with per-class bulk student invites (reusing the existing `InviteToken` accept-flow pattern), teacher roster removal, institution-admin account deactivation (cascades to archiving the teacher's classes), RLS on all 3 new tables, and password reset moved to `/auth/forgot-password`+`/auth/reset-password` with per-email rate limiting and explicit expired-link states. See Session Log for the `/api/users/me` suspension-bypass bug found and fixed along the way.
 - **Phase 1** ✅ — Full mock UI across all 3 dashboards (2026-06-21)
@@ -208,15 +338,17 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 
 **Pending manual action**: Supabase dashboard → Authentication → URL Configuration → set Site URL to `https://exam-system-sigma.vercel.app` and add it to Additional Redirect URLs (without this, invite emails redirect to localhost).
 
-**Known Accepted Risk**: no database-level RLS (SEC-08) — app-layer checks are the sole enforcement mechanism. Accepted by the user 2026-07-06; revisit after Phase 3's shape settles. See Session Log for detail.
+**Known Accepted Risk**: no database-level RLS (SEC-08) — app-layer checks are the sole enforcement mechanism on most tables. Accepted by the user 2026-07-06; revisit after Phase 3's shape settles. Narrowed further 2026-07-17 (RLS added to `ItemBank`/`ItemBankAccess`, then `ItemLock`, both live-verified). `ExamSection`/`SectionAttempt` confirmed live (2026-07-17) to still lack RLS — predate the tables-with-RLS narrowing, not brought into scope since they aren't new this phase. See Session Log for detail.
 
 ---
 
 ## Build Status
-- `npm run build` → **PASSES** (0 errors, 74 routes)
+- `npm run build` → **PASSES** (0 errors, 88 routes — 2 new this phase: the item-lock and bulk-approve endpoints)
 - `npm run lint` → 4 pre-existing baseline problems (3 errors/1 warning in `useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff)
 - `npx tsc --noEmit` → clean
-- `npx vitest run` → 127/127 passing (+ `pytest` 10/10 in `psychometrics/`)
+- `npx vitest run` → 188/188 passing (+ `pytest` 10/10 in `psychometrics/`)
+- Last verified: 2026-07-17 (Phase 7 — multi-section locking + grading bulk-approve)
+- Last verified: 2026-07-17 (Phase 6 — item bank RBAC/pooling audit, closed pooling concurrency + insufficient-pool bugs)
 - Last verified: 2026-07-16 (Phase 5 spec audit — confirmed already-complete, closed one test gap)
 - Last verified: 2026-07-14 (Classes/ClassInvite/ClassEnrollment, password-reset rework, admin deactivation)
 - Last verified: 2026-07-11 (Phase 3 implementation, all tracks)
@@ -312,6 +444,9 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 | `/api/attempts` | GET, POST | Start / resume attempt (students only for POST) |
 | `/api/attempts/[id]` | GET, PUT | Single attempt; PUT blocked for students |
 | `/api/attempts/[id]/submit` | POST | Score + persist all answers; trustScore calculated server-side |
+| `/api/attempts/[id]/sections/[sectionId]/start` | POST | Start (or resume) one section's isolated timer; server-enforced section-sequential lock |
+| `/api/attempts/[id]/sections/[sectionId]/submit` | POST | Score + persist one section's answers; finalizes the whole attempt if it's the last section |
+| `/api/attempts/[id]/items/[questionId]/lock` | POST | Server enforcement for `isItemSequential` — locks one question's answer; a second call is rejected |
 | `/api/violations` | GET, POST | Log / fetch violations; scoped to institution |
 | `/api/analytics` | GET | Analytics data |
 | `/api/notifications` | GET | Real notifications derived from DB (violations, pending exams, invites); polled every 30s |
@@ -328,9 +463,12 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 | `/api/users/[userId]` | PATCH | Admin deactivate/reactivate a teacher or student in their own institution |
 | `/api/users/me` | GET, PATCH | Current user profile |
 | `/api/upload` | POST | Supabase Storage upload (bucket: `exam-uploads`); accepts pdf, doc, docx, md, txt, etc. |
-| `/api/ai/generate-questions` | POST | Async AI generation → 202 {jobId} (real Claude or mock fallback) |
+| `/api/ai/generate-questions` | POST | Async AI generation → 202 {jobId}, scoped to `itemBankId` (real Claude or mock fallback) |
 | `/api/ai/jobs/[jobId]` | GET | Generation job status polling |
-| `/api/grading/answers/[answerId]` | POST | Teacher confirm/override/regrade an AI-graded answer |
+| `/api/item-banks/[bankId]/collaborators` | GET, POST | List / grant EDITOR-VIEWER access on a bank (owner/admin only, same-institution only) |
+| `/api/item-banks/[bankId]/collaborators/[userId]` | PATCH, DELETE | Change / revoke a collaborator's role |
+| `/api/grading/answers/[answerId]` | POST | Teacher confirm/override/regrade an AI-graded answer; rejects further mutation once `confirmed` |
+| `/api/grading/attempts/[attemptId]/bulk-approve` | POST | "Approve All" — finalizes every unmodified AI-suggested answer in one attempt |
 | `/api/monitor/directives` | GET, POST | Teacher monitor actions (snapshot/warning/force-submit) + student fallback poll |
 | `/api/monitor/directives/[id]` | PATCH | Student fulfils a directive |
 | `/api/monitor/force-finalize` | POST | Server-side finalization of a dead attempt |

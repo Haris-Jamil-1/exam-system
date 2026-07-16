@@ -48,6 +48,15 @@ export const POST = withErrorHandling(async (
   if (answer.gradingStatus === null) {
     return NextResponse.json({ error: 'Answer is deterministically scored' }, { status: 409 });
   }
+  // Phase 7: a finalized (confirmed) answer rejects any further confirm/override/regrade —
+  // per spec, an explicit reopen action would be required to change it, and none exists yet
+  // (flagged in PHASE_7_PROGRESS.md as a UX gap rather than built here). Note this is
+  // deliberately narrower than "resolved" — an `overridden` answer (a teacher's own explicit
+  // decision, just not yet run through bulk-approve/confirm) is still adjustable; only
+  // `confirmed` is the actual terminal "Finalized" state in this codebase's enum.
+  if (answer.gradingStatus === 'confirmed') {
+    return NextResponse.json({ error: 'This answer has already been finalized. Reopening a finalized grade is not yet supported.' }, { status: 409 });
+  }
 
   const { action } = parsed.data;
 

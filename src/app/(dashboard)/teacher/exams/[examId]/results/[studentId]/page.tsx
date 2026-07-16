@@ -6,12 +6,15 @@ import { getStudentSubmissionDetail } from '@/lib/data/students';
 import type { StudentSubmissionDetail } from '@/lib/data/students';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { GradingPanel } from '@/components/grading/GradingPanel';
-import { CheckCircle2, XCircle, HelpCircle } from 'lucide-react';
+import { CheckCircle2, XCircle, HelpCircle, CheckCheck } from 'lucide-react';
 
 export default function StudentSubmissionPage() {
   const { examId, studentId } = useParams<{ examId: string; studentId: string }>();
   const [detail, setDetail] = useState<StudentSubmissionDetail | null | undefined>(undefined);
+  const [approving, setApproving] = useState(false);
+  const [approveMessage, setApproveMessage] = useState<string | null>(null);
 
   useEffect(() => {
     getStudentSubmissionDetail(examId, studentId).then(d => setDetail(d ?? null));
@@ -22,6 +25,24 @@ export default function StudentSubmissionPage() {
 
   const { student, exam, attempt, answers, sections } = detail;
   const isSectioned = sections.length > 0;
+  const unmodifiedPendingCount = answers.filter(a => a.gradingStatus === 'ai_suggested').length;
+
+  async function handleApproveAll() {
+    if (!attempt) return;
+    setApproving(true);
+    setApproveMessage(null);
+    try {
+      const res = await fetch(`/api/grading/attempts/${attempt.id}/bulk-approve`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(typeof data.error === 'string' ? data.error : 'Approve all failed');
+      setApproveMessage(`Approved ${data.approved} — ${data.alreadyFinalized} already finalized, ${data.notReady} not ready yet.`);
+      void getStudentSubmissionDetail(examId, studentId).then(d => setDetail(d ?? null));
+    } catch (err) {
+      setApproveMessage(err instanceof Error ? err.message : 'Approve all failed');
+    } finally {
+      setApproving(false);
+    }
+  }
 
   // Group answers by section, preserving the exam's section order; a null sectionId
   // (non-sectioned exam, or a question created before sections existed) falls into
@@ -85,12 +106,22 @@ export default function StudentSubmissionPage() {
       )}
 
       <Card>
-        <CardHeader>
-          <CardTitle>Answer Review</CardTitle>
-          {isSectioned && (
-            <p className="text-xs text-muted-foreground">
-              This student&apos;s question set may differ from other students&apos; if the exam uses pooled/randomized questions — grouped below by the section each question belongs to.
-            </p>
+        <CardHeader className="flex-row items-start justify-between gap-3 flex-wrap">
+          <div>
+            <CardTitle>Answer Review</CardTitle>
+            {isSectioned && (
+              <p className="text-xs text-muted-foreground">
+                This student&apos;s question set may differ from other students&apos; if the exam uses pooled/randomized questions — grouped below by the section each question belongs to.
+              </p>
+            )}
+          </div>
+          {unmodifiedPendingCount > 0 && (
+            <div className="text-end">
+              <Button size="sm" disabled={approving} onClick={() => void handleApproveAll()}>
+                <CheckCheck className="h-3.5 w-3.5 me-1" /> Approve All ({unmodifiedPendingCount})
+              </Button>
+              {approveMessage && <p className="text-xs text-muted-foreground mt-1">{approveMessage}</p>}
+            </div>
           )}
         </CardHeader>
         <CardContent className="space-y-5">

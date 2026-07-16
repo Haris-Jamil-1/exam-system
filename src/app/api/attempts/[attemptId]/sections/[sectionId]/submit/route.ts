@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } from '@/lib/api-auth';
 import { runGradingForAttempt } from '@/lib/ai/grading';
 import { scoreAnswers, computeSectionScores, type PerQuestion } from '@/lib/scoring';
-import type { Question, ExamSection } from '@/types';
+import type { Question, ExamSection, ExamSettings } from '@/types';
 
 const submitSchema = z.object({
   answers: z.record(z.string(), z.union([z.string(), z.array(z.string()), z.record(z.string(), z.string())])),
@@ -40,7 +40,7 @@ export const POST = withErrorHandling(async (
     return NextResponse.json({ error: 'Section already submitted' }, { status: 409 });
   }
 
-  const exam = await prisma.exam.findUnique({ where: { id: attempt.examId }, select: { duration: true, endTime: true } });
+  const exam = await prisma.exam.findUnique({ where: { id: attempt.examId }, select: { duration: true, endTime: true, settings: true } });
 
   const questionRows = await prisma.question.findMany({
     where: { examId: attempt.examId, sectionId, OR: [{ attemptId: null }, { attemptId }] },
@@ -55,7 +55,20 @@ export const POST = withErrorHandling(async (
     options: q.options.map(o => ({ id: o.id, text: o.text, isCorrect: o.isCorrect })),
   }));
 
-  const { perQuestion } = scoreAnswers(questions, parsed.data.answers);
+  // Phase 7: isItemSequential defense-in-depth — same as the non-sectioned submit route.
+  const settings = exam?.settings as unknown as ExamSettings | undefined;
+  let effectiveAnswers = parsed.data.answers;
+  if (settings?.isItemSequential) {
+    const locks = await prisma.itemLock.findMany({ where: { attemptId }, select: { questionId: true, response: true } });
+    if (locks.length > 0) {
+      effectiveAnswers = { ...parsed.data.answers };
+      for (const lock of locks) {
+        if (lock.response !== null) effectiveAnswers[lock.questionId] = lock.response as typeof parsed.data.answers[string];
+      }
+    }
+  }
+
+  const { perQuestion } = scoreAnswers(questions, effectiveAnswers);
 
   // Section deadline: whichever comes first — this section's own duration (from when the
   // student clicked "Start Section", not the overall attempt) or the exam's global close time.

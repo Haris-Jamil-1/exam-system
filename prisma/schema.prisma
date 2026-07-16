@@ -362,6 +362,7 @@ model Question {
   learningObjective LearningObjective? @relation(fields: [learningObjectiveId], references: [id])
   options           Option[]
   answers           Answer[]
+  itemLocks         ItemLock[]
 
   @@index([examId, attemptId])
   @@index([sectionId])
@@ -577,12 +578,39 @@ model ExamAttempt {
   violations       Violation[]
   pooledQuestions  Question[]
   sectionAttempts  SectionAttempt[]
+  itemLocks        ItemLock[]
   heartbeat        ProctoringHeartbeat?
   directives       MonitorDirective[]
 
   @@unique([examId, studentId])
   @@index([studentId])
   @@index([examId])
+}
+
+// Phase 7: server-side enforcement surface for Exam.settings.isItemSequential. The exam-taking
+// architecture has no per-question autosave — every answer only lands server-side once, in the
+// section/exam submit route's one-shot bulk write (deliberate, see the Phase 5 note in
+// force-finalize about why dead attempts can't be partially recovered: answers live
+// client-side until the final submit POST). That still holds for every exam that doesn't use
+// isItemSequential. For the ones that do, this is a narrow, additive exception: the client
+// calls POST /api/attempts/[attemptId]/items/[questionId]/lock exactly once per question, the
+// moment the student advances past it, which both rejects a second call outright (the direct
+// test of "can't re-edit a past-answered item") and gives the final submit route a
+// server-trusted value to prefer over whatever the bulk payload claims for that question —
+// defense in depth against a client that stops calling /lock partway through and tries to
+// smuggle a different answer for an already-locked question through the bulk submit instead.
+model ItemLock {
+  id         String   @id @default(cuid())
+  attemptId  String
+  questionId String
+  response   Json?
+  lockedAt   DateTime @default(now())
+
+  attempt  ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
 }
 
 model Answer {
