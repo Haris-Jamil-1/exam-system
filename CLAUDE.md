@@ -2,6 +2,50 @@
 
 ## Session Log
 
+### 2026-07-17 (cont'd) — Phase 7.1: fixed 3 frontend error-handling bugs found while writing manual QA doc ✅
+
+Writing `MANUAL_QA_PHASE_5-7.md` surfaced three real frontend bugs by cross-referencing the UI
+code against what the backend now actually returns — none of them were catchable by any of the
+prior API-level live verification, since that always hit `fetch()` directly rather than the real
+browser UI. Backend logic/schema/scoring untouched throughout; all three fixes are purely in how
+the frontend consumes already-correct, already-tested backend responses.
+
+- **`handleStartExam` never checked `res.ok`** — every rejection from `POST /api/attempts`
+  (`not_started`, `exam_ended`, Phase 6's `insufficient_pool`, Phase 7's
+  `invalid_section_weights`) fell through silently, writing a corrupt session and — for a
+  sectioned exam — stranding the student on a permanently dead "Start Section" button with zero
+  feedback. Fixed via a new pure classifier (`src/lib/exam-start-errors.ts`'s
+  `classifyStartExamResponse`) that the handler now branches on before any state write; the
+  student sees a clear, case-specific message (never the raw shortfall/weight-sum internals),
+  the Start button stays retriable, and the corrupt-session write is structurally unreachable on
+  any failure branch.
+- **`handleStartSection` swallowed its 403 silently** — fixed with the same file's
+  `classifySectionStartResponse`; the student now sees the lock message and a Reload button that
+  reuses the exam page's existing waiting-room-timeout recovery pattern
+  (`window.location.reload()`) to resync to the correct section.
+- **`GradingPanel` had no UI path to a permitted backend state** — the panel collapsed
+  `confirmed` and `overridden` into one `resolved` gate, hiding the override control for both,
+  even though Phase 7's grading fix deliberately still permits re-overriding an
+  `overridden`-not-yet-`confirmed` answer. Fixed with `src/lib/grading-status.ts`'s
+  `isGradingFinalized`/`canOverrideGrading` (only `confirmed` is truly terminal); the override
+  button now reappears (relabeled "Change override") for `overridden` answers.
+- **Scope decision, flagged explicitly**: this repo has no existing React-component test
+  pattern (no RTL, no jsdom environment) — every other decision-logic file in this codebase is a
+  pure function tested via plain vitest instead. Rather than introduce a new testing toolchain
+  for a 3-bug scoped fix, all three bugs were closed by extracting the actual decision logic into
+  pure functions and wiring components to branch on them; the "no corrupt session on failure" /
+  "override visible exactly when permitted" guarantees follow structurally from those functions'
+  return shapes, not from component-render assertions.
+- **Explicitly not built**: a real backend mechanism to notify an instructor about
+  `insufficient_pool`/`invalid_section_weights` — the frontend now logs the detail
+  (`console.error`) but there's no actual notification endpoint to send it to; flagged rather
+  than added, since that would be backend work outside this session's stated scope.
+- **Verification**: `tsc` clean · `lint` at the unchanged 3-error/1-warning baseline · `build`
+  clean · `vitest` 201/201 (188 baseline + 13 new: 9 `exam-start-errors` + 4 `grading-status`).
+- `MANUAL_QA_PHASE_5-7.md` was written against the pre-fix behavior — its three 🔴-flagged
+  findings and Section C5's override-reachability step should now all show the fixed behavior,
+  not the bugs; full detail in `PHASE_7_1_PROGRESS.md`.
+
 ### 2026-07-17 (cont'd) — Phase 7: multi-section locking + grading bulk-approve, closed real server-enforcement gaps ✅
 
 Phase 7's Task 1 (Multi-Section Exam Architecture) duplicates the 2026-07-09 session's "item 9"

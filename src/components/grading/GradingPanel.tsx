@@ -5,6 +5,7 @@
 // Decision 4: confirmation is always explicit — nothing here auto-applies.
 import { useState } from 'react';
 import type { GradingSuggestion } from '@/lib/data/students';
+import { isGradingFinalized } from '@/lib/grading-status';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Sparkles, Check, Pencil, RefreshCw } from 'lucide-react';
@@ -56,7 +57,12 @@ export function GradingPanel({ answerId, maxMarks, gradingStatus, suggestion, on
   }
 
   const execution = suggestion?.executionResult as ExecutionSummary | null;
+  // `resolved` still means confirmed-or-overridden for badge styling — but only `confirmed` is
+  // truly finalized (matches the backend's 409 on further mutation). An `overridden` answer is a
+  // teacher's own explicit decision, not yet locked in, so the action block below stays reachable
+  // for it — the backend already permits re-overriding it, and the UI must expose a path to that.
   const resolved = gradingStatus === 'confirmed' || gradingStatus === 'overridden';
+  const finalized = isGradingFinalized(gradingStatus);
 
   return (
     <div className="ms-6 rounded-lg border border-blue-100 bg-blue-50/40 p-3 space-y-3">
@@ -122,7 +128,7 @@ export function GradingPanel({ answerId, maxMarks, gradingStatus, suggestion, on
         </div>
       )}
 
-      {!resolved && (
+      {!finalized && (
         <div className="space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
             {suggestion && gradingStatus === 'ai_suggested' && (
@@ -131,7 +137,7 @@ export function GradingPanel({ answerId, maxMarks, gradingStatus, suggestion, on
               </Button>
             )}
             <Button size="sm" variant="outline" disabled={busy} onClick={() => setOverriding(o => !o)}>
-              <Pencil className="h-3.5 w-3.5 me-1" /> {gradingStatus === 'pending_ai' ? 'Grade manually' : 'Override'}
+              <Pencil className="h-3.5 w-3.5 me-1" /> {gradingStatus === 'pending_ai' ? 'Grade manually' : gradingStatus === 'overridden' ? 'Change override' : 'Override'}
             </Button>
             <Button size="sm" variant="outline" disabled={busy} onClick={() => void act({ action: 'regrade' }, 'Regrade queued — refresh shortly.')}>
               <RefreshCw className="h-3.5 w-3.5 me-1" /> Regrade with AI

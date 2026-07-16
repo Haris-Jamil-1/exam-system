@@ -15,6 +15,7 @@ import { CodeQuestion } from '@/components/exam/CodeQuestion';
 import { FileUploadQuestion } from '@/components/exam/FileUploadQuestion';
 import { ItemCountdownBadge } from '@/components/exam/ItemCountdownBadge';
 import { DesktopGuard } from '@/components/shared/DesktopGuard';
+import { classifyStartExamResponse, classifySectionStartResponse } from '@/lib/exam-start-errors';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -77,6 +78,7 @@ export default function ExamPage() {
   // Pre-exam instructions gate — the duration timer only starts once this is dismissed
   const [instructionsDone, setInstructionsDone] = useState(false);
   const [startingExam, setStartingExam] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
   // Pause overlay
   const [paused, setPaused] = useState(false);
   // File upload answers stored separately (File objects can't go into Zustand string answers)
@@ -89,6 +91,7 @@ export default function ExamPage() {
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
   const [sectionInstructionsDone, setSectionInstructionsDone] = useState(false);
   const [startingSection, setStartingSection] = useState(false);
+  const [sectionStartError, setSectionStartError] = useState<string | null>(null);
   const [submittedSectionIds, setSubmittedSectionIds] = useState<Set<string>>(new Set());
   const isSectioned = sections.length > 0;
   const currentSection = isSectioned ? sections[currentSectionIndex] : undefined;
@@ -218,13 +221,28 @@ export default function ExamPage() {
   async function handleStartExam() {
     if (!exam || startingExam) return;
     setStartingExam(true);
+    setStartError(null);
     try {
       const res = await fetch('/api/attempts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ examId }),
       });
-      const attempt = await res.json() as { id: string; startedAt: string };
+      const body = await res.json().catch(() => ({}));
+      const outcome = classifyStartExamResponse(res.status, body);
+      if (!outcome.ok) {
+        // Never write session/local state on a failed start — the button stays clickable
+        // (see the `disabled` prop below) so the student always has a retry path, but nothing
+        // here proceeds into the exam until a real 201 comes back.
+        if (outcome.instructorDetail) console.error('[exam-start]', outcome.kind, outcome.instructorDetail);
+        let message = outcome.studentMessage;
+        if (outcome.kind === 'not_started') {
+          message = `This exam opens at ${new Date(exam.startTime).toLocaleString()}.`;
+        }
+        setStartError(message);
+        return;
+      }
+      const attempt = outcome.attempt;
       const session: AttemptSession = { attemptId: attempt.id, startedAt: attempt.startedAt };
       sessionStorage.setItem(SESSION_KEY(examId), JSON.stringify(session));
       setAttemptId(attempt.id);
@@ -254,10 +272,20 @@ export default function ExamPage() {
   async function handleStartSection() {
     if (!exam || !currentSection || !attemptId || startingSection) return;
     setStartingSection(true);
+    setSectionStartError(null);
     try {
       const res = await fetch(`/api/attempts/${attemptId}/sections/${currentSection.id}/start`, { method: 'POST' });
-      if (!res.ok) return; // e.g. 403 if a locked earlier section wasn't actually submitted
-      const sectionAttempt = await res.json() as { startedAt: string };
+      const body = await res.json().catch(() => ({}));
+      const errorMessage = classifySectionStartResponse(res.status, body);
+      if (errorMessage) {
+        // e.g. 403 if a locked earlier section wasn't actually submitted — show it rather than
+        // leaving the student on a dead button, and reload so the page's own resume-detection
+        // logic (in the load() effect) re-runs and lands them on whichever section they're
+        // actually meant to be in, the same recovery pattern the waiting room already uses.
+        setSectionStartError(errorMessage);
+        return;
+      }
+      const sectionAttempt = body as { startedAt: string };
       const q = await getQuestionsForStudentSection(examId, currentSection.id, attemptId);
       setQuestions(q);
       const serverNow = Date.now() + serverOffset;
@@ -536,8 +564,13 @@ export default function ExamPage() {
                 </p>
               )}
             </div>
+            {startError && (
+              <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2 text-center">
+                {startError}
+              </p>
+            )}
             <Button onClick={handleStartExam} disabled={startingExam || (!isPooled && !isSectioned && questions.length === 0)} className="w-full" size="lg">
-              {startingExam ? 'Starting…' : 'Start Exam'}
+              {startingExam ? 'Starting…' : startError ? 'Try Again' : 'Start Exam'}
             </Button>
             <p className="text-xs text-center text-muted-foreground">
               {isSectioned
@@ -581,9 +614,20 @@ export default function ExamPage() {
                 <p className="text-sm text-muted-foreground italic">No special instructions for this section.</p>
               )}
             </div>
-            <Button onClick={handleStartSection} disabled={startingSection} className="w-full" size="lg">
-              {startingSection ? 'Starting…' : 'Start Section'}
-            </Button>
+            {sectionStartError ? (
+              <>
+                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2 text-center">
+                  {sectionStartError}
+                </p>
+                <Button onClick={() => window.location.reload()} className="w-full" size="lg">
+                  Reload
+                </Button>
+              </>
+            ) : (
+              <Button onClick={handleStartSection} disabled={startingSection} className="w-full" size="lg">
+                {startingSection ? 'Starting…' : 'Start Section'}
+              </Button>
+            )}
             <p className="text-xs text-center text-muted-foreground">
               {currentSection.durationMinutes
                 ? `This section's ${currentSection.durationMinutes}-minute timer starts as soon as you click Start Section.`
