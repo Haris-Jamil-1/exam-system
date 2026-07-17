@@ -2,6 +2,71 @@
 
 ## Session Log
 
+### 2026-07-17 (cont'd) — Exam auto-completes on the teacher side when closing time is reached ✅
+
+Follow-up bug report after the live-video work: an exam whose `endTime` had passed kept
+showing "Live" everywhere on the teacher/admin side (exams list, dashboard, cross-exam Live
+Monitor) forever, unless the teacher manually clicked "End Exam". Root cause:
+`computeEffectiveExamStatus` (added in Round 3 for `scheduled→live` auto-derivation) never had
+a symmetric `live→completed` rule for `endTime`.
+
+- `src/lib/exam-status.ts`'s `computeEffectiveExamStatus` now also takes `endTime` and derives
+  `completed` once it's passed (never touches `draft`, never un-completes an already-`completed`
+  exam). Wired through all 5 existing call sites (`mapExam` in `exams.ts`, plus 4 in
+  `analytics.ts`: recent exams, approved exams, teacher dashboard, admin dashboard).
+- Found and fixed the matching gap in the "Active Exams" dashboard stat aggregate
+  (`activeExamWhere`): it counted `status: 'live'` unconditionally with no `endTime` check, so
+  the stat card kept counting exams that had already ended.
+- 7 new unit tests; fixed one existing test's expectation to match the corrected
+  `activeExamWhere` shape.
+- **Verification**: `tsc` clean · `lint` unchanged 3-error baseline · `vitest` 275/275 · `build`
+  clean. Live-verified against a fresh production build: a disposable exam with DB status still
+  `'live'` but `endTime` one minute in the past correctly showed **"Completed"** on the teacher's
+  exams list, and was correctly excluded from the cross-exam Live Monitor's live-exam list.
+
+### 2026-07-17 (cont'd) — Cross-exam Live Monitor page was missing the eye button entirely ✅
+
+Follow-up bug report: "teacher still can't see the live video by pressing eye button" turned out
+not to be a WebRTC bug — the user was on `/teacher/monitor` (the cross-exam "Live Monitor"
+overview page, linked from the sidebar), which never had a "Review & Actions" eye button, snapshot
+capability, or Go Live control at all. That feature had only ever been built on the per-exam
+monitor page (`teacher/exams/[examId]/monitor`).
+
+- Extracted the shared per-student review/actions panel (snapshot, Go Live WebRTC viewer,
+  warnings, force-submit, violations timeline) out of the per-exam page into
+  `src/components/shared/StudentActionsModal.tsx`, and wired the same eye button + modal into
+  `/teacher/monitor`'s student cards.
+- Along the way, noticed (but did not fix, out of scope for this bug) a recurring pre-existing
+  React hydration mismatch (`error #418`) on both monitor pages — the same `DashboardShell`
+  localStorage-avatar issue flagged back on 2026-07-14 as "worth a follow-up pass." It didn't
+  block the live-video fix in any of this session's live tests.
+- **Verification**: `tsc` clean · `lint` unchanged 3-error baseline (one `set-state-in-effect`
+  violation introduced by the initial refactor, fixed via the same async-inner-function pattern
+  already established elsewhere in this codebase) · `vitest` 268/268 · `build` clean. Live-verified
+  against a fresh production build: eye button now appears on `/teacher/monitor`, "Go Live"
+  connects, and the video element reaches `readyState 4` (real frames) within seconds.
+
+### 2026-07-17 (cont'd) — Invitation UI polish (accept pages, invite dialogs), no logic changes ✅
+
+User-requested UI-only pass across every invitation surface, explicitly scoped to presentation —
+no `lib/data`, API route, or business logic touched.
+
+- Public accept/signup pages (`/invite/[token]`, `/invite/setup`, `/classes/join/[token]`): new
+  shared `PasswordInput` component (`src/components/ui/password-input.tsx`, show/hide toggle)
+  used on all 6 password fields across the 3 pages; spinner-based loading states instead of bare
+  text; status icons sit in tinted circles; error banners get an icon; submit buttons show a
+  spinner while pending.
+- Teacher's per-class invite Dialog (`teacher/classes/[classId]`): icon header matching the app's
+  branding pattern, icon+count on the Invitations list, send button gets an icon/spinner,
+  bulk-send results get a checkmark for successes.
+- Admin's bulk teacher-invite panel (`admin/teachers`): converted from an inline block with no
+  backdrop (pushed page content down when opened) into a real modal `Dialog` with
+  overlay/focus-trap, same purple branding and content preserved exactly.
+- **Verification**: `tsc` clean · `lint` unchanged 3-error baseline · `vitest` 268/268 · `build`
+  clean. Live-verified via screenshots against a fresh production build: loading spinner, tinted
+  status-icon circles, and the password show/hide toggle (confirmed the `type` attribute actually
+  flips `password`→`text` on click).
+
 ### 2026-07-17 (cont'd) — Teacher live video (student → teacher), real peer-to-peer WebRTC ✅
 
 Round 3's Task 4 investigated feasibility only and stopped for a decision (see the entry below).
@@ -579,6 +644,9 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Current Status
+- **Exam auto-completes on the teacher side when closing time is reached** ✅ **COMPLETE** (2026-07-17) — `computeEffectiveExamStatus` now derives `completed` once `endTime` has passed (symmetric with the existing `scheduled→live` rule), fixing exams list/dashboard/cross-exam Live Monitor all showing a stale "Live" badge forever past the actual close time; also fixed the matching "Active Exams" stat aggregate, which had the identical gap. See the Session Log.
+- **Cross-exam Live Monitor page (`/teacher/monitor`) now has the eye button/live video too** ✅ **COMPLETE** (2026-07-17) — the "Go Live"/snapshot/actions panel only ever existed on the per-exam monitor page; extracted it to a shared `StudentActionsModal` component and wired it into both. See the Session Log.
+- **Invitation UI polish** ✅ **COMPLETE** (2026-07-17) — presentation-only pass across all public accept pages and internal invite-sending dialogs (new shared `PasswordInput` show/hide toggle, spinner loading states, admin's invite panel converted to a real modal). No backend/logic changes. See the Session Log.
 - **Teacher live video (student → teacher, peer-to-peer WebRTC)** ✅ **COMPLETE** (2026-07-17) — one-student-at-a-time live camera viewing for teachers via direct browser-to-browser WebRTC, signaled over a private, RLS-authorized Supabase Realtime Broadcast channel (no third-party video/SFU service, no media server). Student side reuses the proctoring camera stream already open (no second permission prompt); teacher side is a "Go live"/"Stop live" control in the existing per-student monitor modal. Cross-institution access is denied at the signaling/RLS layer itself, live-verified. STUN-only (no TURN) shipped deliberately — see `LIVE_VIDEO_PROGRESS.md` for the flagged cost/reliability judgment call. See the Session Log.
 - **Phase 4 fixes round 3 (exam auto-start, tab-lock logging, proctoring tuning, live-video feasibility, dashboard student count)** ✅ **COMPLETE** (2026-07-17) — added read-time "effective status" for teacher/admin exam surfaces (students already had this; a scheduled exam past its startTime now correctly shows Live without a cron), fixed a real Phase-3-era regression where a tab-switch violation was permanently lost if the student never returned to the tab (verified against a production build after dev-mode React StrictMode double-mounting initially masked the fix), tuned AI proctoring thresholds (loosened gaze detection, tightened the movement-false-positive-prone multi-face detector, added a high-severity escalation tier for sustained gaze/audio violations that were previously capped below the push-notification threshold forever), confirmed teacher live video was never built (three options written up, nothing implemented pending Haris's decision), and fixed the same TeacherStudent-only under-counting bug round 2 fixed in the Students tab, this time in the dashboard's own separate stat queries. See `PHASE4_FIXES_ROUND3_PROGRESS.md` and the Session Log.
 - **Phase 4 fixes round 2 (student profile, Students tab, item builder save, CLO audit, exam-to-class scoping)** ✅ **COMPLETE** (2026-07-17) — fixed the student settings page's identical fake-save bug, closed a real roster-completeness gap + an unscoped-violations-query leak on the Students tab, fixed the manual item builder's silent save failure (marks type coercion, disconnected Select inputs, no error surfacing), investigated but deliberately did not change CLO creation (too ambiguous — full inventory in the progress file for Haris to react to), and added real class-scoping for exams (new nullable `Exam.classId`, wizard class selector, class-scoped student visibility, and a previously-nonexistent eligibility gate on `POST /api/attempts` that closed a real "any student can start any exam by guessing its id" hole). See `PHASE4_FIXES_ROUND2_PROGRESS.md` and the Session Log.
@@ -600,10 +668,13 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Build Status
-- `npm run build` → **PASSES** (0 errors, 88 routes — no new routes for live video; it's 2 new client components/hooks + 2 new Realtime RLS policies, not new API routes)
+- `npm run build` → **PASSES** (0 errors, 88 routes — no new routes since the live-video work; the follow-up fixes are data-layer/component changes only)
 - `npm run lint` → 3 pre-existing baseline errors (`useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff), 0 warnings
 - `npx tsc --noEmit` → clean
-- `npx vitest run` → 268/268 passing (no new tests this pass — live video is DB/Realtime/WebRTC-driven throughout with no pure-function surface, verified live instead, see `LIVE_VIDEO_PROGRESS.md`) (+ `pytest` 10/10 in `psychometrics/`)
+- `npx vitest run` → 275/275 passing (268 baseline + 7 new for the exam-auto-complete fix) (+ `pytest` 10/10 in `psychometrics/`)
+- Last verified: 2026-07-17 (exam auto-completes on the teacher side when closing time is reached)
+- Last verified: 2026-07-17 (cross-exam Live Monitor eye button/live video fix)
+- Last verified: 2026-07-17 (invitation UI polish — presentation-only)
 - Last verified: 2026-07-17 (Teacher live video — peer-to-peer WebRTC, verified against a fresh production build + live two-browser Playwright session, see `LIVE_VIDEO_PROGRESS.md`)
 - Last verified: 2026-07-17 (Phase 4 fixes round 3 — exam auto-start, tab-lock logging, proctoring tuning, live-video feasibility, dashboard student count; tab-lock fix specifically verified against a production build, not just dev mode)
 - Last verified: 2026-07-17 (Phase 4 fixes round 2 — student profile, Students tab, item builder save, CLO audit, exam-to-class scoping)
