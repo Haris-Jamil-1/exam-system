@@ -1,13 +1,15 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { getExams, getMonitorStudents } from '@/lib/data';
-import type { Exam, MonitorStudent } from '@/types';
+import { useState, useEffect, useCallback } from 'react';
+import { getExams, getMonitorStudents, getMonitorFeed } from '@/lib/data';
+import type { Exam, MonitorStudent, Violation } from '@/types';
 import {
   Eye, AlertTriangle, Users, ShieldCheck,
   Volume2, Monitor, CameraOff, Radio,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { StudentActionsModal } from '@/components/shared/StudentActionsModal';
 
 const ALERT_ICONS: Record<string, React.ElementType> = {
   flagged: AlertTriangle,
@@ -30,8 +32,10 @@ export default function LiveMonitorPage() {
   const [liveExams, setLiveExams]     = useState<Exam[]>([]);
   const [selectedId, setSelectedId]   = useState<string>('');
   const [students, setStudents]       = useState<MonitorStudent[]>([]);
+  const [feed, setFeed]               = useState<Violation[]>([]);
   const [loading, setLoading]         = useState(true);
   const [filter, setFilter]           = useState<'all' | 'flagged' | 'warning'>('all');
+  const [viewing, setViewing]         = useState<MonitorStudent | null>(null);
 
   useEffect(() => {
     getExams().then(exams => {
@@ -42,17 +46,20 @@ export default function LiveMonitorPage() {
     });
   }, []);
 
+  const refresh = useCallback(async () => {
+    if (!selectedId) return;
+    const [s, f] = await Promise.all([getMonitorStudents(selectedId), getMonitorFeed(selectedId)]);
+    setStudents(s);
+    setFeed(f);
+  }, [selectedId]);
+
   useEffect(() => {
     if (!selectedId) return;
-    let alive = true;
-    async function refresh() {
-      const data = await getMonitorStudents(selectedId);
-      if (alive) setStudents(data);
-    }
-    void refresh();
-    const interval = setInterval(() => { void refresh(); }, 10_000);
-    return () => { alive = false; clearInterval(interval); };
-  }, [selectedId]);
+    async function tick() { await refresh(); }
+    void tick();
+    const interval = setInterval(() => { void tick(); }, 10_000);
+    return () => clearInterval(interval);
+  }, [selectedId, refresh]);
 
   const alerts  = students.filter(s => s.status === 'flagged');
   const visible = filter === 'all'
@@ -185,6 +192,14 @@ export default function LiveMonitorPage() {
                         {student.violationCount} violation{student.violationCount !== 1 ? 's' : ''} detected
                       </div>
                     )}
+
+                    <button
+                      onClick={() => setViewing(student)}
+                      disabled={!student.attemptId}
+                      className="mt-3 w-full text-xs flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Eye className="h-3.5 w-3.5" /> Review & Actions
+                    </button>
                   </div>
                 );
               })}
@@ -192,6 +207,25 @@ export default function LiveMonitorPage() {
           )}
         </>
       )}
+
+      {/* Student review & actions modal */}
+      <Dialog open={!!viewing} onOpenChange={open => { if (!open) setViewing(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Radio className="h-4 w-4 text-blue-500" />
+              {viewing?.name}
+            </DialogTitle>
+          </DialogHeader>
+          {viewing && (
+            <StudentActionsModal
+              student={viewing}
+              violations={feed.filter(v => v.studentId === viewing.id)}
+              onActionDone={() => void refresh()}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
