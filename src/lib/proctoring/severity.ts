@@ -30,9 +30,14 @@ export function deriveSeverity(
     case 'no_face':
       return d >= SUSTAINED_NO_FACE_SECONDS ? 'high' : 'medium';
     case 'audio_detected':
-      return d > 15 ? 'medium' : 'low';
+      // Previously capped at 'medium' no matter how long it went on — genuinely sustained
+      // background noise/talking (not a brief cough or chair scrape) is a real violation the
+      // teacher should be pushed-notified about, same as the always-high vision signals.
+      return d > 60 ? 'high' : d > 15 ? 'medium' : 'low';
     case 'gaze_away':
-      return d > 20 ? 'medium' : 'low';
+      // Same rationale as audio_detected — a truly sustained gaze-away (not a momentary glance)
+      // was structurally incapable of ever reaching the push-notification/snapshot tier.
+      return d > 60 ? 'high' : d > 20 ? 'medium' : 'low';
     case 'prohibited_object':
       return 'medium';
     default:

@@ -2,6 +2,7 @@
 import { cache } from 'react';
 import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';
+import { computeEffectiveExamStatus } from '@/lib/exam-status';
 import type { StatValue, PendingExam } from '@/types';
 
 const getSession = cache(async () => {
@@ -18,6 +19,36 @@ const getSession = cache(async () => {
   }
   return { institutionId: institutionId ?? null, supabaseId: supabaseId ?? null, role: role ?? null, prismaUserId, teacherIds: teacherIds ?? null };
 });
+
+// A 'scheduled' exam whose startTime has passed (and endTime hasn't) is effectively live even
+// though its DB status column was never manually flipped — see computeEffectiveExamStatus for
+// the same rule applied to already-fetched rows. This is the equivalent WHERE-clause fragment
+// for aggregate .count() queries, which can't run fetched rows through that mapper.
+function activeExamWhere(now: Date) {
+  return {
+    OR: [
+      { status: 'live' as const },
+      { status: 'scheduled' as const, startTime: { lte: now }, endTime: { gt: now } },
+    ],
+  };
+}
+
+// A teacher's real student count must include students linked either via the older direct
+// TeacherStudent invite flow OR via ClassEnrollment in one of the teacher's own classes — a
+// student who joined through a class invite (POST /api/class-invites/accept/[token]) only ever
+// gets a ClassEnrollment row, never a TeacherStudent row. Counting TeacherStudent alone (the
+// pre-fix behavior here and in getStudents()/round 2) silently reads 0 for any teacher whose
+// roster is entirely class-based, which is now the primary invite path — this is what made the
+// dashboard's "Total Students" card look broken/absent rather than just wrong.
+function teacherStudentCountWhere(teacherId: string) {
+  return {
+    role: 'student' as const,
+    OR: [
+      { studentTeachers: { some: { teacherId } } },
+      { classEnrollments: { some: { class: { teacherId } } } },
+    ],
+  };
+}
 
 function relativeTime(date: Date): string {
   const diff = Date.now() - date.getTime();
@@ -36,9 +67,9 @@ export async function getDashboardStats(): Promise<StatValue[]> {
     ? { institutionId, teacherId: prismaUserId }
     : { institutionId };
   const [activeExams, totalStudents, pendingReviews, trustAgg] = await Promise.all([
-    prisma.exam.count({ where: { ...examFilter, status: 'live' } }),
+    prisma.exam.count({ where: { ...examFilter, ...activeExamWhere(new Date()) } }),
     role === 'teacher' && prismaUserId
-      ? prisma.teacherStudent.count({ where: { teacherId: prismaUserId } })
+      ? prisma.user.count({ where: teacherStudentCountWhere(prismaUserId) })
       : prisma.user.count({ where: { institutionId, role: 'student' } }),
     prisma.violation.count({
       where: { exam: examFilter, severity: 'high' },
@@ -227,7 +258,7 @@ export async function getRecentExams() {
     course: e.subject,
     detail: `${e.duration} min · ${e._count.enrollments} students`,
     students: e._count.enrollments,
-    status: e.status as 'draft' | 'scheduled' | 'live' | 'completed',
+    status: computeEffectiveExamStatus(e.status as 'draft' | 'scheduled' | 'live' | 'completed', e.startTime, new Date()),
   }));
 }
 
@@ -392,7 +423,7 @@ export async function getApprovedExams() {
     title: e.title,
     subject: e.subject,
     teacher: e.teacher.name,
-    status: e.status as 'draft' | 'scheduled' | 'live' | 'completed',
+    status: computeEffectiveExamStatus(e.status as 'draft' | 'scheduled' | 'live' | 'completed', e.startTime, new Date()),
     date: e.startTime.toISOString(),
     students: e._count.enrollments,
   }));
@@ -411,10 +442,10 @@ export async function getTeacherDashboardData() {
     : { institutionId };
 
   const [activeExams, totalStudents, pendingReviews, trustAgg, examRows, alertRows] = await Promise.all([
-    prisma.exam.count({ where: { ...examFilter, status: 'live' } }),
+    prisma.exam.count({ where: { ...examFilter, ...activeExamWhere(new Date()) } }),
     // Count only this teacher's own students (not all institution students)
     role === 'teacher' && prismaUserId
-      ? prisma.teacherStudent.count({ where: { teacherId: prismaUserId } })
+      ? prisma.user.count({ where: teacherStudentCountWhere(prismaUserId) })
       : prisma.user.count({ where: { institutionId, role: 'student' } }),
     prisma.violation.count({ where: { exam: examFilter, severity: 'high' } }),
     prisma.examAttempt.aggregate({ where: { exam: examFilter }, _avg: { trustScore: true } }),
@@ -445,7 +476,7 @@ export async function getTeacherDashboardData() {
     course: e.subject,
     detail: `${e.duration} min · ${e._count.enrollments} students`,
     students: e._count.enrollments,
-    status: e.status as 'draft' | 'scheduled' | 'live' | 'completed',
+    status: computeEffectiveExamStatus(e.status as 'draft' | 'scheduled' | 'live' | 'completed', e.startTime, new Date()),
   }));
 
   const alerts = alertRows.map(v => ({
@@ -614,7 +645,7 @@ export async function getAdminDashboardData() {
     title: e.title,
     subject: e.subject,
     teacher: e.teacher.name,
-    status: e.status as 'draft' | 'scheduled' | 'live' | 'completed',
+    status: computeEffectiveExamStatus(e.status as 'draft' | 'scheduled' | 'live' | 'completed', e.startTime, new Date()),
     date: e.startTime.toISOString(),
     students: e._count.enrollments,
   }));

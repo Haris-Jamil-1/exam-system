@@ -31,6 +31,13 @@ describe('deriveSeverity — server-side severity policy', () => {
     expect(deriveSeverity('audio_detected', 5, 'high')).toBe('low');
     expect(deriveSeverity('audio_detected', 20, 'low')).toBe('medium');
   });
+
+  it('gaze_away and audio_detected can now reach high past a truly sustained duration (Task 3 fix — previously structurally capped at medium forever, so a genuinely persistent violation could never trigger the teacher push-notification/snapshot tier)', () => {
+    expect(deriveSeverity('gaze_away', 60, 'low')).toBe('medium');
+    expect(deriveSeverity('gaze_away', 61, 'low')).toBe('high');
+    expect(deriveSeverity('audio_detected', 60, 'low')).toBe('medium');
+    expect(deriveSeverity('audio_detected', 61, 'low')).toBe('high');
+  });
 });
 
 describe('episodeDurationSeconds', () => {

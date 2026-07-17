@@ -24,6 +24,9 @@ interface FaceDetectorProps {
   buffer: ProctoringEventBuffer;
   /** Registered so DirectiveListener can serve teacher snapshot requests. */
   captureRef?: RefObject<(() => Promise<string | null>) | null>;
+  /** Populated with the live camera MediaStream so WebRTCBroadcaster can reuse it for a
+   *  teacher's live-view request instead of calling getUserMedia() a second time. */
+  streamRef?: RefObject<MediaStream | null>;
 }
 
 const TICK_MS = 2_000;
@@ -38,7 +41,7 @@ const OBJECT_CLASSES: Record<string, 'phone_detected' | 'prohibited_object'> = {
 
 type FaceStatus = 'loading' | 'ok' | 'no_face' | 'multiple' | 'degraded' | 'error';
 
-export function FaceDetector({ buffer, captureRef }: FaceDetectorProps) {
+export function FaceDetector({ buffer, captureRef, streamRef }: FaceDetectorProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [status, setStatus] = useState<FaceStatus>('loading');
   const [snapshotFlash, setSnapshotFlash] = useState(false);
@@ -54,8 +57,16 @@ export function FaceDetector({ buffer, captureRef }: FaceDetectorProps) {
     let tick = 0;
 
     const noFace = new ConditionEpisode(3, 2);   // ≥3 passes (~6s) opens
-    const multiFace = new ConditionEpisode(2, 2); // ≥2 passes (~4s) opens
-    const gazeAway = new ConditionEpisode(4, 2);  // ≥4 passes (~8s) opens
+    // Was 2 passes (~4s) — the shortest debounce of any vision detector, which made ordinary
+    // movement (leaning, a hand near the face, motion blur briefly reading as a second face)
+    // the easiest false positive to trip, especially paired with the "always high severity,
+    // immediate snapshot + push notification" response multiple_faces gets. Raised to match
+    // no_face's ~6s bar — still fast, no longer the most trigger-happy detector in the system.
+    const multiFace = new ConditionEpisode(3, 2); // ≥3 passes (~6s) opens
+    // Was 4 passes (~8s) with zero tolerance for a single noisy frame resetting the streak —
+    // real sustained-but-imperfect gaze-away (natural micro-corrections) repeatedly failed to
+    // reach the bar. Shortened alongside the geometry thresholds loosened in gaze.ts.
+    const gazeAway = new ConditionEpisode(3, 2);  // ≥3 passes (~6s) opens
     const objectEpisodes = new Map<string, ConditionEpisode>(); // per object class
     let noFaceOpenedAt: number | null = null;
     let noFaceSnapshot: string | null = null;
@@ -163,6 +174,14 @@ export function FaceDetector({ buffer, captureRef }: FaceDetectorProps) {
       const transition = gazeAway.update(away, now);
       if (transition?.kind === 'opened') {
         gazeOpenedAt = transition.startedAt;
+        // Was missing entirely — every other detector (no_face, multiple_faces, phone) calls
+        // this at episode-open so the student sees the same on-screen warning; gaze_away
+        // silently reached the server but never registered client-side at all.
+        addViolation({
+          type: 'gaze_away',
+          timestamp: new Date(transition.startedAt).toISOString(),
+          description: 'Sustained gaze away from screen',
+        });
       } else if (transition?.kind === 'closed') {
         emitGaze(transition.startedAt, transition.endedAt);
       } else if (gazeAway.isOpen && gazeOpenedAt && now - gazeOpenedAt > MAX_EPISODE_MS) {
@@ -246,6 +265,7 @@ export function FaceDetector({ buffer, captureRef }: FaceDetectorProps) {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
         }
+        if (streamRef) streamRef.current = stream;
       } catch {
         if (!cancelled) setStatus('error');
         return;
@@ -261,6 +281,11 @@ export function FaceDetector({ buffer, captureRef }: FaceDetectorProps) {
           baseOptions: { modelAssetPath: '/models/mediapipe/face_landmarker.task' },
           runningMode: 'VIDEO',
           numFaces: 2,
+          // Un-set, these default to a permissive ~0.5 — raising the bar cuts down on a
+          // transient low-confidence "second face" (motion blur, an arm passing near the face)
+          // being counted at all before it ever reaches the multiFace episode counter.
+          minFaceDetectionConfidence: 0.6,
+          minFacePresenceConfidence: 0.6,
         });
       } catch {
         landmarker = null;
@@ -319,6 +344,7 @@ export function FaceDetector({ buffer, captureRef }: FaceDetectorProps) {
     return () => {
       cancelled = true;
       if (captureRef) captureRef.current = null;
+      if (streamRef) streamRef.current = null;
       if (intervalId) clearInterval(intervalId);
       // Flush any open close-emitted episodes so their duration isn't lost.
       const now = Date.now();
@@ -329,7 +355,7 @@ export function FaceDetector({ buffer, captureRef }: FaceDetectorProps) {
       landmarker?.close();
       stream?.getTracks().forEach(t => t.stop());
     };
-  }, [buffer, addViolation, captureRef]);
+  }, [buffer, addViolation, captureRef, streamRef]);
 
   const label: Record<FaceStatus, { text: string; cls: string }> = {
     loading: { text: 'Starting…', cls: 'bg-gray-600 text-white' },

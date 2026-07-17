@@ -2,6 +2,99 @@
 
 ## Session Log
 
+### 2026-07-17 (cont'd) — Teacher live video (student → teacher), real peer-to-peer WebRTC ✅
+
+Round 3's Task 4 investigated feasibility only and stopped for a decision (see the entry below).
+User clarified direction (student's camera to the teacher, not the old Phase-1 mock reversed)
+and gave a complete, prescriptive spec up front: one-student-at-a-time live viewing, peer-to-peer
+WebRTC signaled over Supabase Realtime, no third-party video/SFU service, no media server to run.
+Full detail in `LIVE_VIDEO_PROGRESS.md`.
+
+- New `src/lib/webrtc-signaling.ts` (shared types/STUN config), `WebRTCBroadcaster.tsx` (student
+  side, mounted in `ProctoringOverlay` alongside the existing detectors — reuses `FaceDetector`'s
+  already-open camera `MediaStream` via a new `streamRef` prop instead of a second
+  `getUserMedia()` call), and `useWebRTCViewer.ts` (teacher side — `start`/`stop`/`state`, wired
+  into the existing "Review & Actions" modal on the monitor page as a "Go live"/"Stop live"
+  control next to the existing on-demand-snapshot button, reusing that modal's own mount/unmount
+  lifecycle so switching students or closing the modal always tears the connection down).
+- **Signaling authorization enforced at the RLS layer, not just the UI** (spec's own explicit
+  ask): two new Supabase Realtime Broadcast Authorization policies on `realtime.messages`
+  (`webrtc_signaling_select`/`_insert`), scoped to `webrtc:{attemptId}` topics, using the same
+  student-owns-attempt-OR-teacher/admin-in-same-institution shape as the 2026-07-11 tables.
+  Live-verified: a real teacher from a different institution attempting to subscribe to a real
+  student's attempt channel gets `CHANNEL_ERROR: Unauthorized` before any SDP ever exchanges.
+- **TURN judgment call, flagged not guessed** (spec's own explicit ask on item 6): shipped
+  STUN-only. Same-machine testing can't produce a real cross-NAT signal either way; the
+  `useWebRTCViewer` hook's `failed` state ("likely a firewall/network blocking a direct
+  connection") is the real-world tell that TURN would be needed — cost/hosting implications
+  (self-hosted `coturn` vs. a pay-per-use provider, ongoing bandwidth cost unlike free STUN)
+  written up in `LIVE_VIDEO_PROGRESS.md` rather than added preemptively.
+- **Verification**: `tsc` clean · `lint` back to the exact pre-existing 3-error/0-warning baseline
+  (one stray unused import from an early draft caught and removed) · `vitest` 268/268 (no
+  regressions; this feature has no pure-function surface to unit test, verification leaned on
+  live QA) · `build` clean. Live-verified against a **fresh production build** (`next build &&
+  next start`, not dev mode — this session's own Round 3 work found a real StrictMode dev-mode
+  false negative in this exact proctoring-overlay code path, so dev mode was deliberately not
+  trusted here) via a disposable, self-cleaning Playwright + Prisma script against the real
+  Supabase project: a real student's camera stream reaches the teacher's `<video>` element
+  (`readyState` ≥ `HAVE_CURRENT_DATA`, not a mock), "Stop live" reverts the UI and leaves the
+  student's own proctoring camera stream untouched (`readyState: 'live'`), and the cross-
+  institution RLS rejection above. All QA data confirmed deleted afterward.
+
+### 2026-07-17 (cont'd) — Phase 4 fixes round 3: exam auto-start, tab-lock logging, proctoring tuning, live-video feasibility, dashboard student count ✅
+
+Five-item punch list from live/manual testing. Full detail, including a real production-vs-dev-mode
+investigation for Task 2, in `PHASE4_FIXES_ROUND3_PROGRESS.md`.
+
+- **Exam auto-start (teacher side)** — `Exam.status` never auto-transitions in the DB (no cron,
+  by design, matching this repo's established preference against automatic status-changing jobs);
+  students already saw correct live-ness via read-time `now >= startTime` checks in
+  `getStudentExams`/`getStudentDashboardData`, but every teacher/admin surface rendered the raw
+  DB column directly, so a scheduled exam whose time had passed just sat there with no Monitor
+  link. New `src/lib/exam-status.ts`'s `computeEffectiveExamStatus` (mirrors the existing
+  `deriveInviteStatus` pattern) applied at every teacher/admin exam-list read path, plus a
+  matching time-aware where-clause for the two raw `.count()` "Active Exams" aggregates.
+- **Tab lock not enforced/logged** — real regression from the Phase 3 proctoring rewrite
+  (`050d8c9`, confirmed via `git log -p`): `TabGuard.tsx` only sent a tab-switch violation to the
+  server when the student *returned* to the tab; if they never came back before the exam ended,
+  it was permanently lost, not delayed. Fixed to emit immediately on hide (matching
+  `FullscreenGuard`'s already-correct pattern), with a 16s escalation event if the absence
+  continues. Live-verifying this took real investigative work: an initial synthetic-dispatch test
+  against `npm run dev` appeared to fail, traced via temporary debug instrumentation (fully
+  reverted afterward) to React StrictMode's dev-only double-mount creating a stale, disposed
+  `ProctoringEventBuffer` closure — re-running the identical test against a real `next build &&
+  next start` production server confirmed the fix works correctly (`201` from
+  `POST /api/violations`, real `Violation` row, no return-to-tab required).
+- **AI proctoring false positives/negatives** — research found a consistent pattern: the
+  false-positive-prone signal (`multiple_faces`) had the shortest debounce and loudest,
+  duration-independent response, while the under-detecting signals (`gaze_away`,
+  `audio_detected`) had longer/zero-tolerance debounces and were structurally capped below the
+  push-notification severity tier no matter how long they persisted. Loosened `gaze.ts`'s head-
+  turn/iris-corner thresholds, shortened `gazeAway`'s required streak, lengthened and
+  confidence-floored `multiFace`'s (the actual movement-false-positive source), lowered
+  `AudioMonitor`'s energy threshold, added a `d > 60 → high` severity tier for both
+  `gaze_away`/`audio_detected` in `severity.ts` (previously capped at `medium` forever), fixed a
+  missing client-side warning toast for `gaze_away`, and closed an `AudioMonitor` unmount-flush
+  gap identical to TabGuard's (an open audio episode was silently discarded if the exam ended
+  before `QUIET_MS` of silence). Full behavioral/detection-accuracy verification flagged as
+  needing a real human+camera QA pass — not something a script can honestly claim.
+- **Teacher live video — investigated, not built**, per explicit instruction to stop for a
+  decision. Confirmed definitively (no `<video>` element, no WebRTC/SFU code or dependency
+  anywhere, an explicit architecture doc naming this "out of scope for Phase 3, never started")
+  that only on-demand single-frame snapshots exist today. Three options written up (keep
+  snapshots as-is / one-student-at-a-time WebRTC via a hosted SFU like LiveKit / more frequent
+  automatic snapshots as a no-new-infra middle ground) for Haris to pick from.
+- **Dashboard student count** — same class of bug round 2 fixed in the Students tab, just not
+  caught in every location: the teacher dashboard's own separate "Total Students"/`getDashboardStats`
+  queries still counted via `TeacherStudent` only, reading 0 (looking "not displayed") for any
+  teacher whose roster is entirely class-based. Applied the same union-of-relations fix; also
+  fixed "Active Exams" in the same two functions to be time-aware (same root cause as Task 1).
+- **Tests**: ~15 new (`exam-status`, `proctoring-gaze`, an extended `proctoring-severity` case,
+  `teacher-dashboard-student-count`), covering items 1/3/5 per the explicit ask.
+- **Verification**: `tsc` clean · `lint` at the unchanged 3-error baseline · `build` clean (fresh
+  build re-run after fully reverting all temporary debug instrumentation from the Task 2
+  investigation — confirmed via `git diff`) · `vitest` 268/268.
+
 ### 2026-07-17 (cont'd) — Phase 4 fixes round 2: student profile, Students tab, item builder save, CLO audit, exam-to-class scoping ✅
 
 Five-item manual-QA punch list. Full detail, including the CLO investigation report and every
@@ -486,6 +579,8 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Current Status
+- **Teacher live video (student → teacher, peer-to-peer WebRTC)** ✅ **COMPLETE** (2026-07-17) — one-student-at-a-time live camera viewing for teachers via direct browser-to-browser WebRTC, signaled over a private, RLS-authorized Supabase Realtime Broadcast channel (no third-party video/SFU service, no media server). Student side reuses the proctoring camera stream already open (no second permission prompt); teacher side is a "Go live"/"Stop live" control in the existing per-student monitor modal. Cross-institution access is denied at the signaling/RLS layer itself, live-verified. STUN-only (no TURN) shipped deliberately — see `LIVE_VIDEO_PROGRESS.md` for the flagged cost/reliability judgment call. See the Session Log.
+- **Phase 4 fixes round 3 (exam auto-start, tab-lock logging, proctoring tuning, live-video feasibility, dashboard student count)** ✅ **COMPLETE** (2026-07-17) — added read-time "effective status" for teacher/admin exam surfaces (students already had this; a scheduled exam past its startTime now correctly shows Live without a cron), fixed a real Phase-3-era regression where a tab-switch violation was permanently lost if the student never returned to the tab (verified against a production build after dev-mode React StrictMode double-mounting initially masked the fix), tuned AI proctoring thresholds (loosened gaze detection, tightened the movement-false-positive-prone multi-face detector, added a high-severity escalation tier for sustained gaze/audio violations that were previously capped below the push-notification threshold forever), confirmed teacher live video was never built (three options written up, nothing implemented pending Haris's decision), and fixed the same TeacherStudent-only under-counting bug round 2 fixed in the Students tab, this time in the dashboard's own separate stat queries. See `PHASE4_FIXES_ROUND3_PROGRESS.md` and the Session Log.
 - **Phase 4 fixes round 2 (student profile, Students tab, item builder save, CLO audit, exam-to-class scoping)** ✅ **COMPLETE** (2026-07-17) — fixed the student settings page's identical fake-save bug, closed a real roster-completeness gap + an unscoped-violations-query leak on the Students tab, fixed the manual item builder's silent save failure (marks type coercion, disconnected Select inputs, no error surfacing), investigated but deliberately did not change CLO creation (too ambiguous — full inventory in the progress file for Haris to react to), and added real class-scoping for exams (new nullable `Exam.classId`, wizard class selector, class-scoped student visibility, and a previously-nonexistent eligibility gate on `POST /api/attempts` that closed a real "any student can start any exam by guessing its id" hole). See `PHASE4_FIXES_ROUND2_PROGRESS.md` and the Session Log.
 - **Phase 4 fixes (invite flow cleanup, cross-institution block, teacher profile/dashboard, joined-teacher visibility)** ✅ **COMPLETE** (2026-07-17) — removed both link-based invite UIs (one was silently broken — it never joined the inviting institution at all), added admin bulk teacher invite, consolidated student invites into the Classes tab only, added a server-side cross-institution invite block (applies to both teachers and students per the schema's single-institution-per-user model), fixed the teacher profile's fake "Save Changes" and its hardcoded stat block, and fixed the real accept-invite upsert bug that kept joined teachers from ever showing up in the admin panel. See `PHASE4_FIXES_PROGRESS.md` and the Session Log.
 - **Phase 7 (Multi-Section Exam Architecture, AI Grading Override & Bulk-Approve)** ✅ **COMPLETE** (2026-07-17) — Task 1 duplicated 2026-07-09's "item 9" almost entirely; closed two real server-enforcement gaps instead (section-weight-sum-to-100% wasn't checked at exam start; `isItemSequential` had zero server enforcement surface — new `ItemLock` table + lock endpoint closes it, scoped only to exams that opt in). Task 2 built the missing bulk-approve endpoint and closed a real gap where finalized (`confirmed`) grades could be silently re-overridden. RLS added to the new `ItemLock` table, live-verified. See `PHASE_7_PROGRESS.md` and the Session Log.
@@ -505,11 +600,12 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Build Status
-- `npm run build` → **PASSES** (0 errors, 88 routes — no new routes this round; the eligibility gate lives inside the existing `POST /api/attempts` handler)
+- `npm run build` → **PASSES** (0 errors, 88 routes — no new routes for live video; it's 2 new client components/hooks + 2 new Realtime RLS policies, not new API routes)
 - `npm run lint` → 3 pre-existing baseline errors (`useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff), 0 warnings
 - `npx tsc --noEmit` → clean
-- `npx vitest run` → 253/253 passing (229 baseline + 24 new this round) (+ `pytest` 10/10 in `psychometrics/`)
-- Schema: `Exam.classId` (nullable) added and pushed live via `prisma db push` this round
+- `npx vitest run` → 268/268 passing (no new tests this pass — live video is DB/Realtime/WebRTC-driven throughout with no pure-function surface, verified live instead, see `LIVE_VIDEO_PROGRESS.md`) (+ `pytest` 10/10 in `psychometrics/`)
+- Last verified: 2026-07-17 (Teacher live video — peer-to-peer WebRTC, verified against a fresh production build + live two-browser Playwright session, see `LIVE_VIDEO_PROGRESS.md`)
+- Last verified: 2026-07-17 (Phase 4 fixes round 3 — exam auto-start, tab-lock logging, proctoring tuning, live-video feasibility, dashboard student count; tab-lock fix specifically verified against a production build, not just dev mode)
 - Last verified: 2026-07-17 (Phase 4 fixes round 2 — student profile, Students tab, item builder save, CLO audit, exam-to-class scoping)
 - Last verified: 2026-07-17 (Phase 4 fixes — invite flow cleanup, cross-institution block, teacher profile/dashboard, joined-teacher visibility)
 - Last verified: 2026-07-17 (Phase 7 — multi-section locking + grading bulk-approve)

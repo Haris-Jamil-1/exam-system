@@ -17,13 +17,21 @@ const SAMPLE_MS = 200;
 const SUSTAIN_MS = 5_000; // activity must persist this long before it counts
 const QUIET_MS = 2_000;   // this much silence closes an episode
 
-export function AudioMonitor({ buffer, threshold = 0.05 }: AudioMonitorProps) {
+// Was 0.05 — a fixed, uncalibrated floor that easily missed quieter or more distant talking
+// (laptop mic gain/placement varies widely). Lowered so real sustained talking registers more
+// reliably; SUSTAIN_MS is unchanged, so a brief cough or chair scrape still never flags.
+export function AudioMonitor({ buffer, threshold = 0.035 }: AudioMonitorProps) {
   const { addViolation } = useProctoringStore();
 
   useEffect(() => {
     let stream: MediaStream | null = null;
     let ctx: AudioContext | null = null;
     let timer: ReturnType<typeof setInterval> | null = null;
+    // Hoisted so the unmount cleanup can flush a still-open episode (see below) — previously
+    // an audio episode that was open when the exam ended (timeout, force-submit, tab closed)
+    // was silently discarded: the interval was cleared and the stream stopped with no flush,
+    // so a sustained-talking violation that hadn't yet hit QUIET_MS of silence never got sent.
+    let flushOpenEpisode: (() => void) | null = null;
     let cancelled = false; // Guard against unmount before getUserMedia resolves
 
     // Episode state
@@ -69,6 +77,7 @@ export function AudioMonitor({ buffer, threshold = 0.05 }: AudioMonitorProps) {
           levelSum = 0;
           levelCount = 0;
         }
+        flushOpenEpisode = closeEpisode;
 
         timer = setInterval(() => {
           if (cancelled) return;
@@ -98,6 +107,7 @@ export function AudioMonitor({ buffer, threshold = 0.05 }: AudioMonitorProps) {
     return () => {
       cancelled = true;
       if (timer) clearInterval(timer);
+      flushOpenEpisode?.();
       ctx?.close();
       stream?.getTracks().forEach(t => t.stop());
     };

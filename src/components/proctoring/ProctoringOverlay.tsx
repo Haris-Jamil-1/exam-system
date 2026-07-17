@@ -7,6 +7,7 @@ import { AudioMonitor } from './AudioMonitor';
 import { FaceDetector } from './FaceDetector';
 import { ViolationAlert } from './ViolationAlert';
 import { DirectiveListener } from './DirectiveListener';
+import { WebRTCBroadcaster } from './WebRTCBroadcaster';
 
 interface ProctoringOverlayProps {
   examId: string;
@@ -23,6 +24,9 @@ export function ProctoringOverlay({ examId, attemptId, onForceSubmit }: Proctori
   // FaceDetector registers its snapshot capture here; DirectiveListener calls
   // it when a teacher requests a snapshot.
   const captureRef = useRef<(() => Promise<string | null>) | null>(null);
+  // FaceDetector populates this with its live camera stream; WebRTCBroadcaster reuses it for a
+  // teacher's live-view request instead of opening a second camera stream.
+  const streamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     buffer.setAttemptId(attemptId);
@@ -43,7 +47,8 @@ export function ProctoringOverlay({ examId, attemptId, onForceSubmit }: Proctori
       <TabGuard buffer={buffer} />
       <FullscreenGuard buffer={buffer} />
       <AudioMonitor buffer={buffer} />
-      <FaceDetector buffer={buffer} captureRef={captureRef} />
+      <FaceDetector buffer={buffer} captureRef={captureRef} streamRef={streamRef} />
+      <WebRTCBroadcaster attemptId={attemptId} streamRef={streamRef} />
       <DirectiveListener
         attemptId={attemptId}
         captureRef={captureRef}

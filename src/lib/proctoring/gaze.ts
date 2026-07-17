@@ -19,11 +19,15 @@ const LEFT_EYE_INNER = 133;
 const RIGHT_EYE_INNER = 362;
 const RIGHT_EYE_OUTER = 263;
 
-/** Head turned when nose-to-cheek distance ratio exceeds this (≈30°+ yaw). */
-export const HEAD_TURN_RATIO = 2.6;
-/** Iris cornered when its position within the eye corners leaves [0.2, 0.8]. */
-export const IRIS_CORNER_LOW = 0.2;
-export const IRIS_CORNER_HIGH = 0.8;
+// Loosened from the original 2.6/[0.2,0.8] — that combination under-detected real, sustained
+// looking-away (a moderate but genuine gaze-off-screen never crossed either bar). Still coarse
+// by design (no per-user calibration), just no longer requiring an extreme ~30°+ head turn or
+// an iris pinned almost fully into the corner before anything registers.
+/** Head turned when nose-to-cheek distance ratio exceeds this (≈22°+ yaw). */
+export const HEAD_TURN_RATIO = 2.0;
+/** Iris cornered when its position within the eye corners leaves [0.25, 0.75]. */
+export const IRIS_CORNER_LOW = 0.25;
+export const IRIS_CORNER_HIGH = 0.75;
 
 export interface GazeReading {
   away: boolean;

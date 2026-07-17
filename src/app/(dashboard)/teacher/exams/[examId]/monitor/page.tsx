@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { getExamById, getMonitorStudents, getMonitorFeed } from '@/lib/data';
 import { useMonitorRealtime } from '@/hooks/useMonitorRealtime';
+import { useWebRTCViewer } from '@/hooks/useWebRTCViewer';
 import type { Exam, MonitorStudent, Violation } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +11,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { AlertTriangle, Users, CheckCircle, Clock, Eye, Camera, WifiOff, Send, StopCircle } from 'lucide-react';
+import { AlertTriangle, Users, CheckCircle, Clock, Eye, Camera, WifiOff, Send, StopCircle, Video, VideoOff } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 const STATUS_CONFIG: Record<MonitorStudent['status'], { label: string; class: 'success' | 'warning' | 'danger' | 'secondary' | 'outline' }> = {
@@ -221,7 +222,12 @@ export default function MonitorPage() {
 }
 
 // ── Student review & actions modal ────────────────────────────────────────
-// Doc 04: on-demand snapshot pull instead of always-on video — no WebRTC/SFU.
+// Doc 04's on-demand snapshot pull is still the default view; "Go Live" opens a real
+// peer-to-peer WebRTC connection to this one student's camera (signaled over a private,
+// RLS-authorized Supabase Realtime channel — see useWebRTCViewer / LIVE_VIDEO_PROGRESS.md).
+// Only one student's feed streams to this teacher at a time: the hook is keyed on
+// attemptId, so it tears down the previous connection whenever this modal is reused for a
+// different student, and closing the modal (unmount) always closes it too.
 function StudentActionsModal({ student, violations, onActionDone }: {
   student: MonitorStudent;
   violations: Violation[];
@@ -241,6 +247,8 @@ function StudentActionsModal({ student, violations, onActionDone }: {
 
   const attemptId = student.attemptId;
   const inProgress = student.attemptStatus === 'in_progress';
+  const { videoRef, state: liveState, errorMessage: liveError, start: startLive, stop: stopLive } = useWebRTCViewer(attemptId ?? null);
+  const isLive = liveState !== 'idle';
 
   async function requestSnapshot() {
     if (!attemptId) return;
@@ -319,9 +327,34 @@ function StudentActionsModal({ student, violations, onActionDone }: {
 
   return (
     <div className="space-y-4">
-      {/* On-demand snapshot */}
+      {/* On-demand snapshot, or a live peer-to-peer feed once "Go Live" is clicked */}
       <div className="relative rounded-xl overflow-hidden bg-gray-900 aspect-video">
-        {snapshotUrl ? (
+        {isLive ? (
+          <>
+            {/* Always mounted while live so the ref is attached before the remote track
+                arrives; hidden (not unmounted) until the connection actually reaches
+                'connected', so the status overlay stays visible over a blank frame. */}
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className={`w-full h-full object-cover ${liveState === 'connected' ? '' : 'hidden'}`}
+            />
+            {liveState !== 'connected' && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-white gap-2 px-4 text-center">
+                {liveState === 'connecting' ? (
+                  <Video className="h-10 w-10 opacity-30 animate-pulse" />
+                ) : (
+                  <VideoOff className="h-10 w-10 opacity-30" />
+                )}
+                <p className="text-sm opacity-60">
+                  {liveState === 'connecting' ? 'Connecting to the student\'s camera…' : liveError}
+                </p>
+              </div>
+            )}
+          </>
+        ) : snapshotUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL, next/image can't optimize it
           <img src={snapshotUrl} alt={`Snapshot of ${student.name}`} className="w-full h-full object-cover" />
         ) : (
@@ -335,11 +368,22 @@ function StudentActionsModal({ student, violations, onActionDone }: {
           </div>
         )}
         {inProgress && (
-          <div className="absolute bottom-2 end-2">
-            <Button size="sm" variant="secondary" onClick={() => void requestSnapshot()} disabled={snapshotState === 'waiting'}>
-              <Camera className="h-3.5 w-3.5 me-1.5" />
-              {snapshotState === 'waiting' ? 'Waiting…' : 'Request snapshot'}
-            </Button>
+          <div className="absolute bottom-2 end-2 flex gap-2">
+            {isLive ? (
+              <Button size="sm" variant="destructive" onClick={() => stopLive()}>
+                <VideoOff className="h-3.5 w-3.5 me-1.5" /> Stop live
+              </Button>
+            ) : (
+              <>
+                <Button size="sm" variant="secondary" onClick={() => void requestSnapshot()} disabled={snapshotState === 'waiting'}>
+                  <Camera className="h-3.5 w-3.5 me-1.5" />
+                  {snapshotState === 'waiting' ? 'Waiting…' : 'Request snapshot'}
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => attemptId && startLive(attemptId)}>
+                  <Video className="h-3.5 w-3.5 me-1.5" /> Go live
+                </Button>
+              </>
+            )}
           </div>
         )}
       </div>

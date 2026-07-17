@@ -1,6 +1,7 @@
 'use server';
 import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';
+import { computeEffectiveExamStatus } from '@/lib/exam-status';
 import type { Exam, ExamSettings, StatValue } from '@/types';
 
 type PrismaExam = {
@@ -21,7 +22,7 @@ function mapExam(e: PrismaExam): Exam {
     duration: e.duration,
     totalMarks: e.totalMarks,
     passingMarks: e.passingMarks,
-    status: e.status as Exam['status'],
+    status: computeEffectiveExamStatus(e.status as Exam['status'], e.startTime, new Date()),
     approvalStatus: e.approvalStatus as Exam['approvalStatus'],
     startTime: e.startTime.toISOString(),
     endTime: e.endTime.toISOString(),
