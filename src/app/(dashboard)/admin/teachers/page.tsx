@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -180,17 +181,14 @@ export default function AdminTeachersPage() {
       />
 
       {/* Invite modal */}
-      {showInvite && (
-        <div className="rounded-2xl border border-[#EBF0F8] bg-white shadow-[0_4px_24px_rgba(0,0,0,0.10)] p-6 relative">
-          <button onClick={closeInviteModal} className="absolute top-4 end-4 rounded-lg p-1.5 text-[#9CA3AF] hover:bg-[#F4F7FC] hover:text-[#1A1D23]">
-            <X className="h-4 w-4" />
-          </button>
-          <div className="flex items-center gap-3 mb-5">
+      <Dialog open={showInvite} onOpenChange={open => { if (!open) closeInviteModal(); }}>
+        <DialogContent className="rounded-2xl border-[#EBF0F8] shadow-[0_4px_24px_rgba(0,0,0,0.10)]">
+          <div className="flex items-center gap-3 mb-1">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EDE9FE]">
               <UserPlus className="h-5 w-5 text-[#7C3AED]" strokeWidth={2} />
             </div>
             <div>
-              <h2 className="text-[16px] font-bold text-[#1A1D23]">Invite Teachers</h2>
+              <DialogTitle className="text-[16px] font-bold text-[#1A1D23]">Invite Teachers</DialogTitle>
               <p className="text-[12px] text-[#6B7280]">Invitations are sent by email only</p>
             </div>
           </div>
@@ -314,8 +312,8 @@ export default function AdminTeachersPage() {
               </div>
             </div>
           )}
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {/* Search */}
       <div className="relative">

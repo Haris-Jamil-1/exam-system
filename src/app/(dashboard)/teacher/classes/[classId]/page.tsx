@@ -17,7 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { ChevronRight, Users2, UserPlus, Archive, ArchiveRestore, X, Upload, FileSpreadsheet, AlertCircle } from 'lucide-react';
+import { ChevronRight, Users2, UserPlus, Archive, ArchiveRestore, X, Upload, FileSpreadsheet, AlertCircle, Mail, Send, Loader2, Check } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
 
 const OUTCOME_LABEL: Record<string, string> = {
@@ -206,8 +206,10 @@ export default function TeacherClassDetailPage() {
       {invites.length > 0 && (
         <Card>
           <CardContent className="p-0">
-            <div className="border-b px-4 py-3">
+            <div className="border-b px-4 py-3 flex items-center gap-2">
+              <Mail className="h-4 w-4 text-muted-foreground" />
               <h2 className="text-sm font-semibold">Invitations</h2>
+              <span className="text-xs text-muted-foreground">({invites.length})</span>
             </div>
             <ul className="divide-y">
               {invites.map(inv => (
@@ -237,7 +239,17 @@ export default function TeacherClassDetailPage() {
 
       <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Invite Students</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50">
+                <UserPlus className="h-5 w-5 text-[#1E88E5]" strokeWidth={2} />
+              </div>
+              <div>
+                <DialogTitle>Invite Students</DialogTitle>
+                <p className="text-xs text-muted-foreground">Invitations are sent by email only</p>
+              </div>
+            </div>
+          </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-2">
               <Label>Emails <span className="text-muted-foreground font-normal">(comma or newline separated)</span></Label>
@@ -282,8 +294,11 @@ export default function TeacherClassDetailPage() {
             {sendResults && (
               <div className="space-y-1 rounded-md border bg-muted/30 p-2 max-h-40 overflow-y-auto">
                 {sendResults.map(r => (
-                  <p key={r.email} className="text-xs">
-                    <span className="font-medium">{r.email}</span> — {OUTCOME_LABEL[r.outcome] ?? r.outcome.replaceAll('_', ' ')}
+                  <p key={r.email} className="flex items-center gap-1.5 text-xs">
+                    {r.outcome === 'invited'
+                      ? <Check className="h-3 w-3 flex-shrink-0 text-emerald-600" />
+                      : <span className="h-3 w-3 flex-shrink-0" />}
+                    <span className="min-w-0 truncate"><span className="font-medium">{r.email}</span> — {OUTCOME_LABEL[r.outcome] ?? r.outcome.replaceAll('_', ' ')}</span>
                   </p>
                 ))}
               </div>
@@ -291,7 +306,8 @@ export default function TeacherClassDetailPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setInviteOpen(false)}>Close</Button>
-            <Button onClick={handleSendInvites} disabled={sending || parsedEmails.length === 0}>
+            <Button onClick={handleSendInvites} disabled={sending || parsedEmails.length === 0} className="gap-2 bg-[#1E88E5] hover:bg-[#1976D2]">
+              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               {sending ? 'Sending…' : `Send ${parsedEmails.length || ''} Invite${parsedEmails.length === 1 ? '' : 's'}`}
             </Button>
           </DialogFooter>

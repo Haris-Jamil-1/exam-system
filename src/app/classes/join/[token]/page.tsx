@@ -7,8 +7,9 @@ import { z } from 'zod';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
-import { AlertTriangle, Clock, CheckCircle2, LogIn } from 'lucide-react';
+import { AlertTriangle, Clock, CheckCircle2, LogIn, Loader2, Mail } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 type InviteInfo = {
@@ -56,6 +57,16 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function Card({ children }: { children: React.ReactNode }) {
   return <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">{children}</div>;
+}
+
+function IconBadge({ icon: Icon, tone }: { icon: React.ComponentType<{ className?: string }>; tone: 'red' | 'amber' | 'emerald' | 'blue' }) {
+  const bg = { red: 'bg-red-50', amber: 'bg-amber-50', emerald: 'bg-emerald-50', blue: 'bg-blue-50' }[tone];
+  const fg = { red: 'text-red-500', amber: 'text-amber-500', emerald: 'text-emerald-500', blue: 'text-blue-500' }[tone];
+  return (
+    <div className={`inline-flex h-16 w-16 items-center justify-center rounded-full ${bg}`}>
+      <Icon className={`h-8 w-8 ${fg}`} />
+    </div>
+  );
 }
 
 export default function ClassJoinPage() {
@@ -121,7 +132,8 @@ export default function ClassJoinPage() {
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 flex flex-col items-center justify-center gap-3 p-4">
+        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
         <p className="text-muted-foreground text-sm">Validating invite…</p>
       </div>
     );
@@ -132,8 +144,8 @@ export default function ClassJoinPage() {
       <Shell>
         <Card>
           <div className="text-center space-y-4">
-            <AlertTriangle className="h-10 w-10 text-red-500 mx-auto" />
-            <h2 className="text-lg font-semibold">Invalid Invite Link</h2>
+            <IconBadge icon={AlertTriangle} tone="red" />
+            <h2 className="text-lg font-semibold text-gray-900">Invalid Invite Link</h2>
             <p className="text-sm text-muted-foreground">This link is not valid. Please ask your teacher to resend the invitation.</p>
             <Button variant="outline" onClick={() => router.push('/login')}>Go to Login</Button>
           </div>
@@ -147,8 +159,8 @@ export default function ClassJoinPage() {
       <Shell>
         <Card>
           <div className="text-center space-y-4">
-            <Clock className="h-10 w-10 text-amber-500 mx-auto" />
-            <h2 className="text-lg font-semibold">Invite Expired</h2>
+            <IconBadge icon={Clock} tone="amber" />
+            <h2 className="text-lg font-semibold text-gray-900">Invite Expired</h2>
             <p className="text-sm text-muted-foreground">This invitation expired on {new Date(invite!.expiresAt).toLocaleDateString()}. Please ask your teacher for a new invite.</p>
             <Button variant="outline" onClick={() => router.push('/login')}>Go to Login</Button>
           </div>
@@ -162,8 +174,8 @@ export default function ClassJoinPage() {
       <Shell>
         <Card>
           <div className="text-center space-y-4">
-            <CheckCircle2 className="h-10 w-10 text-emerald-500 mx-auto" />
-            <h2 className="text-lg font-semibold">
+            <IconBadge icon={CheckCircle2} tone="emerald" />
+            <h2 className="text-lg font-semibold text-gray-900">
               {status === 'enrolled' ? `You've joined ${invite?.className ?? 'the class'}` : 'Invite Already Accepted'}
             </h2>
             <p className="text-sm text-muted-foreground">
@@ -181,8 +193,8 @@ export default function ClassJoinPage() {
       <Shell>
         <Card>
           <div className="text-center space-y-4">
-            <LogIn className="h-10 w-10 text-blue-500 mx-auto" />
-            <h2 className="text-lg font-semibold">Sign in to join</h2>
+            <IconBadge icon={LogIn} tone="blue" />
+            <h2 className="text-lg font-semibold text-gray-900">Sign in to join</h2>
             <p className="text-sm text-muted-foreground">
               Sign in as <strong>{invite?.email}</strong> to join <strong>{invite?.className}</strong>.
             </p>
@@ -208,7 +220,9 @@ export default function ClassJoinPage() {
           </div>
 
           <div className="rounded-lg bg-blue-50 border border-blue-100 p-3 flex items-center justify-between text-sm">
-            <span className="text-gray-500">Signing up as</span>
+            <span className="text-gray-500 flex items-center gap-1.5">
+              <Mail className="h-3.5 w-3.5" /> Signing up as
+            </span>
             <div className="flex items-center gap-2">
               <span className="font-medium text-gray-900">{invite?.email}</span>
               <Badge variant="info">Student</Badge>
@@ -216,8 +230,9 @@ export default function ClassJoinPage() {
           </div>
 
           {submitError && (
-            <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-600">
-              {submitError}
+            <div className="rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-600 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <span>{submitError}</span>
             </div>
           )}
 
@@ -230,17 +245,18 @@ export default function ClassJoinPage() {
 
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" placeholder="At least 8 characters" {...register('password')} />
+              <PasswordInput id="password" placeholder="At least 8 characters" {...register('password')} />
               {errors.password && <p className="text-sm text-red-500">{errors.password.message}</p>}
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="confirmPassword">Confirm Password</Label>
-              <Input id="confirmPassword" type="password" placeholder="Repeat your password" {...register('confirmPassword')} />
+              <PasswordInput id="confirmPassword" placeholder="Repeat your password" {...register('confirmPassword')} />
               {errors.confirmPassword && <p className="text-sm text-red-500">{errors.confirmPassword.message}</p>}
             </div>
 
             <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting && <Loader2 className="h-4 w-4 me-2 animate-spin" />}
               {isSubmitting ? 'Joining…' : 'Join Class'}
             </Button>
           </form>

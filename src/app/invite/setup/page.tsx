@@ -6,7 +6,9 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
+import { AlertTriangle, Loader2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import type { CurrentUser } from '@/types';
 
@@ -82,8 +84,9 @@ export default function InviteSetupPage() {
           </div>
 
           {error && (
-            <div className="mb-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-600">
-              {error}
+            <div className="mb-4 rounded-md bg-red-50 border border-red-200 p-3 text-sm text-red-600 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
@@ -103,9 +106,8 @@ export default function InviteSetupPage() {
 
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 placeholder="At least 8 characters"
                 {...register('password')}
               />
@@ -116,9 +118,8 @@ export default function InviteSetupPage() {
 
             <div className="space-y-2">
               <Label htmlFor="confirmPassword">Confirm Password</Label>
-              <Input
+              <PasswordInput
                 id="confirmPassword"
-                type="password"
                 placeholder="Repeat your password"
                 {...register('confirmPassword')}
               />
@@ -128,6 +129,7 @@ export default function InviteSetupPage() {
             </div>
 
             <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting && <Loader2 className="h-4 w-4 me-2 animate-spin" />}
               {isSubmitting ? 'Setting up…' : 'Continue to Dashboard'}
             </Button>
           </form>
