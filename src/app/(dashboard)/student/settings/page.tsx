@@ -13,9 +13,13 @@ import {
 } from 'lucide-react';
 import { getMyInstitution } from '@/lib/data/users';
 
+type ProfileFormValues = { name: string; email: string; institution: string };
+
 export default function StudentSettingsPage() {
   const currentUser = useCurrentUser();
   const [saved, setSaved]       = useState(false);
+  const [saving, setSaving]     = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [pwSaved, setPwSaved]   = useState(false);
   const [institutionName, setInstitutionName] = useState('');
   const [notifications, setNotifications] = useState({
@@ -25,7 +29,7 @@ export default function StudentSettingsPage() {
     weeklyDigest:  false,
   });
 
-  const { register, reset, handleSubmit } = useForm({
+  const { register, reset, handleSubmit } = useForm<ProfileFormValues>({
     defaultValues: { name: '', email: '', institution: '' },
   });
 
@@ -39,9 +43,34 @@ export default function StudentSettingsPage() {
     });
   }, [currentUser, reset]);
 
-  function onSubmit() {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  async function onSubmit(values: ProfileFormValues) {
+    const name = values.name.trim();
+    if (!name) return;
+    setSaveError('');
+    setSaving(true);
+    try {
+      const res = await fetch('/api/users/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}) as { error?: string });
+        setSaveError(body.error ?? 'Failed to save changes.');
+        return;
+      }
+      const updated = await res.json() as { name: string };
+      // Keep the locally cached session (useCurrentUser reads this on mount) in sync so the
+      // updated name shows up elsewhere in the shell without requiring a full reload.
+      if (currentUser) {
+        localStorage.setItem('exam_user', JSON.stringify({ ...currentUser, name: updated.name }));
+      }
+      reset({ name: updated.name, email: values.email, institution: values.institution });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setSaving(false);
+    }
   }
   function onPwSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -83,21 +112,24 @@ export default function StudentSettingsPage() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-[13px] font-semibold text-[#1A1D23]">Email</Label>
-                  <Input type="email" {...register('email')} className="rounded-xl border-[#E8ECF4] focus:border-[#16A34A] focus:ring-[#16A34A]/10" />
+                  <Input type="email" {...register('email')} disabled className="rounded-xl bg-[#F4F7FC] border-[#E8ECF4] text-[#9CA3AF]" />
                 </div>
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[13px] font-semibold text-[#1A1D23]">Institution</Label>
                 <Input {...register('institution')} disabled className="rounded-xl bg-[#F4F7FC] border-[#E8ECF4] text-[#9CA3AF]" />
-                <p className="text-[12px] text-[#9CA3AF]">You are enrolled at this institution.</p>
+                <p className="text-[12px] text-[#9CA3AF]">You are enrolled at this institution. Contact your teacher to change institution or email details.</p>
               </div>
+              {saveError && (
+                <p className="text-[12px] text-red-500">{saveError}</p>
+              )}
               <div className="flex items-center justify-between pt-2">
                 <div className="flex items-center gap-2">
                   <span className="rounded-full bg-[#DCFCE7] border border-[#BBF7D0] px-3 py-1 text-[12px] font-semibold text-[#16A34A]">Student</span>
                   <span className="text-[12px] text-[#9CA3AF]">· Exam access within your institution</span>
                 </div>
-                <Button type="submit" size="sm" className="gap-1.5 rounded-xl bg-[#16A34A] hover:bg-[#15803D]">
-                  {saved ? <><Check className="h-3.5 w-3.5" /> Saved</> : 'Save Changes'}
+                <Button type="submit" size="sm" disabled={saving} className="gap-1.5 rounded-xl bg-[#16A34A] hover:bg-[#15803D]">
+                  {saved ? <><Check className="h-3.5 w-3.5" /> Saved</> : saving ? 'Saving…' : 'Save Changes'}
                 </Button>
               </div>
             </form>

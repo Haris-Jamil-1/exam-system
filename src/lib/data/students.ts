@@ -29,16 +29,82 @@ async function getSessionContext() {
   return { institutionId, role, prismaUserId };
 }
 
-export async function getStudents(_institutionId?: string): Promise<CurrentUser[]> {
+export type StudentRosterEntry = CurrentUser & {
+  // Every class (of this teacher's own classes) the student is enrolled in — a student can be
+  // enrolled in more than one (ClassEnrollment is unique on the (classId, studentId) pair, not
+  // on studentId alone). Empty for a student linked only via the older direct TeacherStudent
+  // invite flow, never through a Class.
+  classNames: string[];
+  // Real average ExamAttempt.trustScore across the student's own completed/submitted attempts —
+  // null (never 0/100) when they have no qualifying attempts yet, so the UI can render an
+  // explicit "N/A" instead of a misleading placeholder.
+  trustScore: number | null;
+  // Properly scoped to just this student (unlike the page's previous getViolations() call with
+  // no arguments, which resolved to an empty `where: {}` and returned every violation in the
+  // entire database across every institution).
+  violationCount: number;
+};
+
+export async function getStudents(_institutionId?: string): Promise<StudentRosterEntry[]> {
   const { institutionId, role, prismaUserId } = await getSessionContext();
   if (!institutionId) return [];
 
+  // A teacher's roster must include a student linked EITHER via the older direct TeacherStudent
+  // invite flow OR via ClassEnrollment in one of this teacher's own classes — the previous
+  // TeacherStudent-only filter silently dropped every student who joined through a class invite,
+  // since that flow (api/class-invites/accept) only ever writes a ClassEnrollment row, never a
+  // TeacherStudent row.
   const where = role === 'teacher' && prismaUserId
-    ? { role: 'student' as const, institutionId, studentTeachers: { some: { teacherId: prismaUserId } } }
+    ? {
+        role: 'student' as const,
+        institutionId,
+        OR: [
+          { studentTeachers: { some: { teacherId: prismaUserId } } },
+          { classEnrollments: { some: { class: { teacherId: prismaUserId } } } },
+        ],
+      }
     : { role: 'student' as const, institutionId };
 
   const rows = await prisma.user.findMany({ where, orderBy: { name: 'asc' } });
-  return rows.map(mapUser);
+  if (rows.length === 0) return [];
+  const studentIds = rows.map(r => r.id);
+
+  const [classRows, trustAgg, violationCounts] = await Promise.all([
+    // Only this teacher's own classes — a student in another teacher's class shouldn't show
+    // that class's name on this teacher's roster view.
+    role === 'teacher' && prismaUserId
+      ? prisma.classEnrollment.findMany({
+          where: { studentId: { in: studentIds }, class: { teacherId: prismaUserId } },
+          include: { class: { select: { name: true } } },
+        })
+      : Promise.resolve([]),
+    prisma.examAttempt.groupBy({
+      by: ['studentId'],
+      where: { studentId: { in: studentIds }, status: { not: 'in_progress' } },
+      _avg: { trustScore: true },
+    }),
+    prisma.violation.groupBy({
+      by: ['studentId'],
+      where: { studentId: { in: studentIds } },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const classNamesByStudent = new Map<string, string[]>();
+  for (const ce of classRows) {
+    const list = classNamesByStudent.get(ce.studentId) ?? [];
+    list.push(ce.class.name);
+    classNamesByStudent.set(ce.studentId, list);
+  }
+  const trustByStudent = new Map(trustAgg.map(t => [t.studentId, t._avg.trustScore]));
+  const violationsByStudent = new Map(violationCounts.map(v => [v.studentId, v._count._all]));
+
+  return rows.map(r => ({
+    ...mapUser(r),
+    classNames: classNamesByStudent.get(r.id) ?? [],
+    trustScore: trustByStudent.get(r.id) ?? null,
+    violationCount: violationsByStudent.get(r.id) ?? 0,
+  }));
 }
 
 export async function getStudentById(id: string): Promise<CurrentUser | undefined> {

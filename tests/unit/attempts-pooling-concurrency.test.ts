@@ -33,6 +33,14 @@ let attemptIdCounter = 0;
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     exam: mockPrismaExam,
+    // Eligibility gate (Task 5): student-1 is TeacherStudent-linked to teacher-1, matching the
+    // unscoped (classId: null) exams this file uses throughout — same pre-existing behavior.
+    user: {
+      findUnique: vi.fn().mockResolvedValue({
+        studentTeachers: [{ teacherId: 'teacher-1' }],
+        classEnrollments: [],
+      }),
+    },
     examAttempt: {
       findUnique: vi.fn(async ({ where }: { where: { examId_studentId: { examId: string; studentId: string } } }) => {
         const key = `${where.examId_studentId.examId}:${where.examId_studentId.studentId}`;
@@ -103,6 +111,9 @@ beforeEach(() => {
     endTime: new Date(Date.now() + 60_000),
     status: 'live',
     institutionId: 'inst-a',
+    classId: null,
+    teacherId: 'teacher-1',
+    approvalStatus: 'approved',
     sections: [],
     settings: {
       dynamicPoolingBankIds: ['bank-1'],

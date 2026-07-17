@@ -2,6 +2,63 @@
 
 ## Session Log
 
+### 2026-07-17 (cont'd) — Phase 4 fixes round 2: student profile, Students tab, item builder save, CLO audit, exam-to-class scoping ✅
+
+Five-item manual-QA punch list. Full detail, including the CLO investigation report and every
+live-verification run, in `PHASE4_FIXES_ROUND2_PROGRESS.md`.
+
+- **Student name not saving** — `student/settings/page.tsx` had the exact same fake `onSubmit`
+  bug already fixed on the teacher settings page the same day, just never applied here. Fixed the
+  same way: real `PATCH /api/users/me` call, `localStorage['exam_user']` sync, real error
+  surfacing. Live-verified: name change persists through Postgres and a full page reload.
+- **Students tab** — found two real bugs beyond "missing columns": `getStudents()` scoped a
+  teacher's roster via the older `TeacherStudent` table only, so any student who joined through
+  the newer per-class invite flow (`ClassEnrollment`-only, no `TeacherStudent` row) was **silently
+  absent from the roster entirely**; and the page's `getViolations()` call had zero arguments,
+  which resolves to an unscoped query returning **every violation in the entire database across
+  every institution**. Fixed both — roster now derives from the union of `TeacherStudent` and
+  `ClassEnrollment`, and `getStudents()` itself returns a properly-scoped real trust score
+  (`ExamAttempt.trustScore` average, `null`/"Not yet computed" for zero attempts, never a fake
+  placeholder) and violation count, eliminating the unscoped call.
+- **Manual item builder "Save" not saving** — root cause: the Marks `<input>` was registered
+  without `valueAsNumber: true`, so react-hook-form handed zod a string, validation failed
+  silently (no `errors.marks` was ever rendered), and the Save button just did nothing the moment
+  a teacher touched the field. Also found and fixed in the same pass: the Difficulty and Review-
+  Status `<Select>` inputs were completely disconnected from the form (always saved
+  `medium`/`draft` regardless of selection), there was no error handling around the `createItem()`
+  call at all (any failure was an unhandled rejection with zero user feedback — fixed in both the
+  manual builder and the CSV bulk-import path), and `createItem`'s `authorId` resolution silently
+  fell through to an empty string (FK-constraint crash) instead of throwing an explicit error when
+  no matching `User` row existed. Live-verified via a real browser save with non-default
+  marks/difficulty/status, confirmed correct in Postgres.
+- **CLO creation — investigated only, not changed**, per the task's own instruction (the request
+  was too ambiguous to act on safely). Full current-state inventory written to the progress file:
+  exactly 3 inputs today (free-text objective, Bloom's Level dropdown, Learning Domain dropdown),
+  no PLO concept anywhere in the schema or UI, no edit/delete capability once a CLO is created.
+  Flagged for Haris to say what's actually wrong before anyone reworks it.
+- **Exams scoped to a class, not all students** — the highest-risk item this round. Confirmed via
+  a full schema/code read: `Exam` had zero connection to `Class` at all, and student exam
+  visibility filtered only by institution + an institution-wide `TeacherStudent` link, unrelated to
+  class membership — any student linked to a teacher saw every one of that teacher's exams
+  regardless of class. Worse, and found in the same investigation: `POST /api/attempts` (the
+  actual attempt-creation endpoint) had **no eligibility check whatsoever**, not even institution
+  matching — hiding an exam from a list was never real access control. Added a nullable
+  `Exam.classId` (pushed live via `prisma db push`), a class-selection dropdown in the exam
+  wizard (optional — see the required-field judgment call below), class-scoped filtering in
+  `getStudentExams`, and a matching eligibility gate in `POST /api/attempts` (same shared pure
+  rule, `src/lib/exam-eligibility.ts`, used by both). **Judgment call flagged, not silently
+  decided**: `classId` stays optional — making it required would immediately block exam creation
+  for any teacher without a Class set up yet; unscoped exams keep their exact pre-existing
+  behavior. Live-verified with two real students in two different classes, same institution and
+  teacher: the correct student sees the exam and can start an attempt (201), the other student
+  neither sees it nor can start an attempt even via a direct API call bypassing the UI (403).
+- **Tests**: 24 new (`item-form-schema`, `exam-eligibility`, `attempts-eligibility`,
+  `get-student-exams`, `create-item-manual`, `users-me-route`), covering items 1/3/5 per the
+  explicit ask. Two pre-existing test files (`section-locking`, `attempts-pooling-concurrency`)
+  needed mock updates since the new eligibility gate now runs before their own scenarios.
+- **Verification**: `tsc` clean · `lint` at the unchanged 3-error baseline · `build` clean ·
+  `vitest` 253/253 (229 baseline + 24 new).
+
 ### 2026-07-17 (cont'd) — Phase 4 fixes: invite flow cleanup, cross-institution block, teacher profile/dashboard mock-data removal, joined-teacher visibility ✅
 
 Six-item manual-review punch list on top of the completed Phase 4 work (password reset,
@@ -429,6 +486,7 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Current Status
+- **Phase 4 fixes round 2 (student profile, Students tab, item builder save, CLO audit, exam-to-class scoping)** ✅ **COMPLETE** (2026-07-17) — fixed the student settings page's identical fake-save bug, closed a real roster-completeness gap + an unscoped-violations-query leak on the Students tab, fixed the manual item builder's silent save failure (marks type coercion, disconnected Select inputs, no error surfacing), investigated but deliberately did not change CLO creation (too ambiguous — full inventory in the progress file for Haris to react to), and added real class-scoping for exams (new nullable `Exam.classId`, wizard class selector, class-scoped student visibility, and a previously-nonexistent eligibility gate on `POST /api/attempts` that closed a real "any student can start any exam by guessing its id" hole). See `PHASE4_FIXES_ROUND2_PROGRESS.md` and the Session Log.
 - **Phase 4 fixes (invite flow cleanup, cross-institution block, teacher profile/dashboard, joined-teacher visibility)** ✅ **COMPLETE** (2026-07-17) — removed both link-based invite UIs (one was silently broken — it never joined the inviting institution at all), added admin bulk teacher invite, consolidated student invites into the Classes tab only, added a server-side cross-institution invite block (applies to both teachers and students per the schema's single-institution-per-user model), fixed the teacher profile's fake "Save Changes" and its hardcoded stat block, and fixed the real accept-invite upsert bug that kept joined teachers from ever showing up in the admin panel. See `PHASE4_FIXES_PROGRESS.md` and the Session Log.
 - **Phase 7 (Multi-Section Exam Architecture, AI Grading Override & Bulk-Approve)** ✅ **COMPLETE** (2026-07-17) — Task 1 duplicated 2026-07-09's "item 9" almost entirely; closed two real server-enforcement gaps instead (section-weight-sum-to-100% wasn't checked at exam start; `isItemSequential` had zero server enforcement surface — new `ItemLock` table + lock endpoint closes it, scoped only to exams that opt in). Task 2 built the missing bulk-approve endpoint and closed a real gap where finalized (`confirmed`) grades could be silently re-overridden. RLS added to the new `ItemLock` table, live-verified. See `PHASE_7_PROGRESS.md` and the Session Log.
 - **Phase 6 (Item Bank RBAC, decouple AI generation, CLO-aware batch generation, stratified dynamic pooling)** ✅ **COMPLETE** (2026-07-17) — tasks 1–3 duplicated the 2026-07-09 session's items 5–7 almost verbatim and were already implemented; closed the test-coverage gap on all three. Task 4 (pooling) had two real bugs closed this pass: insufficient-pool-at-runtime now fails gracefully (409) instead of silently under-drawing, and a genuine concurrent-exam-start double-materialization race is fixed via a transaction. RLS enabled on `ItemBank`/`ItemBankAccess` (previously missing), live-verified. See `PHASE_6_PROGRESS.md` and the Session Log.
@@ -447,10 +505,12 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Build Status
-- `npm run build` → **PASSES** (0 errors, 88 routes — no new routes this phase; the invite fixes live in `src/lib/data/*` Server Actions and existing route handlers)
-- `npm run lint` → 3 pre-existing baseline errors (`useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff), 0 warnings (the pre-existing dead-import warning in `api/invites/route.ts` was cleaned up this phase since that exact file was already being edited)
+- `npm run build` → **PASSES** (0 errors, 88 routes — no new routes this round; the eligibility gate lives inside the existing `POST /api/attempts` handler)
+- `npm run lint` → 3 pre-existing baseline errors (`useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff), 0 warnings
 - `npx tsc --noEmit` → clean
-- `npx vitest run` → 229/229 passing (188 baseline + 41 new this phase) (+ `pytest` 10/10 in `psychometrics/`)
+- `npx vitest run` → 253/253 passing (229 baseline + 24 new this round) (+ `pytest` 10/10 in `psychometrics/`)
+- Schema: `Exam.classId` (nullable) added and pushed live via `prisma db push` this round
+- Last verified: 2026-07-17 (Phase 4 fixes round 2 — student profile, Students tab, item builder save, CLO audit, exam-to-class scoping)
 - Last verified: 2026-07-17 (Phase 4 fixes — invite flow cleanup, cross-institution block, teacher profile/dashboard, joined-teacher visibility)
 - Last verified: 2026-07-17 (Phase 7 — multi-section locking + grading bulk-approve)
 - Last verified: 2026-07-17 (Phase 6 — item bank RBAC/pooling audit, closed pooling concurrency + insufficient-pool bugs)

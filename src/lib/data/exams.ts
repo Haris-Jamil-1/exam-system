@@ -9,7 +9,7 @@ type PrismaExam = {
   approvalStatus: string; startTime: Date; endTime: Date;
   maxViolations: number; settings: unknown; resultsPublishedAt: Date | null;
   instructions: string | null; isProctoringEnabled: boolean;
-  institutionId: string; teacherId: string; createdAt: Date;
+  institutionId: string; teacherId: string; classId: string | null; createdAt: Date;
   _count?: { questions: number; enrollments: number };
 };
 
@@ -32,6 +32,7 @@ function mapExam(e: PrismaExam): Exam {
     isProctoringEnabled: e.isProctoringEnabled,
     institutionId: e.institutionId,
     teacherId: e.teacherId,
+    classId: e.classId,
     createdAt: e.createdAt.toISOString(),
     _count: e._count,
   };
@@ -85,6 +86,21 @@ export async function createExam(data: Omit<Exam, 'id' | 'createdAt'>): Promise<
     const teacher = await prisma.user.findFirst({ where: { supabaseId: user.id }, select: { id: true } });
     if (teacher) teacherId = teacher.id;
   }
+
+  // A caller-supplied classId is never trusted blindly — it must be one of this teacher's own
+  // classes in their own institution, otherwise the exam would silently scope itself to (and
+  // leak its existence/roster-derived visibility to) a class that isn't even this teacher's.
+  let classId: string | null = null;
+  if (data.classId) {
+    const cls = await prisma.class.findUnique({
+      where: { id: data.classId },
+      select: { teacherId: true, institutionId: true },
+    });
+    if (cls && cls.teacherId === teacherId && cls.institutionId === institutionId) {
+      classId = data.classId;
+    }
+  }
+
   try {
     const row = await prisma.exam.create({
       data: {
@@ -104,6 +120,7 @@ export async function createExam(data: Omit<Exam, 'id' | 'createdAt'>): Promise<
         isProctoringEnabled: data.isProctoringEnabled ?? true,
         institutionId,
         teacherId,
+        classId,
       },
       include: { _count: { select: COUNT_SELECT } },
     });

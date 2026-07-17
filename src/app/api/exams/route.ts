@@ -22,6 +22,7 @@ const createExamSchema = z.object({
   endTime: z.string(),
   maxViolations: z.number().default(3),
   settings: examSettingsSchema,
+  classId: z.string().optional(),
   // institutionId and teacherId are NOT accepted from body — set from JWT
 });
 

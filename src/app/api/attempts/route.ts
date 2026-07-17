@@ -5,6 +5,7 @@ import { Prisma } from '@/generated/prisma/client';
 import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } from '@/lib/api-auth';
 import { materializePooledQuestions } from '@/lib/data/pooling';
 import { InsufficientPoolError } from '@/lib/data/pooling-errors';
+import { isStudentEligibleForExam } from '@/lib/exam-eligibility';
 import type { ExamSettings } from '@/types';
 
 const startSchema = z.object({ examId: z.string() });
@@ -27,20 +28,47 @@ export const POST = withErrorHandling(async (request: Request) => {
     where: { id: examId },
     select: {
       startTime: true, endTime: true, status: true, institutionId: true, settings: true,
+      classId: true, teacherId: true, approvalStatus: true,
       sections: { select: { sectionWeight: true } },
     },
   });
   if (!exam) return notFound();
+
+  // Eligibility gate — this used to not exist at all: neither institution membership nor class/
+  // teacher scoping was ever checked here, so a student who merely knew or guessed an examId
+  // could start an attempt on any exam, including one scoped to a different class, a different
+  // teacher's roster, or even a different institution. Same rule getStudentExams uses to decide
+  // what shows up in "my exams", applied per-exam here since this is the actual access-control
+  // enforcement point (hiding something from a list is not real access control).
+  const existingAttempt = await prisma.examAttempt.findUnique({
+    where: { examId_studentId: { examId, studentId: user.id } },
+  });
+  if (!existingAttempt) {
+    if (exam.approvalStatus !== 'approved') return forbidden();
+    const studentLinks = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        studentTeachers: { select: { teacherId: true } },
+        classEnrollments: { select: { classId: true } },
+      },
+    });
+    const eligible = isStudentEligibleForExam(
+      { institutionId: exam.institutionId, classId: exam.classId, teacherId: exam.teacherId },
+      {
+        institutionId: user.institutionId,
+        teacherIds: studentLinks?.studentTeachers.map(t => t.teacherId) ?? [],
+        enrolledClassIds: studentLinks?.classEnrollments.map(c => c.classId) ?? [],
+      },
+    );
+    if (!eligible) return forbidden();
+  }
 
   // Only gate a brand-new attempt behind the scheduled window — an attempt
   // that already exists may always be resumed (e.g. to finish submitting
   // right at the boundary). This is enforced here, not just in the
   // exam-taking UI's waiting room, since that client-side check is trivially
   // bypassed with a direct API call.
-  const existing = await prisma.examAttempt.findUnique({
-    where: { examId_studentId: { examId, studentId: user.id } },
-  });
-  if (!existing) {
+  if (!existingAttempt) {
     const now = new Date();
     // A teacher going live early (status 'live') intentionally overrides the
     // scheduled startTime — mirrors the client's waiting-room override logic.

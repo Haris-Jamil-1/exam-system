@@ -131,12 +131,16 @@ export async function createItem(data: Omit<Item, 'id' | 'createdAt' | 'usageCou
   if (!permission) throw new Error('Not found');
   if (!bankCanEdit(permission.role)) throw new Error('Forbidden');
 
-  // Always resolve authorId from session — ignore caller-supplied value
-  let authorId = data.authorId;
-  if (user?.id) {
-    const prismaUser = await prisma.user.findFirst({ where: { supabaseId: user.id }, select: { id: true } });
-    if (prismaUser) authorId = prismaUser.id;
-  }
+  // Always resolve authorId from session — ignore caller-supplied value. A miss here (Supabase
+  // session with no matching Prisma User row) must fail loudly: falling through to the caller's
+  // empty-string authorId previously hit Item.authorId's required FK constraint inside the
+  // prisma.item.create() below, which the manual item builder's UI had no error handling for at
+  // all — the save silently did nothing instead of surfacing this account-sync problem.
+  const prismaUser = user?.id
+    ? await prisma.user.findFirst({ where: { supabaseId: user.id }, select: { id: true } })
+    : null;
+  if (!prismaUser) throw new Error('No matching account record for this session — please sign in again');
+  const authorId = prismaUser.id;
   const { options, ...rest } = data;
   try {
     const row = await prisma.item.create({

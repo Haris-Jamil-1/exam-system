@@ -12,9 +12,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { createExam, createQuestion, getItems, incrementItemUsage } from '@/lib/data';
+import { createExam, createQuestion, getItems, incrementItemUsage, getMyClasses } from '@/lib/data';
 import { BlueprintPoolingPanel } from '@/components/exams/BlueprintPoolingPanel';
-import type { QuestionType, Item } from '@/types';
+import type { QuestionType, Item, ClassSummary } from '@/types';
 import { Plus, Check, ChevronRight, ChevronLeft, Search, ChevronDown, ChevronUp } from 'lucide-react';
 
 const step1Schema = z.object({
@@ -232,6 +232,17 @@ export default function NewExamPage() {
   const [step, setStep] = useState(0);
   const [step1Data, setStep1Data] = useState<Step1Data | null>(null);
 
+  // Class scoping — '' means no class restriction (visible to every one of the teacher's
+  // students, the pre-existing behavior). Optional deliberately: making this required would
+  // block exam creation for any teacher who hasn't set up a Class yet. See
+  // PHASE4_FIXES_ROUND2_PROGRESS.md for the full "should this become required" judgment call.
+  const [classes, setClasses] = useState<ClassSummary[]>([]);
+  const [classId, setClassId] = useState<string>('');
+
+  useEffect(() => {
+    getMyClasses().then(cs => setClasses(cs.filter(c => !c.archivedAt)));
+  }, []);
+
   // Item bank selections
   const [selectedBankItems, setSelectedBankItems] = useState<Map<string, Item>>(new Map());
 
@@ -291,6 +302,7 @@ export default function NewExamPage() {
         ...step1Data,
         institutionId: '',
         teacherId: '',
+        classId: classId || undefined,
         maxViolations,
         status: 'draft',
         isProctoringEnabled,
@@ -380,6 +392,23 @@ export default function NewExamPage() {
                 <Label>Exam Title</Label>
                 <Input placeholder="Midterm: Data Structures" {...register('title')} />
                 {errors.title && <p className="text-sm text-red-500">{errors.title.message}</p>}
+              </div>
+              <div className="space-y-2">
+                <Label>Class <span className="text-muted-foreground font-normal">(optional — leave unset to assign to all your students)</span></Label>
+                <Select value={classId || '__none__'} onValueChange={v => setClassId(v === '__none__' ? '' : v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No specific class (all my students)</SelectItem>
+                    {classes.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {classId
+                    ? 'Only students enrolled in this class will be able to see and take this exam.'
+                    : 'Visible to every student linked to you — for tighter scoping, assign this exam to a specific class.'}
+                </p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">

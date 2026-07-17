@@ -75,6 +75,10 @@ export interface Exam {
   endTime: string;
   institutionId: string;
   teacherId: string;
+  // Nullable — unset means "visible to every one of the teacher's students" (pre-existing
+  // behavior); set means "visible only to this class's enrolled students". See
+  // PHASE4_FIXES_ROUND2_PROGRESS.md for the "should this be required" judgment call.
+  classId?: string | null;
   maxViolations: number;
   settings: ExamSettings;
   createdAt: string;

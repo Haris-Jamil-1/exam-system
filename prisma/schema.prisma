@@ -218,6 +218,7 @@ model Class {
   institution Institution       @relation(fields: [institutionId], references: [id])
   invites     ClassInvite[]
   enrollments ClassEnrollment[]
+  exams       Exam[]
 
   @@index([teacherId])
   @@index([institutionId])
@@ -283,11 +284,18 @@ model Exam {
   isProctoringEnabled Boolean       @default(true)
   institutionId      String
   teacherId          String
+  // Nullable, deliberately: an exam with no classId keeps the pre-existing behavior (visible to
+  // every one of the teacher's TeacherStudent-linked students) so existing exams and any teacher
+  // who hasn't adopted Classes yet are unaffected. When set, exam visibility/eligibility is
+  // scoped to exactly this class's ClassEnrollment roster instead. See getStudentExams /
+  // POST /api/attempts for the enforcement side of this.
+  classId            String?
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
   institution Institution      @relation(fields: [institutionId], references: [id])
   teacher     User             @relation("ExamTeacher", fields: [teacherId], references: [id])
+  class       Class?           @relation(fields: [classId], references: [id])
   questions   Question[]
   attempts    ExamAttempt[]
   enrollments ExamEnrollment[]
@@ -299,6 +307,7 @@ model Exam {
   @@index([institutionId, approvalStatus])
   @@index([institutionId, status])
   @@index([teacherId])
+  @@index([classId])
 }
 
 model ExamEnrollment {

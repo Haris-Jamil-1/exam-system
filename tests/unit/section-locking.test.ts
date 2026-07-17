@@ -14,6 +14,7 @@ const { mockGetAuthUser, mockPrisma } = vi.hoisted(() => ({
     exam: { findUnique: vi.fn() },
     sectionAttempt: { findUnique: vi.fn(), findMany: vi.fn(), upsert: vi.fn() },
     examEnrollment: { upsert: vi.fn() },
+    user: { findUnique: vi.fn() },
     $transaction: vi.fn(async (fn: unknown) => {
       if (typeof fn === 'function') return (fn as (tx: unknown) => unknown)(mockPrisma);
       return Promise.all(fn as Promise<unknown>[]);
@@ -39,6 +40,12 @@ beforeEach(() => {
   });
   mockGetAuthUser.mockResolvedValue({ id: 'student-1', institutionId: 'inst-a', role: 'student' });
   mockPrisma.examEnrollment.upsert.mockResolvedValue({});
+  // Eligibility gate (Task 5): student-1 is TeacherStudent-linked to teacher-1, matching the
+  // unscoped (classId: null) exams every test in this file uses — same pre-existing behavior.
+  mockPrisma.user.findUnique.mockResolvedValue({
+    studentTeachers: [{ teacherId: 'teacher-1' }],
+    classEnrollments: [],
+  });
 });
 
 describe('POST /api/attempts/[attemptId]/sections/[sectionId]/start — section-sequential lock', () => {
@@ -81,7 +88,7 @@ describe('POST /api/attempts — section-weight-sums-to-100% blocks exam start',
   it('blocks starting a brand-new attempt when section weights sum to 80, not 100', async () => {
     mockPrisma.exam.findUnique.mockResolvedValue({
       startTime: new Date(Date.now() - 60_000), endTime: new Date(Date.now() + 3600_000),
-      status: 'live', institutionId: 'inst-a', settings: {},
+      status: 'live', institutionId: 'inst-a', settings: {}, classId: null, teacherId: 'teacher-1', approvalStatus: 'approved',
       sections: [{ sectionWeight: 40 }, { sectionWeight: 40 }],
     });
     mockPrisma.examAttempt.findUnique.mockResolvedValue(null);
@@ -96,7 +103,7 @@ describe('POST /api/attempts — section-weight-sums-to-100% blocks exam start',
   it('allows starting when weights sum to exactly 100', async () => {
     mockPrisma.exam.findUnique.mockResolvedValue({
       startTime: new Date(Date.now() - 60_000), endTime: new Date(Date.now() + 3600_000),
-      status: 'live', institutionId: 'inst-a', settings: {},
+      status: 'live', institutionId: 'inst-a', settings: {}, classId: null, teacherId: 'teacher-1', approvalStatus: 'approved',
       sections: [{ sectionWeight: 60 }, { sectionWeight: 40 }],
     });
     mockPrisma.examAttempt.findUnique.mockResolvedValue(null);
@@ -112,7 +119,7 @@ describe('POST /api/attempts — section-weight-sums-to-100% blocks exam start',
   it('does not check weights at all for a non-sectioned exam', async () => {
     mockPrisma.exam.findUnique.mockResolvedValue({
       startTime: new Date(Date.now() - 60_000), endTime: new Date(Date.now() + 3600_000),
-      status: 'live', institutionId: 'inst-a', settings: {}, sections: [],
+      status: 'live', institutionId: 'inst-a', settings: {}, classId: null, teacherId: 'teacher-1', approvalStatus: 'approved', sections: [],
     });
     mockPrisma.examAttempt.findUnique.mockResolvedValue(null);
     mockPrisma.examAttempt.create.mockResolvedValue({
@@ -127,7 +134,7 @@ describe('POST /api/attempts — section-weight-sums-to-100% blocks exam start',
   it('still allows RESUMING an existing attempt even if weights are (now) misconfigured', async () => {
     mockPrisma.exam.findUnique.mockResolvedValue({
       startTime: new Date(Date.now() - 60_000), endTime: new Date(Date.now() + 3600_000),
-      status: 'live', institutionId: 'inst-a', settings: {},
+      status: 'live', institutionId: 'inst-a', settings: {}, classId: null, teacherId: 'teacher-1', approvalStatus: 'approved',
       sections: [{ sectionWeight: 40 }, { sectionWeight: 40 }],
     });
     mockPrisma.examAttempt.findUnique.mockResolvedValue({

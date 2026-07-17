@@ -6,9 +6,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { createItem } from '@/lib/data';
 import { generateQuestions } from '@/lib/ai/question-generator';
+import { itemFormSchema, type ItemFormData } from '@/lib/item-form-schema';
 import type { QuestionType, Option } from '@/types';
 import { CurriculumPicker, type CurriculumSelection } from '@/components/shared/CurriculumPicker';
 import { Button } from '@/components/ui/button';
@@ -21,15 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Plus, Trash2, Sparkles, Check, Code2, FileUp, Eye, EyeOff } from 'lucide-react';
 
-const schema = z.object({
-  stem: z.string().min(5, 'Question stem is required'),
-  difficulty: z.enum(['easy', 'medium', 'hard']),
-  marks: z.number().min(1),
-  tags: z.string().optional(),
-  status: z.enum(['draft', 'review', 'approved']),
-});
-
-type FormData = z.infer<typeof schema>;
+type FormData = ItemFormData;
 
 const CODE_LANGUAGES = ['python', 'javascript', 'java', 'cpp', 'c', 'sql'] as const;
 type CodeLanguage = typeof CODE_LANGUAGES[number];
@@ -73,7 +65,14 @@ export default function NewItemPage() {
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [stemValue, setStemValue] = useState('');
+  // Difficulty/Status are plain controlled state (not react-hook-form fields) — same pattern this
+  // file already uses for codeLanguage/allowedExts/maxFileSizeMB — because the Select components
+  // previously had no onChange/register wiring at all and always silently saved 'medium'/'draft'
+  // regardless of what the user picked.
+  const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
+  const [status, setStatus] = useState<'draft' | 'review' | 'approved'>('draft');
 
   // CLO mapping via CurriculumPicker
   const [cloSelection, setCloSelection] = useState<CurriculumSelection | null>(null);
@@ -94,8 +93,8 @@ export default function NewItemPage() {
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({
-    resolver: zodResolver(schema),
-    defaultValues: { difficulty: 'medium', marks: 4, status: 'draft' },
+    resolver: zodResolver(itemFormSchema),
+    defaultValues: { marks: 4 },
   });
 
   const stemField = register('stem');
@@ -154,6 +153,7 @@ export default function NewItemPage() {
 
   async function onSubmit(data: FormData) {
     if (!bankId) return;
+    setSaveError('');
     const tags = data.tags ? data.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
     const showOptions = ['mcq', 'mrq', 'true_false', 'matching', 'ordering'].includes(qType);
     const filledOptions = options.filter(o => o.text.trim());
@@ -171,33 +171,37 @@ export default function NewItemPage() {
       correctAnswer = options.find(o => o.isCorrect)?.text;
     }
 
-    await createItem({
-      type: qType,
-      stem: data.stem,
-      options: showOptions ? filledOptions.map(({ matchText: _mt, ...o }) => o) : undefined,
-      correctAnswer,
-      marks: data.marks,
-      difficulty: data.difficulty,
-      order: 0,
-      status: data.status,
-      tags,
-      authorId: '',
-      bankId,
-      learningObjectiveId: cloSelection?.cloId || undefined,
-      ...(qType === 'coding' ? {
-        codeLanguage,
-        starterCode: starterCode || undefined,
-        testCases: testCases
-          .filter(tc => tc.input.trim() || tc.expectedOutput.trim())
-          .map(tc => ({ input: tc.input, expectedOutput: tc.expectedOutput, isHidden: tc.isHidden })),
-      } : {}),
-      ...(qType === 'file_upload' ? {
-        allowedFileTypes: allowedExts,
-        maxFileSizeMB,
-      } : {}),
-    });
-    setSaved(true);
-    setTimeout(() => router.push(`/teacher/items/${bankId}`), 1000);
+    try {
+      await createItem({
+        type: qType,
+        stem: data.stem,
+        options: showOptions ? filledOptions.map(({ matchText: _mt, ...o }) => o) : undefined,
+        correctAnswer,
+        marks: data.marks,
+        difficulty,
+        order: 0,
+        status,
+        tags,
+        authorId: '',
+        bankId,
+        learningObjectiveId: cloSelection?.cloId || undefined,
+        ...(qType === 'coding' ? {
+          codeLanguage,
+          starterCode: starterCode || undefined,
+          testCases: testCases
+            .filter(tc => tc.input.trim() || tc.expectedOutput.trim())
+            .map(tc => ({ input: tc.input, expectedOutput: tc.expectedOutput, isHidden: tc.isHidden })),
+        } : {}),
+        ...(qType === 'file_upload' ? {
+          allowedFileTypes: allowedExts,
+          maxFileSizeMB,
+        } : {}),
+      });
+      setSaved(true);
+      setTimeout(() => router.push(`/teacher/items/${bankId}`), 1000);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save item.');
+    }
   }
 
   const showOptions = ['mcq', 'mrq', 'true_false', 'matching', 'ordering'].includes(qType);
@@ -588,7 +592,7 @@ export default function NewItemPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Difficulty</Label>
-                    <Select defaultValue="medium" onValueChange={() => {}}>
+                    <Select value={difficulty} onValueChange={v => setDifficulty(v as typeof difficulty)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="easy">Easy</SelectItem>
@@ -599,7 +603,8 @@ export default function NewItemPage() {
                   </div>
                   <div className="space-y-2">
                     <Label>Marks</Label>
-                    <Input type="number" defaultValue={4} {...register('marks')} />
+                    <Input type="number" defaultValue={4} {...register('marks', { valueAsNumber: true })} />
+                    {errors.marks && <p className="text-sm text-red-500">{errors.marks.message}</p>}
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -638,7 +643,7 @@ export default function NewItemPage() {
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label>Review Status</Label>
-                  <Select defaultValue="draft">
+                  <Select value={status} onValueChange={v => setStatus(v as typeof status)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="draft">Draft</SelectItem>
@@ -664,11 +669,14 @@ export default function NewItemPage() {
           </TabsContent>
         </Tabs>
 
-        <div className="flex justify-between pt-4">
+        <div className="flex items-center justify-between gap-4 pt-4">
           <Button type="button" variant="outline" onClick={() => router.back()}>Discard</Button>
-          <Button type="submit" disabled={isSubmitting} className="gap-2">
-            {saved ? <><Check className="h-4 w-4" /> Saved!</> : isSubmitting ? 'Saving...' : 'Save Item'}
-          </Button>
+          <div className="flex items-center gap-3">
+            {saveError && <p className="text-sm text-red-500">{saveError}</p>}
+            <Button type="submit" disabled={isSubmitting} className="gap-2">
+              {saved ? <><Check className="h-4 w-4" /> Saved!</> : isSubmitting ? 'Saving...' : 'Save Item'}
+            </Button>
+          </div>
         </div>
       </form>
     </div>

@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { getStudents, getViolations } from '@/lib/data';
-import type { CurrentUser, Violation } from '@/types';
+import { getStudents } from '@/lib/data';
+import type { StudentRosterEntry } from '@/lib/data/students';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -10,15 +10,11 @@ import { Search, Mail } from 'lucide-react';
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function StudentsPage() {
-  const [students,   setStudents]   = useState<CurrentUser[]>([]);
-  const [violations, setViolations] = useState<Violation[]>([]);
-  const [search,     setSearch]     = useState('');
+  const [students, setStudents] = useState<StudentRosterEntry[]>([]);
+  const [search,   setSearch]   = useState('');
 
   useEffect(() => {
-    Promise.all([getStudents(), getViolations()]).then(([s, v]) => {
-      setStudents(s);
-      setViolations(v);
-    });
+    getStudents().then(setStudents);
   }, []);
 
   const filtered = students.filter(s =>
@@ -53,6 +49,7 @@ export default function StudentsPage() {
               <tr>
                 <th className="px-4 py-3 text-start text-[12px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Student</th>
                 <th className="hidden px-4 py-3 text-start text-[12px] font-semibold uppercase tracking-wider text-[#9CA3AF] md:table-cell">Email</th>
+                <th className="hidden px-4 py-3 text-start text-[12px] font-semibold uppercase tracking-wider text-[#9CA3AF] lg:table-cell">Class</th>
                 <th className="px-4 py-3 text-start text-[12px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Trust Score</th>
                 <th className="hidden px-4 py-3 text-start text-[12px] font-semibold uppercase tracking-wider text-[#9CA3AF] sm:table-cell">Violations</th>
                 <th className="px-4 py-3 text-start text-[12px] font-semibold uppercase tracking-wider text-[#9CA3AF]">Status</th>
@@ -60,8 +57,8 @@ export default function StudentsPage() {
             </thead>
             <tbody className="divide-y divide-[#EBF0F8]">
               {filtered.map(s => {
-                const vCount     = violations.filter(v => v.studentId === s.id).length;
-                const trustScore = Math.max(40, 100 - vCount * 15);
+                const vCount = s.violationCount;
+                const hasTrust = s.trustScore !== null;
                 return (
                   <tr key={s.id} className="transition-colors hover:bg-[#F9FBFE]">
                     <td className="px-4 py-3.5">
@@ -80,10 +77,25 @@ export default function StudentsPage() {
                         {s.email}
                       </div>
                     </td>
+                    <td className="hidden px-4 py-3.5 lg:table-cell">
+                      {s.classNames.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {s.classNames.map(name => (
+                            <Badge key={name} variant="secondary" className="text-[11px] font-normal">{name}</Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[12px] text-[#C4C9D4]">No class</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3.5">
-                      <span className={`text-[13px] font-semibold ${trustScore >= 80 ? 'text-green-600' : trustScore >= 60 ? 'text-amber-500' : 'text-red-500'}`}>
-                        {trustScore}%
-                      </span>
+                      {hasTrust ? (
+                        <span className={`text-[13px] font-semibold ${s.trustScore! >= 80 ? 'text-green-600' : s.trustScore! >= 60 ? 'text-amber-500' : 'text-red-500'}`}>
+                          {Math.round(s.trustScore!)}%
+                        </span>
+                      ) : (
+                        <span className="text-[12px] text-[#9CA3AF]">Not yet computed</span>
+                      )}
                     </td>
                     <td className="hidden px-4 py-3.5 text-[13px] text-[#6B7280] sm:table-cell">{vCount}</td>
                     <td className="px-4 py-3.5">

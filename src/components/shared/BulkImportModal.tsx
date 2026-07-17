@@ -57,6 +57,7 @@ export function BulkImportModal({ bankId, open, onClose, onImported }: Props) {
   const [importing, setImporting] = useState(false);
   const [done, setDone]         = useState(false);
   const [importedCount, setImportedCount] = useState(0);
+  const [importError, setImportError] = useState('');
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -75,21 +76,26 @@ export function BulkImportModal({ bankId, open, onClose, onImported }: Props) {
     const valid = rows.filter(r => r.valid);
     if (valid.length === 0) return;
     setImporting(true);
+    setImportError('');
     let count = 0;
-    for (const row of valid) {
-      await createItem({
-        type: row.type,
-        stem: row.stem,
-        correctAnswer: row.correctAnswer || undefined,
-        marks: row.marks,
-        difficulty: row.difficulty,
-        order: 0,
-        status: 'draft',
-        tags: row.tags,
-        authorId: '',
-        bankId,
-      });
-      count++;
+    try {
+      for (const row of valid) {
+        await createItem({
+          type: row.type,
+          stem: row.stem,
+          correctAnswer: row.correctAnswer || undefined,
+          marks: row.marks,
+          difficulty: row.difficulty,
+          order: 0,
+          status: 'draft',
+          tags: row.tags,
+          authorId: '',
+          bankId,
+        });
+        count++;
+      }
+    } catch (err) {
+      setImportError(`${err instanceof Error ? err.message : 'Failed to import item'} (${count} of ${valid.length} imported before the error)`);
     }
     setImportedCount(count);
     setImporting(false);
@@ -102,6 +108,7 @@ export function BulkImportModal({ bankId, open, onClose, onImported }: Props) {
     setFileName('');
     setDone(false);
     setImportedCount(0);
+    setImportError('');
     if (fileRef.current) fileRef.current.value = '';
     onClose();
   }
@@ -192,11 +199,19 @@ export function BulkImportModal({ bankId, open, onClose, onImported }: Props) {
             </div>
           )}
 
-          {done && (
+          {done && !importError && (
             <div className="rounded-xl bg-green-50 border border-green-200 p-6 text-center space-y-2">
               <CheckCircle2 className="h-10 w-10 text-green-600 mx-auto" />
               <p className="font-semibold text-green-800">{importedCount} item{importedCount !== 1 ? 's' : ''} imported successfully</p>
               <p className="text-xs text-green-700">All items created as Draft — submit for review to use in exams.</p>
+            </div>
+          )}
+
+          {done && importError && (
+            <div className="rounded-xl bg-red-50 border border-red-200 p-6 text-center space-y-2">
+              <AlertTriangle className="h-10 w-10 text-red-600 mx-auto" />
+              <p className="font-semibold text-red-800">Import stopped early</p>
+              <p className="text-xs text-red-700">{importError}</p>
             </div>
           )}
         </div>

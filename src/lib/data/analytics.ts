@@ -258,11 +258,15 @@ export async function getStudentExams() {
 
   const student = await prisma.user.findUnique({
     where: { supabaseId },
-    include: { studentTeachers: { select: { teacherId: true } } },
+    include: {
+      studentTeachers: { select: { teacherId: true } },
+      classEnrollments: { select: { classId: true } },
+    },
   });
   if (!student) return [];
 
   const teacherIds = student.studentTeachers.map(r => r.teacherId);
+  const enrolledClassIds = student.classEnrollments.map(r => r.classId);
   // Strict: if no teachers assigned, student sees no exams (Prisma returns [] for { in: [] })
   const now = new Date();
 
@@ -272,7 +276,15 @@ export async function getStudentExams() {
         institutionId: student.institutionId,
         approvalStatus: 'approved',
         status: { in: ['scheduled', 'live', 'completed'] },
-        teacherId: { in: teacherIds },
+        // A class-scoped exam (classId set) is visible only to that class's own enrolled
+        // students — not to every student of the teacher who created it. An unscoped exam
+        // (classId null) keeps the pre-existing "any of my teachers" behavior, since making
+        // class scoping mandatory would silently hide every pre-existing exam and every exam
+        // from a teacher who hasn't adopted Classes yet.
+        OR: [
+          { classId: null, teacherId: { in: teacherIds } },
+          { classId: { in: enrolledClassIds } },
+        ],
       },
       include: { _count: { select: { questions: true } } },
       orderBy: { startTime: 'asc' },
