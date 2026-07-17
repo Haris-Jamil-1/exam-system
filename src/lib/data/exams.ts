@@ -22,7 +22,7 @@ function mapExam(e: PrismaExam): Exam {
     duration: e.duration,
     totalMarks: e.totalMarks,
     passingMarks: e.passingMarks,
-    status: computeEffectiveExamStatus(e.status as Exam['status'], e.startTime, new Date()),
+    status: computeEffectiveExamStatus(e.status as Exam['status'], e.startTime, new Date(), e.endTime),
     approvalStatus: e.approvalStatus as Exam['approvalStatus'],
     startTime: e.startTime.toISOString(),
     endTime: e.endTime.toISOString(),

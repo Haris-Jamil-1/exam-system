@@ -21,13 +21,15 @@ const getSession = cache(async () => {
 });
 
 // A 'scheduled' exam whose startTime has passed (and endTime hasn't) is effectively live even
-// though its DB status column was never manually flipped — see computeEffectiveExamStatus for
-// the same rule applied to already-fetched rows. This is the equivalent WHERE-clause fragment
-// for aggregate .count() queries, which can't run fetched rows through that mapper.
+// though its DB status column was never manually flipped, and symmetrically a 'live' exam whose
+// endTime has already passed (the teacher never clicked "End Exam") is effectively completed —
+// see computeEffectiveExamStatus for the same rule applied to already-fetched rows. This is the
+// equivalent WHERE-clause fragment for aggregate .count() queries, which can't run fetched rows
+// through that mapper.
 function activeExamWhere(now: Date) {
   return {
     OR: [
-      { status: 'live' as const },
+      { status: 'live' as const, endTime: { gt: now } },
       { status: 'scheduled' as const, startTime: { lte: now }, endTime: { gt: now } },
     ],
   };
@@ -258,7 +260,7 @@ export async function getRecentExams() {
     course: e.subject,
     detail: `${e.duration} min · ${e._count.enrollments} students`,
     students: e._count.enrollments,
-    status: computeEffectiveExamStatus(e.status as 'draft' | 'scheduled' | 'live' | 'completed', e.startTime, new Date()),
+    status: computeEffectiveExamStatus(e.status as 'draft' | 'scheduled' | 'live' | 'completed', e.startTime, new Date(), e.endTime),
   }));
 }
 
@@ -423,7 +425,7 @@ export async function getApprovedExams() {
     title: e.title,
     subject: e.subject,
     teacher: e.teacher.name,
-    status: computeEffectiveExamStatus(e.status as 'draft' | 'scheduled' | 'live' | 'completed', e.startTime, new Date()),
+    status: computeEffectiveExamStatus(e.status as 'draft' | 'scheduled' | 'live' | 'completed', e.startTime, new Date(), e.endTime),
     date: e.startTime.toISOString(),
     students: e._count.enrollments,
   }));
@@ -476,7 +478,7 @@ export async function getTeacherDashboardData() {
     course: e.subject,
     detail: `${e.duration} min · ${e._count.enrollments} students`,
     students: e._count.enrollments,
-    status: computeEffectiveExamStatus(e.status as 'draft' | 'scheduled' | 'live' | 'completed', e.startTime, new Date()),
+    status: computeEffectiveExamStatus(e.status as 'draft' | 'scheduled' | 'live' | 'completed', e.startTime, new Date(), e.endTime),
   }));
 
   const alerts = alertRows.map(v => ({
@@ -645,7 +647,7 @@ export async function getAdminDashboardData() {
     title: e.title,
     subject: e.subject,
     teacher: e.teacher.name,
-    status: computeEffectiveExamStatus(e.status as 'draft' | 'scheduled' | 'live' | 'completed', e.startTime, new Date()),
+    status: computeEffectiveExamStatus(e.status as 'draft' | 'scheduled' | 'live' | 'completed', e.startTime, new Date(), e.endTime),
     date: e.startTime.toISOString(),
     students: e._count.enrollments,
   }));

@@ -52,12 +52,12 @@ describe('getTeacherDashboardData — student count and active-exam fixes (Task 
     });
   });
 
-  it('counts active exams as an OR of literally-live and scheduled-but-past-startTime', async () => {
+  it('counts active exams as an OR of not-yet-ended-live and scheduled-but-past-startTime', async () => {
     await getTeacherDashboardData();
 
     const call = mockExam.count.mock.calls[0][0];
     expect(call.where.OR).toEqual([
-      { status: 'live' },
+      { status: 'live', endTime: { gt: expect.any(Date) } },
       { status: 'scheduled', startTime: { lte: expect.any(Date) }, endTime: { gt: expect.any(Date) } },
     ]);
   });

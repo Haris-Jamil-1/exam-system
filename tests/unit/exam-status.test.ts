@@ -30,3 +30,33 @@ describe('computeEffectiveExamStatus (Task 1 — exam does not auto-start on the
     expect(computeEffectiveExamStatus('draft', PAST, NOW)).toBe('draft');
   });
 });
+
+describe('computeEffectiveExamStatus (exam does not auto-complete on the teacher side when closing time is reached)', () => {
+  it('a live exam whose endTime has passed reads as completed', () => {
+    expect(computeEffectiveExamStatus('live', PAST, NOW, PAST)).toBe('completed');
+  });
+
+  it('a live exam whose endTime has not arrived yet stays live', () => {
+    expect(computeEffectiveExamStatus('live', PAST, NOW, FUTURE)).toBe('live');
+  });
+
+  it('a live exam ending exactly now reads as completed (inclusive boundary)', () => {
+    expect(computeEffectiveExamStatus('live', PAST, NOW, NOW)).toBe('completed');
+  });
+
+  it('a scheduled exam whose endTime has already passed reads as completed, not live, even though startTime has also passed', () => {
+    expect(computeEffectiveExamStatus('scheduled', PAST, NOW, PAST)).toBe('completed');
+  });
+
+  it('an already-completed exam stays completed regardless of endTime', () => {
+    expect(computeEffectiveExamStatus('completed', PAST, NOW, FUTURE)).toBe('completed');
+  });
+
+  it('a draft exam never auto-completes even if endTime has passed — draft has no student-facing availability window', () => {
+    expect(computeEffectiveExamStatus('draft', PAST, NOW, PAST)).toBe('draft');
+  });
+
+  it('omitting endTime (backward compatible) never auto-completes a live exam', () => {
+    expect(computeEffectiveExamStatus('live', PAST, NOW)).toBe('live');
+  });
+});
