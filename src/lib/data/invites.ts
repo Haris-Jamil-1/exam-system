@@ -1,10 +1,9 @@
 'use server';
-import { Resend } from 'resend';
 import { prisma } from '@/lib/prisma';
 import { getAuthUser } from '@/lib/api-auth';
 import { resolveAcceptInviteAssignment } from '@/lib/invite-accept-decision';
+import { getResend } from '@/lib/resend-client';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const TEACHER_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // Same rationale/cap as MAX_BULK_INVITES in classes.ts — keeps one bulk request bounded.
 const MAX_BULK_TEACHER_INVITES = 50;
@@ -82,7 +81,7 @@ export async function createBulkTeacherInvites(emails: string[]): Promise<BulkTe
     });
 
     const acceptUrl = `${appUrl}/invite/${invite.token}`;
-    const { error: emailError } = await resend.emails.send({
+    const { error: emailError } = await getResend().emails.send({
       from: 'ExamPro <noreply@aurixy.store>',
       to: email,
       subject: `You're invited to ExamPro as a Teacher`,

@@ -1,11 +1,9 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { Resend } from 'resend';
 import { prisma } from '@/lib/prisma';
 import { getAuthUser, unauthorized, forbidden, withErrorHandling } from '@/lib/api-auth';
 import { isEmailActiveElsewhere, CROSS_INSTITUTION_ERROR } from '@/lib/data/invite-guards';
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+import { getResend } from '@/lib/resend-client';
 
 const inviteSchema = z.object({
   email: z.string().email(),
@@ -49,7 +47,7 @@ export const POST = withErrorHandling(async (request: Request) => {
         });
       }
 
-      const { error: emailError } = await resend.emails.send({
+      const { error: emailError } = await getResend().emails.send({
         from: 'ExamPro <noreply@aurixy.store>',
         to: email,
         subject: `You've been added to a new class on ExamPro`,
@@ -98,7 +96,7 @@ export const POST = withErrorHandling(async (request: Request) => {
   const acceptUrl = `${appUrl}/invite/${invite.token}`;
   const roleLabel = role === 'teacher' ? 'Teacher' : 'Student';
 
-  const { error: emailError } = await resend.emails.send({
+  const { error: emailError } = await getResend().emails.send({
     from: 'ExamPro <noreply@aurixy.store>',
     to: email,
     subject: `You're invited to ExamPro as a ${roleLabel}`,

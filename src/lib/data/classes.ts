@@ -1,12 +1,11 @@
 'use server';
 import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';
-import { Resend } from 'resend';
 import { canManageClass, deriveInviteStatus, type CallerContext } from '@/lib/class-permissions';
 import { isEmailActiveElsewhere } from './invite-guards';
+import { getResend } from '@/lib/resend-client';
 import type { ClassSummary, ClassEnrollmentSummary, ClassInviteSummary } from '@/types';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const CLASS_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // Hard cap on one bulk-invite request, same rationale as MAX_BATCH_SIZE for AI generation —
 // keeps a single request bounded regardless of what the textarea parser produces.
@@ -234,7 +233,7 @@ export async function createClassInvites(classId: string, emails: string[]): Pro
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
     const joinUrl = `${appUrl}/classes/join/${invite.token}`;
 
-    const { error: emailError } = await resend.emails.send({
+    const { error: emailError } = await getResend().emails.send({
       from: 'ExamPro <noreply@aurixy.store>',
       to: email,
       subject: `You're invited to join "${cls.name}" on ExamPro`,
