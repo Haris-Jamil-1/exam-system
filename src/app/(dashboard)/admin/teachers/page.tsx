@@ -1,11 +1,14 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { getTeachersList, getMyInstitution, setUserSuspension } from '@/lib/data';
+import { useEffect, useRef, useState } from 'react';
+import { getTeachersList, getMyInstitution, setUserSuspension, createBulkTeacherInvites } from '@/lib/data';
+import { parseBulkEmails } from '@/lib/class-permissions';
+import { parseEmailsFromBuffer } from '@/lib/bulk-email-file-parse';
 import {
-  UserPlus, Copy, Check, X, Mail, MoreHorizontal,
-  GraduationCap, FileText, Users, ExternalLink,
+  UserPlus, Check, X, Mail, MoreHorizontal, Send, Upload, FileSpreadsheet, AlertCircle,
+  GraduationCap, FileText, Users,
 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { Textarea } from '@/components/ui/textarea';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -23,27 +26,40 @@ type Teacher = {
   exams: number; students: number; status: 'active' | 'invited' | 'suspended';
 };
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://exam-system-sigma.vercel.app';
+type BulkResult = { email: string; outcome: string };
+
+const OUTCOME_LABEL: Record<string, string> = {
+  invited: 'Invited',
+  already_member: 'Already a teacher here',
+  already_invited: 'Already invited',
+  cross_institution: 'Belongs to another institution',
+  failed: 'Failed to send',
+};
 
 export default function AdminTeachersPage() {
   const [teachers, setTeachers]         = useState<Teacher[]>([]);
   const [institutionName, setInstitutionName] = useState('');
-  const [inviteLink, setInviteLink]     = useState('');
   const [search, setSearch]             = useState('');
   const [showInvite, setShowInvite]     = useState(false);
-  const [copied, setCopied]             = useState(false);
+  const [inviteTab, setInviteTab]       = useState<'email' | 'bulk'>('email');
   const [emailInput, setEmailInput]     = useState('');
   const [sentEmails, setSentEmails]     = useState<string[]>([]);
   const [inviteError, setInviteError]   = useState('');
   const [busyId, setBusyId]             = useState<string | null>(null);
 
+  // Bulk invite (paste or CSV/XLSX upload)
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [bulkText, setBulkText]         = useState('');
+  const [fileEmails, setFileEmails]     = useState<string[] | null>(null);
+  const [fileName, setFileName]         = useState('');
+  const [fileError, setFileError]       = useState('');
+  const [bulkSending, setBulkSending]   = useState(false);
+  const [bulkResults, setBulkResults]   = useState<BulkResult[] | null>(null);
+
   function refresh() {
     Promise.all([getTeachersList(), getMyInstitution()]).then(([t, inst]) => {
       setTeachers(t as Teacher[]);
-      if (inst) {
-        setInstitutionName(inst.name);
-        setInviteLink(`${APP_URL}/register?institution=${inst.id}`);
-      }
+      if (inst) setInstitutionName(inst.name);
     });
   }
 
@@ -63,12 +79,6 @@ export default function AdminTeachersPage() {
     }
   }
 
-  function copyLink() {
-    navigator.clipboard.writeText(inviteLink).catch(() => {});
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
   async function sendInvite() {
     const email = emailInput.trim();
     if (!email || !email.includes('@')) return;
@@ -85,6 +95,64 @@ export default function AdminTeachersPage() {
     }
     setSentEmails(prev => [...prev, email]);
     setEmailInput('');
+  }
+
+  const pastedEmails = parseBulkEmails(bulkText);
+  const bulkEmails = fileEmails ?? pastedEmails;
+
+  function processFile(file: File) {
+    if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
+      setFileError('Only .xlsx, .xls, or .csv files are accepted.');
+      return;
+    }
+    setFileName(file.name);
+    setFileError('');
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const buf = e.target?.result as ArrayBuffer;
+        const found = parseEmailsFromBuffer(buf);
+        if (found.length === 0) setFileError('No valid email addresses found in the file.');
+        else setFileEmails(found);
+      } catch {
+        setFileError('Could not read file. Make sure it is a valid Excel or CSV file.');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+    e.target.value = '';
+  }
+
+  function clearFile() {
+    setFileEmails(null);
+    setFileName('');
+    setFileError('');
+  }
+
+  async function sendBulkInvites() {
+    if (bulkEmails.length === 0) return;
+    setBulkSending(true);
+    try {
+      const results = await createBulkTeacherInvites(bulkEmails);
+      setBulkResults(results ?? []);
+      setBulkText('');
+      clearFile();
+      refresh();
+    } finally {
+      setBulkSending(false);
+    }
+  }
+
+  function closeInviteModal() {
+    setShowInvite(false);
+    setInviteError('');
+    setBulkResults(null);
+    setBulkText('');
+    clearFile();
   }
 
   const filtered = teachers.filter(t =>
@@ -114,7 +182,7 @@ export default function AdminTeachersPage() {
       {/* Invite modal */}
       {showInvite && (
         <div className="rounded-2xl border border-[#EBF0F8] bg-white shadow-[0_4px_24px_rgba(0,0,0,0.10)] p-6 relative">
-          <button onClick={() => setShowInvite(false)} className="absolute top-4 end-4 rounded-lg p-1.5 text-[#9CA3AF] hover:bg-[#F4F7FC] hover:text-[#1A1D23]">
+          <button onClick={closeInviteModal} className="absolute top-4 end-4 rounded-lg p-1.5 text-[#9CA3AF] hover:bg-[#F4F7FC] hover:text-[#1A1D23]">
             <X className="h-4 w-4" />
           </button>
           <div className="flex items-center gap-3 mb-5">
@@ -122,64 +190,130 @@ export default function AdminTeachersPage() {
               <UserPlus className="h-5 w-5 text-[#7C3AED]" strokeWidth={2} />
             </div>
             <div>
-              <h2 className="text-[16px] font-bold text-[#1A1D23]">Invite a Teacher</h2>
-              <p className="text-[12px] text-[#6B7280]">Share the link or send directly via email</p>
+              <h2 className="text-[16px] font-bold text-[#1A1D23]">Invite Teachers</h2>
+              <p className="text-[12px] text-[#6B7280]">Invitations are sent by email only</p>
             </div>
           </div>
 
-          {/* Invite link */}
-          <div className="mb-4">
-            <p className="mb-2 text-[12px] font-semibold text-[#6B7280] uppercase tracking-wide">Invite Link</p>
-            <div className="flex items-center gap-2 rounded-xl border border-[#E8ECF4] bg-[#F4F7FC] px-4 py-3">
-              <ExternalLink className="h-4 w-4 flex-shrink-0 text-[#9CA3AF]" />
-              <p className="min-w-0 flex-1 truncate text-[13px] text-[#1A1D23] font-mono">{inviteLink}</p>
+          {/* Tab bar */}
+          <div className="mb-5 flex border-b border-[#E8ECF4]">
+            {([['email', 'Single Email'], ['bulk', 'Bulk Invite']] as const).map(([id, label]) => (
               <button
-                onClick={copyLink}
-                className={`flex-shrink-0 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors ${
-                  copied ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-[#7C3AED] text-white hover:bg-[#6D28D9]'
+                key={id}
+                onClick={() => setInviteTab(id)}
+                className={`relative pb-3 pe-5 text-[13px] font-semibold transition-colors ${
+                  inviteTab === id ? 'text-[#7C3AED]' : 'text-[#9CA3AF] hover:text-[#6B7280]'
                 }`}
               >
-                {copied ? <><Check className="h-3.5 w-3.5" /> Copied!</> : <><Copy className="h-3.5 w-3.5" /> Copy</>}
+                {label}
+                {inviteTab === id && <span className="absolute bottom-0 start-0 end-4 h-[2px] rounded-full bg-[#7C3AED]" />}
               </button>
-            </div>
-            <p className="mt-1.5 text-[11px] text-[#9CA3AF]">Link expires July 21, 2026 · Anyone with this link can join as a teacher</p>
+            ))}
           </div>
 
-          {/* Email invite */}
-          <div>
-            <p className="mb-2 text-[12px] font-semibold text-[#6B7280] uppercase tracking-wide">Or send via email</p>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Mail className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#9CA3AF]" />
-                <input
-                  type="email"
-                  placeholder="teacher@university.edu"
-                  value={emailInput}
-                  onChange={e => setEmailInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && sendInvite()}
-                  className="w-full rounded-xl border border-[#E8ECF4] bg-white py-2.5 ps-10 pe-4 text-[14px] text-[#1A1D23] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-4 focus:ring-[#7C3AED]/10 focus:border-[#7C3AED]"
+          {inviteTab === 'email' && (
+            <div>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Mail className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#9CA3AF]" />
+                  <input
+                    type="email"
+                    placeholder="teacher@university.edu"
+                    value={emailInput}
+                    onChange={e => setEmailInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && sendInvite()}
+                    className="w-full rounded-xl border border-[#E8ECF4] bg-white py-2.5 ps-10 pe-4 text-[14px] text-[#1A1D23] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-4 focus:ring-[#7C3AED]/10 focus:border-[#7C3AED]"
+                  />
+                </div>
+                <button
+                  onClick={sendInvite}
+                  className="rounded-xl bg-[#7C3AED] px-4 py-2.5 text-[14px] font-semibold text-white hover:bg-[#6D28D9]"
+                >
+                  Send
+                </button>
+              </div>
+              {inviteError && (
+                <p className="mt-2 text-[12px] text-red-500">{inviteError}</p>
+              )}
+              {sentEmails.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {sentEmails.map(email => (
+                    <span key={email} className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-100 px-3 py-1 text-[12px] font-semibold text-emerald-700">
+                      <Check className="h-3 w-3" /> Sent to {email}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {inviteTab === 'bulk' && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="text-[12px] font-semibold text-[#6B7280] uppercase tracking-wide">Paste emails</p>
+                <Textarea
+                  rows={4}
+                  placeholder={'teacher1@example.com\nteacher2@example.com'}
+                  value={bulkText}
+                  onChange={e => { setBulkText(e.target.value); clearFile(); }}
+                  className="rounded-xl border-[#E8ECF4]"
                 />
               </div>
-              <button
-                onClick={sendInvite}
-                className="rounded-xl bg-[#7C3AED] px-4 py-2.5 text-[14px] font-semibold text-white hover:bg-[#6D28D9]"
-              >
-                Send
-              </button>
-            </div>
-            {inviteError && (
-              <p className="mt-2 text-[12px] text-red-500">{inviteError}</p>
-            )}
-            {sentEmails.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {sentEmails.map(email => (
-                  <span key={email} className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-100 px-3 py-1 text-[12px] font-semibold text-emerald-700">
-                    <Check className="h-3 w-3" /> Sent to {email}
-                  </span>
-                ))}
+
+              <div className="space-y-2">
+                <p className="text-[12px] font-semibold text-[#6B7280] uppercase tracking-wide">Or upload a spreadsheet</p>
+                <div
+                  onClick={() => fileRef.current?.click()}
+                  className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-[#E8ECF4] bg-[#F9FBFE] px-4 py-3 hover:border-[#7C3AED] hover:bg-[#F5F0FE]"
+                >
+                  <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onFileChange} />
+                  {fileEmails ? (
+                    <>
+                      <FileSpreadsheet className="h-4 w-4 flex-shrink-0 text-emerald-600" />
+                      <span className="min-w-0 flex-1 truncate text-[13px] text-emerald-700">{fileName} — {fileEmails.length} emails</span>
+                      <button onClick={e => { e.stopPropagation(); clearFile(); }} className="text-[#9CA3AF] hover:text-red-500">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="h-4 w-4 flex-shrink-0 text-[#9CA3AF]" />
+                      <span className="text-[13px] text-[#6B7280]">Click to browse — .xlsx, .xls, or .csv</span>
+                    </>
+                  )}
+                </div>
+                {fileError && (
+                  <p className="flex items-center gap-1.5 text-[12px] text-red-500">
+                    <AlertCircle className="h-3.5 w-3.5" /> {fileError}
+                  </p>
+                )}
               </div>
-            )}
-          </div>
+
+              {bulkResults && (
+                <div className="space-y-1 rounded-xl border border-[#E8ECF4] bg-[#F9FBFE] p-3 max-h-40 overflow-y-auto">
+                  {bulkResults.map(r => (
+                    <p key={r.email} className="text-[12px] text-[#1A1D23]">
+                      <span className="font-medium">{r.email}</span> — {OUTCOME_LABEL[r.outcome] ?? r.outcome}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between border-t border-[#E8ECF4] pt-4">
+                {bulkEmails.length > 0
+                  ? <p className="text-[12px] text-[#6B7280]">{bulkEmails.length} email{bulkEmails.length !== 1 ? 's' : ''} ready</p>
+                  : <span />}
+                <button
+                  onClick={() => { void sendBulkInvites(); }}
+                  disabled={bulkEmails.length === 0 || bulkSending}
+                  className="flex items-center gap-2 rounded-xl bg-[#7C3AED] px-5 py-2.5 text-[13px] font-semibold text-white shadow-md shadow-purple-200 transition-all hover:-translate-y-px hover:bg-[#6D28D9] disabled:pointer-events-none disabled:opacity-40"
+                >
+                  <Send className="h-4 w-4" />
+                  {bulkSending ? 'Sending…' : `Send ${bulkEmails.length > 0 ? `${bulkEmails.length} ` : ''}Invite${bulkEmails.length !== 1 ? 's' : ''}`}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

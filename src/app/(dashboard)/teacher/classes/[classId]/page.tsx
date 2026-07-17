@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -7,6 +7,7 @@ import {
   getClassInvites, createClassInvites,
 } from '@/lib/data';
 import { parseBulkEmails } from '@/lib/class-permissions';
+import { parseEmailsFromBuffer } from '@/lib/bulk-email-file-parse';
 import type { ClassSummary, ClassEnrollmentSummary, ClassInviteSummary } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,8 +17,16 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { ChevronRight, Users2, UserPlus, Archive, ArchiveRestore, X } from 'lucide-react';
+import { ChevronRight, Users2, UserPlus, Archive, ArchiveRestore, X, Upload, FileSpreadsheet, AlertCircle } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
+
+const OUTCOME_LABEL: Record<string, string> = {
+  invited: 'invited',
+  already_enrolled: 'already enrolled',
+  already_invited: 'already invited',
+  cross_institution: 'belongs to another institution',
+  failed: 'failed to send',
+};
 
 const INVITE_STATUS_BADGE: Record<ClassInviteSummary['status'], 'warning' | 'success' | 'secondary'> = {
   pending: 'warning',
@@ -37,6 +46,10 @@ export default function TeacherClassDetailPage() {
   const [sending, setSending] = useState(false);
   const [sendResults, setSendResults] = useState<{ email: string; outcome: string }[] | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [fileEmails, setFileEmails] = useState<string[] | null>(null);
+  const [fileName, setFileName] = useState('');
+  const [fileError, setFileError] = useState('');
 
   const refresh = useCallback(() => {
     getClassById(classId).then(c => { setCls(c ?? null); if (c) setName(c.name); });
@@ -46,7 +59,41 @@ export default function TeacherClassDetailPage() {
 
   useEffect(refresh, [refresh]);
 
-  const parsedEmails = parseBulkEmails(bulkText);
+  const pastedEmails = parseBulkEmails(bulkText);
+  const parsedEmails = fileEmails ?? pastedEmails;
+
+  function processFile(file: File) {
+    if (!file.name.match(/\.(xlsx|xls|csv)$/i)) {
+      setFileError('Only .xlsx, .xls, or .csv files are accepted.');
+      return;
+    }
+    setFileName(file.name);
+    setFileError('');
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const buf = e.target?.result as ArrayBuffer;
+        const found = parseEmailsFromBuffer(buf);
+        if (found.length === 0) setFileError('No valid email addresses found in the file.');
+        else setFileEmails(found);
+      } catch {
+        setFileError('Could not read file. Make sure it is a valid Excel or CSV file.');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+    e.target.value = '';
+  }
+
+  function clearFile() {
+    setFileEmails(null);
+    setFileName('');
+    setFileError('');
+  }
 
   async function handleSendInvites() {
     if (parsedEmails.length === 0) return;
@@ -55,6 +102,7 @@ export default function TeacherClassDetailPage() {
       const results = await createClassInvites(classId, parsedEmails);
       setSendResults(results);
       setBulkText('');
+      clearFile();
       refresh();
     } finally {
       setSending(false);
@@ -197,17 +245,45 @@ export default function TeacherClassDetailPage() {
                 rows={5}
                 placeholder={'student1@example.com\nstudent2@example.com'}
                 value={bulkText}
-                onChange={e => setBulkText(e.target.value)}
+                onChange={e => { setBulkText(e.target.value); clearFile(); }}
               />
               <p className="text-xs text-muted-foreground">
                 {parsedEmails.length} valid email{parsedEmails.length === 1 ? '' : 's'} detected
               </p>
             </div>
+            <div className="space-y-2">
+              <Label>Or upload a spreadsheet</Label>
+              <div
+                onClick={() => fileRef.current?.click()}
+                className="flex cursor-pointer items-center gap-3 rounded-md border border-dashed px-3 py-2.5 hover:bg-muted/30"
+              >
+                <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={onFileChange} />
+                {fileEmails ? (
+                  <>
+                    <FileSpreadsheet className="h-4 w-4 flex-shrink-0 text-emerald-600" />
+                    <span className="min-w-0 flex-1 truncate text-xs text-emerald-700">{fileName} — {fileEmails.length} emails</span>
+                    <button onClick={e => { e.stopPropagation(); clearFile(); }} className="text-muted-foreground hover:text-red-600">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">Click to browse — .xlsx, .xls, or .csv</span>
+                  </>
+                )}
+              </div>
+              {fileError && (
+                <p className="flex items-center gap-1.5 text-xs text-red-600">
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" /> {fileError}
+                </p>
+              )}
+            </div>
             {sendResults && (
               <div className="space-y-1 rounded-md border bg-muted/30 p-2 max-h-40 overflow-y-auto">
                 {sendResults.map(r => (
                   <p key={r.email} className="text-xs">
-                    <span className="font-medium">{r.email}</span> — {r.outcome.replaceAll('_', ' ')}
+                    <span className="font-medium">{r.email}</span> — {OUTCOME_LABEL[r.outcome] ?? r.outcome.replaceAll('_', ' ')}
                   </p>
                 ))}
               </div>

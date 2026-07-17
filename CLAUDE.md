@@ -2,6 +2,65 @@
 
 ## Session Log
 
+### 2026-07-17 (cont'd) — Phase 4 fixes: invite flow cleanup, cross-institution block, teacher profile/dashboard mock-data removal, joined-teacher visibility ✅
+
+Six-item manual-review punch list on top of the completed Phase 4 work (password reset,
+multi-class management, bulk student invites, role-scoped removal). Full detail — including the
+schema check for item 4's scope question, both live-DB verification rounds, and manual
+click-through notes — in `PHASE4_FIXES_PROGRESS.md`.
+
+- **Link-based invites removed** — the `/register?institution=<id>` "shareable link" UI on
+  `admin/teachers` and the 3-tab (`Share Link`/`By Email`/`Bulk Upload`) invite modal on
+  `teacher/students` are gone. That link was also a **real, previously-undiscovered bug**:
+  `/register` never read the `institution` query param, so using it always created a brand-new
+  institution instead of joining the inviting one — not just a UI cleanup, a dead end being removed.
+- **Admin bulk teacher invite** — new `createBulkTeacherInvites()` (`src/lib/data/invites.ts`)
+  mirrors `createClassInvites`'s dedup/cap/structured-outcome/rollback-on-send-failure shape,
+  with paste and CSV/XLSX upload tabs on `admin/teachers`. The CSV parser was extracted to
+  `src/lib/bulk-email-file-parse.ts` since it's now shared with the per-class invite dialog.
+- **Student invites consolidated to Classes tab** — `teacher/students` has zero invite UI now;
+  `teacher/classes/[classId]`'s existing per-class dialog is the only place, and gained the CSV
+  upload option so nothing was lost in the move. Found and fixed a real related leftover via live
+  Playwright QA: the teacher dashboard's "Invite Students" quick-action card still linked to the
+  now-invite-less Students page (`teacher/page.tsx:30`) — repointed to `/teacher/classes`.
+- **Cross-institution invite block** — schema confirmed `User.institutionId` is a single scalar
+  FK with no membership table (`User.email` is globally unique), so per the task's own default the
+  block applies to both teachers and students. One pure decision function
+  (`src/lib/invite-accept-decision.ts`'s `resolveAcceptInviteAssignment`) is the single source of
+  truth — blocks an *active* member of a different institution, allows a *suspended* one through
+  (and only then clears the old suspension). Wired into all 4 invite-creation/acceptance paths
+  server-side. Found and fixed two real related gaps along the way: `POST /api/invites`'s
+  "already a student, just link them" shortcut had **zero institution scoping** at all, and the
+  class-invite accept route's existing-student lookup was scoped only to the class's own
+  institution, so a different-institution email could silently get enrolled once Supabase account
+  resolution fell through to the "existing account" branch.
+- **Teacher profile fixed** — `onSubmit` on `teacher/settings` took no arguments and never called
+  any API; a real `PATCH /api/users/me` already existed and was simply never wired up. Now
+  PATCHes it, surfaces real errors, and syncs the `localStorage`-cached session. The
+  hardcoded `{Exams: 8, Students: 142, Trust: 91}` stat block is replaced with
+  `getTeacherDashboardData()`'s already-real, already-teacher-scoped aggregates. Password-change
+  form has the identical fake-success bug but was left flagged, not fixed — out of the stated
+  scope ("the broken Edit option") and needs its own re-auth design decision. The identical
+  hardcoded stat block on `student/settings` was confirmed out of scope and left alone too.
+- **Joined teachers now show up in the admin panel** — root cause was `POST
+  /api/invites/accept/[token]`'s upsert: the `update` branch (fires whenever the invitee's
+  Supabase account already existed for any reason) only ever wrote `name`, never `role` or
+  `institutionId`, so an accepted invite could leave the User row without ever actually joining
+  the inviting institution. `getTeachersList()`'s own query was already correct and not the bug —
+  confirmed by both a direct live-DB query and a full Playwright session.
+- **Tests**: 41 new (`invite-accept-decision`, `invite-guards`, `bulk-teacher-invites`,
+  `create-class-invites`, `teachers-list`, `bulk-email-file-parse`), covering items 1/2/4/6 per
+  the explicit ask.
+- **Live-verified** against Supabase (`rlbtdpnmdnaxlccelxdr`) two ways: a disposable direct-DB
+  script (cross-institution blocking, suspended-elsewhere-allowed, teacher-list query shape) and
+  three disposable real-browser Playwright sessions (admin teacher invite UI, the classes-tab
+  invite dialog, and the full settings-page edit→persist→reload round trip) — all self-cleaning,
+  confirmed zero leftover rows from this session afterward. Noticed but did not touch: 4
+  pre-existing "QA Golden Path Institution" rows in the live DB unrelated to this session.
+- **Verification**: `tsc` clean · `lint` at the pre-existing 3-error baseline (one pre-existing
+  dead-import warning in `api/invites/route.ts` cleaned up as a drive-by, since that exact file
+  was already being edited) · `build` clean · `vitest` 229/229 (188 baseline + 41 new).
+
 ### 2026-07-17 (cont'd) — Phase 7.1: fixed 3 frontend error-handling bugs found while writing manual QA doc ✅
 
 Writing `MANUAL_QA_PHASE_5-7.md` surfaced three real frontend bugs by cross-referencing the UI
@@ -370,6 +429,7 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Current Status
+- **Phase 4 fixes (invite flow cleanup, cross-institution block, teacher profile/dashboard, joined-teacher visibility)** ✅ **COMPLETE** (2026-07-17) — removed both link-based invite UIs (one was silently broken — it never joined the inviting institution at all), added admin bulk teacher invite, consolidated student invites into the Classes tab only, added a server-side cross-institution invite block (applies to both teachers and students per the schema's single-institution-per-user model), fixed the teacher profile's fake "Save Changes" and its hardcoded stat block, and fixed the real accept-invite upsert bug that kept joined teachers from ever showing up in the admin panel. See `PHASE4_FIXES_PROGRESS.md` and the Session Log.
 - **Phase 7 (Multi-Section Exam Architecture, AI Grading Override & Bulk-Approve)** ✅ **COMPLETE** (2026-07-17) — Task 1 duplicated 2026-07-09's "item 9" almost entirely; closed two real server-enforcement gaps instead (section-weight-sum-to-100% wasn't checked at exam start; `isItemSequential` had zero server enforcement surface — new `ItemLock` table + lock endpoint closes it, scoped only to exams that opt in). Task 2 built the missing bulk-approve endpoint and closed a real gap where finalized (`confirmed`) grades could be silently re-overridden. RLS added to the new `ItemLock` table, live-verified. See `PHASE_7_PROGRESS.md` and the Session Log.
 - **Phase 6 (Item Bank RBAC, decouple AI generation, CLO-aware batch generation, stratified dynamic pooling)** ✅ **COMPLETE** (2026-07-17) — tasks 1–3 duplicated the 2026-07-09 session's items 5–7 almost verbatim and were already implemented; closed the test-coverage gap on all three. Task 4 (pooling) had two real bugs closed this pass: insufficient-pool-at-runtime now fails gracefully (409) instead of silently under-drawing, and a genuine concurrent-exam-start double-materialization race is fixed via a transaction. RLS enabled on `ItemBank`/`ItemBankAccess` (previously missing), live-verified. See `PHASE_6_PROGRESS.md` and the Session Log.
 - **Phase 5 (pre-exam instructions, availability/duration auto-submit, per-item timers, proctoring toggle)** ✅ **ALREADY COMPLETE** — this spec duplicated 2026-07-09's items 1–4 almost verbatim; audited and confirmed live against Supabase 2026-07-16, one test gap closed (`src/lib/exam-deadline.ts` + unit tests). See `PHASE_5_PROGRESS.md` and the Session Log.
@@ -387,10 +447,11 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Build Status
-- `npm run build` → **PASSES** (0 errors, 88 routes — 2 new this phase: the item-lock and bulk-approve endpoints)
-- `npm run lint` → 4 pre-existing baseline problems (3 errors/1 warning in `useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff)
+- `npm run build` → **PASSES** (0 errors, 88 routes — no new routes this phase; the invite fixes live in `src/lib/data/*` Server Actions and existing route handlers)
+- `npm run lint` → 3 pre-existing baseline errors (`useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff), 0 warnings (the pre-existing dead-import warning in `api/invites/route.ts` was cleaned up this phase since that exact file was already being edited)
 - `npx tsc --noEmit` → clean
-- `npx vitest run` → 188/188 passing (+ `pytest` 10/10 in `psychometrics/`)
+- `npx vitest run` → 229/229 passing (188 baseline + 41 new this phase) (+ `pytest` 10/10 in `psychometrics/`)
+- Last verified: 2026-07-17 (Phase 4 fixes — invite flow cleanup, cross-institution block, teacher profile/dashboard, joined-teacher visibility)
 - Last verified: 2026-07-17 (Phase 7 — multi-section locking + grading bulk-approve)
 - Last verified: 2026-07-17 (Phase 6 — item bank RBAC/pooling audit, closed pooling concurrency + insufficient-pool bugs)
 - Last verified: 2026-07-16 (Phase 5 spec audit — confirmed already-complete, closed one test gap)

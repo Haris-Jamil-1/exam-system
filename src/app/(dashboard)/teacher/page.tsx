@@ -27,7 +27,7 @@ const statusStyles: Record<ExamStatus, { label: string; dot: string; chip: strin
 
 const quickActions = [
   { label: 'Create Exam',       desc: 'Build or generate with AI',      icon: Plus,     href: '/teacher/exams/new', color: '#1E88E5', bg: '#E3F0FD' },
-  { label: 'Invite Students',   desc: 'Email or import a roster',        icon: UserPlus, href: '/teacher/students',  color: '#16A34A', bg: '#DCFCE7' },
+  { label: 'Invite Students',   desc: 'Email or import a roster',        icon: UserPlus, href: '/teacher/classes',  color: '#16A34A', bg: '#DCFCE7' },
   { label: 'Upload Document',   desc: 'Generate questions from a file',  icon: Upload,   href: '/teacher/exams/new', color: '#7C3AED', bg: '#EDE9FE' },
 ];
 

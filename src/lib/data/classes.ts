@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';
 import { Resend } from 'resend';
 import { canManageClass, deriveInviteStatus, type CallerContext } from '@/lib/class-permissions';
+import { isEmailActiveElsewhere } from './invite-guards';
 import type { ClassSummary, ClassEnrollmentSummary, ClassInviteSummary } from '@/types';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -181,7 +182,7 @@ export async function getClassInvites(classId: string): Promise<ClassInviteSumma
   }));
 }
 
-export type BulkInviteResult = { email: string; outcome: 'invited' | 'already_enrolled' | 'already_invited' | 'failed' };
+export type BulkInviteResult = { email: string; outcome: 'invited' | 'already_enrolled' | 'already_invited' | 'cross_institution' | 'failed' };
 
 export async function createClassInvites(classId: string, emails: string[]): Promise<BulkInviteResult[] | null> {
   const caller = await getCaller();
@@ -193,6 +194,11 @@ export async function createClassInvites(classId: string, emails: string[]): Pro
   const results: BulkInviteResult[] = [];
 
   for (const email of uniqueEmails) {
+    if (await isEmailActiveElsewhere(email, cls.institutionId)) {
+      results.push({ email, outcome: 'cross_institution' });
+      continue;
+    }
+
     const existingStudent = await prisma.user.findFirst({
       where: { email, role: 'student', institutionId: cls.institutionId },
       select: { id: true, name: true },

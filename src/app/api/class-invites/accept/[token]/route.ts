@@ -5,6 +5,8 @@ import { adminSupabase } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import { deriveInviteStatus } from '@/lib/class-permissions';
 import { withErrorHandling } from '@/lib/api-auth';
+import { CROSS_INSTITUTION_ERROR } from '@/lib/data/invite-guards';
+import { resolveAcceptInviteAssignment } from '@/lib/invite-accept-decision';
 
 const signupSchema = z.object({
   name: z.string().min(2),
@@ -37,6 +39,16 @@ export const POST = withErrorHandling(async (
   const status = deriveInviteStatus(invite, new Date());
   if (status === 'accepted') return NextResponse.json({ error: 'Invite already used' }, { status: 409 });
   if (status === 'expired') return NextResponse.json({ error: 'Invite has expired' }, { status: 410 });
+
+  // User.email is globally unique — check by email alone (not scoped to this class's role/
+  // institution) before deciding "brand-new student". Without this, an email that's already an
+  // active member of a DIFFERENT institution falls through to the "new account" branch below,
+  // where Supabase account creation fails (email taken), the fallback resolves the existing
+  // Supabase user, and the class silently enrolls a student who actually belongs elsewhere.
+  const existingByEmail = await prisma.user.findUnique({ where: { email: invite.email } });
+  if (resolveAcceptInviteAssignment(existingByEmail, invite.class.institutionId).blocked) {
+    return NextResponse.json({ error: CROSS_INSTITUTION_ERROR }, { status: 409 });
+  }
 
   const existingStudent = await prisma.user.findFirst({
     where: { email: invite.email, role: 'student', institutionId: invite.class.institutionId },

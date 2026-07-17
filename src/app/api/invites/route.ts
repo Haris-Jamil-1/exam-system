@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { Resend } from 'resend';
 import { prisma } from '@/lib/prisma';
-import { adminSupabase } from '@/lib/supabase/admin';
 import { getAuthUser, unauthorized, forbidden, withErrorHandling } from '@/lib/api-auth';
+import { isEmailActiveElsewhere, CROSS_INSTITUTION_ERROR } from '@/lib/data/invite-guards';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -26,6 +26,10 @@ export const POST = withErrorHandling(async (request: Request) => {
 
   if (user.role === 'teacher' && role !== 'student') return forbidden();
   if (user.role === 'student') return forbidden();
+
+  if (await isEmailActiveElsewhere(email, user.institutionId)) {
+    return NextResponse.json({ error: CROSS_INSTITUTION_ERROR }, { status: 409 });
+  }
 
   // If adding a student who already has an account, don't create a duplicate —
   // just add this teacher to their teacherIds metadata and send a notification email.
