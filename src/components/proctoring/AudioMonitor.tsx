@@ -16,6 +16,12 @@ interface AudioMonitorProps {
 const SAMPLE_MS = 200;
 const SUSTAIN_MS = 5_000; // activity must persist this long before it counts
 const QUIET_MS = 2_000;   // this much silence closes an episode
+// Force-chunk an episode that never goes quiet (continuous talking, music, machinery): the
+// close-emitted design meant truly continuous noise produced ZERO server-side events until
+// unmount — the teacher's monitor never saw it while it was happening. Same pattern as
+// FaceDetector's MAX_EPISODE_MS. 61s (not 60) so a chunk's own duration already lands in
+// deriveSeverity's `d > 60 → high` tier server-side.
+const MAX_EPISODE_MS = 61_000;
 
 // Was 0.05 — a fixed, uncalibrated floor that easily missed quieter or more distant talking
 // (laptop mic gain/placement varies widely). Lowered so real sustained talking registers more
@@ -51,6 +57,11 @@ export function AudioMonitor({ buffer, threshold = 0.035 }: AudioMonitorProps) {
         ctx = new AudioContext();
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 256;
+        // Default smoothingTimeConstant (0.8) stretches loudness decay ~3s past actual
+        // silence, so a real pause between sentences almost never accumulated QUIET_MS of
+        // sub-threshold readings — episodes couldn't close, and a close is the only thing
+        // that emits. Low smoothing keeps readings honest at our 200ms sample interval.
+        analyser.smoothingTimeConstant = 0.2;
         const source = ctx.createMediaStreamSource(stream);
         source.connect(analyser);
         const data = new Uint8Array(analyser.frequencyBinCount);
@@ -92,6 +103,11 @@ export function AudioMonitor({ buffer, threshold = 0.035 }: AudioMonitorProps) {
             levelCount += 1;
             if (!episodeOpen && now - activeSince >= SUSTAIN_MS) {
               episodeOpen = true;
+            }
+            // Continuous noise never reaches QUIET_MS — chunk it so it surfaces live. The
+            // reset in closeEpisode starts the next chunk accumulating immediately.
+            if (episodeOpen && now - activeSince >= MAX_EPISODE_MS) {
+              closeEpisode();
             }
           } else if (activeSince !== null && lastActiveAt !== null && now - lastActiveAt >= QUIET_MS) {
             closeEpisode();

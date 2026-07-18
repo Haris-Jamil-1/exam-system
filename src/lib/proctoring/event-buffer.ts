@@ -41,10 +41,27 @@ export class ProctoringEventBuffer {
     this.examId = examId;
     this.attemptId = attemptId && attemptId !== 'attempt-loading' ? attemptId : null;
     this.restore();
+    this.startTimers();
+  }
+
+  private startTimers() {
     this.flushTimer = setInterval(() => void this.flush(), FLUSH_INTERVAL_MS);
     this.heartbeatTimer = setInterval(() => {
       this.emit({ type: 'heartbeat', timestamp: new Date().toISOString() });
     }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  /**
+   * Undo a dispose(). Needed because the buffer lives in component STATE (one instance per
+   * exam page life) while dispose() runs in the owning effect's CLEANUP — under React
+   * StrictMode's dev-only mount→cleanup→remount cycle the same instance comes back with
+   * `disposed` still true, silently dropping every event for the rest of the exam. (This is
+   * the exact dev-mode false negative documented in the round-3 tab-lock investigation.)
+   */
+  revive() {
+    if (!this.disposed) return;
+    this.disposed = false;
+    this.startTimers();
   }
 
   /** The attempt may not exist yet when the overlay first mounts. */
@@ -64,7 +81,16 @@ export class ProctoringEventBuffer {
       this.queue.splice(dropIdx === -1 ? 0 : dropIdx, 1);
     }
     this.persist();
-    if (event.severity === 'high' || this.queue.length >= MAX_BATCH) {
+    // Also flush immediately when the document is hidden: background tabs throttle timers
+    // (Chrome runs them at best once a minute), so an event emitted on tab-hide — the exact
+    // moment tab_switch fires — would otherwise sit in the queue until the student returns,
+    // and be lost entirely if they never do (closing the tab only gets a best-effort
+    // keepalive flush from pagehide).
+    if (
+      event.severity === 'high' ||
+      this.queue.length >= MAX_BATCH ||
+      (typeof document !== 'undefined' && document.visibilityState === 'hidden')
+    ) {
       void this.flush();
     }
   }

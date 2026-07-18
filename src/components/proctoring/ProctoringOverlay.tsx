@@ -33,6 +33,9 @@ export function ProctoringOverlay({ examId, attemptId, onForceSubmit }: Proctori
   }, [buffer, attemptId]);
 
   useEffect(() => {
+    // No-op on first run; undoes the dispose() below when StrictMode's dev-only
+    // mount→cleanup→remount cycle brings the same state-held instance back.
+    buffer.revive();
     const flushOnHide = () => void buffer.flush();
     // pagehide fires on tab close/navigation — last chance to flush (keepalive fetch).
     window.addEventListener('pagehide', flushOnHide);

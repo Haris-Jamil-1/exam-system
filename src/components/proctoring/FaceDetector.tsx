@@ -68,6 +68,8 @@ export function FaceDetector({ buffer, captureRef, streamRef }: FaceDetectorProp
     // reach the bar. Shortened alongside the geometry thresholds loosened in gaze.ts.
     const gazeAway = new ConditionEpisode(3, 2);  // ≥3 passes (~6s) opens
     const objectEpisodes = new Map<string, ConditionEpisode>(); // per object class
+    const objectOpenedAt = new Map<string, number>();           // for MAX_EPISODE_MS chunking
+    const objectBest = new Map<string, number>();               // best confidence while open
     let noFaceOpenedAt: number | null = null;
     let noFaceSnapshot: string | null = null;
     let gazeOpenedAt: number | null = null;
@@ -190,6 +192,17 @@ export function FaceDetector({ buffer, captureRef, streamRef }: FaceDetectorProp
       }
     }
 
+    function emitProhibitedObject(startedAt: number, endedAt: number) {
+      buffer.emit({
+        type: 'prohibited_object',
+        severity: 'medium',
+        confidence: objectBest.get('prohibited_object'),
+        timestamp: new Date(startedAt).toISOString(),
+        endedAt: new Date(endedAt).toISOString(),
+        description: 'Prohibited object (book/laptop) detected in camera feed',
+      });
+    }
+
     function emitGaze(startedAt: number, endedAt: number) {
       buffer.emit({
         type: 'gaze_away',
@@ -223,29 +236,39 @@ export function FaceDetector({ buffer, captureRef, streamRef }: FaceDetectorProp
             objectEpisodes.set(type, episode);
           }
           const score = seen.get(type);
+          if (score !== undefined) objectBest.set(type, Math.max(objectBest.get(type) ?? 0, score));
           const transition = episode.update(score !== undefined, now);
-          if (transition?.kind === 'opened' && type === 'phone_detected') {
-            const startIso = new Date(transition.startedAt).toISOString();
-            addViolation({ type, timestamp: startIso, description: 'Phone detected' });
-            void captureSnapshot().then(path => {
-              buffer.emit({
-                type,
-                severity: 'high',
-                confidence: score,
-                timestamp: startIso,
-                description: 'Mobile phone detected in camera feed',
-                screenshotUrl: path ?? undefined,
+          if (transition?.kind === 'opened') {
+            objectOpenedAt.set(type, transition.startedAt);
+            if (type === 'phone_detected') {
+              const startIso = new Date(transition.startedAt).toISOString();
+              addViolation({ type, timestamp: startIso, description: 'Phone detected' });
+              void captureSnapshot().then(path => {
+                buffer.emit({
+                  type,
+                  severity: 'high',
+                  confidence: score,
+                  timestamp: startIso,
+                  description: 'Mobile phone detected in camera feed',
+                  screenshotUrl: path ?? undefined,
+                });
               });
-            });
-          } else if (transition?.kind === 'closed' && type === 'prohibited_object') {
-            buffer.emit({
-              type,
-              severity: 'medium',
-              confidence: score,
-              timestamp: new Date(transition.startedAt).toISOString(),
-              endedAt: new Date(transition.endedAt).toISOString(),
-              description: 'Prohibited object (book/laptop) detected in camera feed',
-            });
+            }
+          } else if (transition?.kind === 'closed') {
+            if (type === 'prohibited_object') emitProhibitedObject(transition.startedAt, transition.endedAt);
+            objectOpenedAt.delete(type);
+            objectBest.delete(type);
+          } else if (
+            type === 'prohibited_object' && episode.isOpen &&
+            (objectOpenedAt.get(type) ?? now) < now - MAX_EPISODE_MS
+          ) {
+            // A book/laptop sitting in frame indefinitely never goes "inactive", and this
+            // event only emits at close — chunk it so the monitor sees it while it's there.
+            // (phone_detected already emits at open, so it needs no chunking.)
+            const forced = episode.finalize(now);
+            if (forced?.kind === 'closed') emitProhibitedObject(forced.startedAt, forced.endedAt);
+            objectOpenedAt.delete(type);
+            objectBest.delete(type);
           }
         }
       } catch {
@@ -287,7 +310,11 @@ export function FaceDetector({ buffer, captureRef, streamRef }: FaceDetectorProp
           minFaceDetectionConfidence: 0.6,
           minFacePresenceConfidence: 0.6,
         });
-      } catch {
+      } catch (err) {
+        // Loud, not silent: a load failure here structurally disables face/multi-face/gaze
+        // detection for the whole exam (this is exactly how the /models middleware redirect
+        // went unnoticed — both models 404'd into HTML and nothing ever surfaced it).
+        console.error('[proctoring] Face Landmarker failed to load — face/gaze detection disabled:', err);
         landmarker = null;
       }
 
@@ -295,7 +322,8 @@ export function FaceDetector({ buffer, captureRef, streamRef }: FaceDetectorProp
         await import('@tensorflow/tfjs');
         const cocoSsd = await import('@tensorflow-models/coco-ssd');
         objectModel = await cocoSsd.load({ modelUrl: '/models/coco-ssd/model.json' });
-      } catch {
+      } catch (err) {
+        console.error('[proctoring] COCO-SSD failed to load — object detection disabled:', err);
         objectModel = null;
       }
 
@@ -352,6 +380,10 @@ export function FaceDetector({ buffer, captureRef, streamRef }: FaceDetectorProp
       if (noFaceFinal?.kind === 'closed') emitNoFace(noFaceFinal.startedAt, noFaceFinal.endedAt);
       const gazeFinal = gazeAway.finalize(now);
       if (gazeFinal?.kind === 'closed') emitGaze(gazeFinal.startedAt, gazeFinal.endedAt);
+      // Same flush for a still-open prohibited-object episode — previously it was silently
+      // dropped at unmount (a book in frame right up to submit produced no event at all).
+      const objFinal = objectEpisodes.get('prohibited_object')?.finalize(now);
+      if (objFinal?.kind === 'closed') emitProhibitedObject(objFinal.startedAt, objFinal.endedAt);
       landmarker?.close();
       stream?.getTracks().forEach(t => t.stop());
     };

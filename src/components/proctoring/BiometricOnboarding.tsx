@@ -1,8 +1,11 @@
 'use client';
-// Biometric pre-exam gate — 3-step flow: webcam → ID document → verified
-// Phase 3: replace simulated steps with real face-api.js capture + liveness check
-// Phase 2: store biometricVerified:true on ExamAttempt before allowing student in
-import { useState } from 'react';
+// Biometric pre-exam gate — 3-step flow: webcam → ID document → verified.
+// The preview area shows the REAL camera feed while capturing (previously this whole screen
+// was simulated with icons — the student never saw themselves or their ID card at all), and
+// each capture freezes an actual frame from the stream so the student sees exactly what was
+// taken. Verification itself is still the Phase-1 simulated flow (no OCR/face-match backend
+// exists yet — see Phase 3 notes); what's real now is the capture and what the student sees.
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Camera, CreditCard, ShieldCheck, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 
@@ -34,28 +37,64 @@ const STEPS: { id: Step; icon: React.ReactNode; title: string; desc: string }[] 
 ];
 
 export function BiometricOnboarding({ onComplete }: Props) {
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [currentStep, setCurrentStep] = useState<Step>('webcam');
   const [processing, setProcessing] = useState(false);
-  const [faceDetected, setFaceDetected] = useState(false);
-  const [idDetected, setIdDetected] = useState(false);
+  const [cameraError, setCameraError] = useState(false);
+  const [faceShot, setFaceShot] = useState<string | null>(null);
+  const [idShot, setIdShot] = useState<string | null>(null);
+
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+    let cancelled = false;
+
+    async function init() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        if (cancelled) {
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
+        if (videoRef.current) videoRef.current.srcObject = stream;
+      } catch {
+        if (!cancelled) setCameraError(true);
+      }
+    }
+    void init();
+
+    return () => {
+      cancelled = true;
+      stream?.getTracks().forEach(t => t.stop());
+    };
+  }, []);
 
   const stepIndex = STEPS.findIndex(s => s.id === currentStep);
   const step = STEPS[stepIndex];
 
+  function captureFrame(): string | null {
+    const video = videoRef.current;
+    if (!video || video.videoWidth === 0) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d')?.drawImage(video, 0, 0);
+    return canvas.toDataURL('image/jpeg', 0.85);
+  }
+
   async function handleCaptureFace() {
     setProcessing(true);
-    // Phase 3: run faceapi.detectSingleFace() on webcam stream
+    setFaceShot(captureFrame());
+    // Phase 3: run a real face detector / liveness check on the captured frame
     await new Promise(r => setTimeout(r, 1800));
-    setFaceDetected(true);
     setProcessing(false);
     setCurrentStep('id');
   }
 
   async function handleCaptureID() {
     setProcessing(true);
-    // Phase 3: capture frame, send to OCR / ID verification endpoint
+    setIdShot(captureFrame());
+    // Phase 3: send the captured frame to an OCR / ID verification endpoint
     await new Promise(r => setTimeout(r, 1500));
-    setIdDetected(true);
     setProcessing(false);
     setCurrentStep('verified');
   }
@@ -92,34 +131,68 @@ export function BiometricOnboarding({ onComplete }: Props) {
 
         {/* Main card */}
         <div className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden">
-          {/* Webcam preview area */}
-          <div className="relative bg-slate-950 aspect-video flex items-center justify-center">
-            {currentStep !== 'verified' ? (
-              <>
-                {/* Simulated webcam frame */}
-                <div className="relative w-48 h-48 rounded-full border-4 border-dashed border-slate-700 flex items-center justify-center">
-                  {currentStep === 'webcam' && (
-                    <Camera className={`h-16 w-16 ${faceDetected ? 'text-green-400' : 'text-slate-600'}`} />
-                  )}
-                  {currentStep === 'id' && (
-                    <CreditCard className={`h-16 w-16 ${idDetected ? 'text-green-400' : 'text-slate-600'}`} />
-                  )}
-                  {processing && (
-                    <div className="absolute inset-0 rounded-full border-4 border-blue-400 border-t-transparent animate-spin" />
-                  )}
+          {/* Live camera preview area */}
+          <div className="relative bg-slate-950 aspect-video overflow-hidden">
+            {/* The stream stays mounted across steps; overlays shape the framing per step. */}
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              className={`absolute inset-0 h-full w-full object-cover ${currentStep === 'verified' ? 'opacity-20' : ''}`}
+            />
+
+            {cameraError && currentStep !== 'verified' && (
+              <div className="absolute inset-0 flex items-center justify-center bg-slate-950/80">
+                <div className="text-center space-y-2 px-6">
+                  <AlertTriangle className="h-8 w-8 text-amber-400 mx-auto" />
+                  <p className="text-sm text-slate-300">
+                    Camera unavailable — check your browser&apos;s camera permission.
+                  </p>
                 </div>
+              </div>
+            )}
+
+            {/* Freeze-frame of the shot being verified */}
+            {processing && (currentStep === 'webcam' ? faceShot : idShot) && (
+              // eslint-disable-next-line @next/next/no-img-element -- data-URL freeze frame, not an optimizable asset
+              <img
+                src={(currentStep === 'webcam' ? faceShot : idShot) ?? undefined}
+                alt="Captured frame"
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            )}
+
+            {currentStep === 'webcam' && !cameraError && (
+              /* Face alignment guide */
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className={`w-44 h-44 rounded-full border-4 border-dashed ${processing ? 'border-blue-400' : 'border-white/60'}`} />
+              </div>
+            )}
+
+            {currentStep !== 'verified' && (
+              <>
                 {/* Corner alignment brackets */}
                 <div className="absolute top-4 start-4 h-6 w-6 border-t-2 border-s-2 border-blue-400 rounded-tl-sm" />
                 <div className="absolute top-4 end-4 h-6 w-6 border-t-2 border-e-2 border-blue-400 rounded-tr-sm" />
                 <div className="absolute bottom-4 start-4 h-6 w-6 border-b-2 border-s-2 border-blue-400 rounded-bl-sm" />
                 <div className="absolute bottom-4 end-4 h-6 w-6 border-b-2 border-e-2 border-blue-400 rounded-br-sm" />
+                {processing && (
+                  <div className="absolute bottom-4 start-1/2 -translate-x-1/2 rounded-full bg-slate-950/80 px-3 py-1 text-xs text-blue-300 flex items-center gap-1.5">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Analyzing capture…
+                  </div>
+                )}
               </>
-            ) : (
-              <div className="text-center space-y-3">
-                <div className="h-20 w-20 rounded-full bg-green-500/20 border-2 border-green-500 flex items-center justify-center mx-auto">
-                  <ShieldCheck className="h-10 w-10 text-green-400" />
+            )}
+
+            {currentStep === 'verified' && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-center space-y-3">
+                  <div className="h-20 w-20 rounded-full bg-green-500/20 border-2 border-green-500 flex items-center justify-center mx-auto">
+                    <ShieldCheck className="h-10 w-10 text-green-400" />
+                  </div>
+                  <p className="text-green-400 font-semibold">Identity Confirmed</p>
                 </div>
-                <p className="text-green-400 font-semibold">Identity Confirmed</p>
               </div>
             )}
           </div>
@@ -176,6 +249,24 @@ export function BiometricOnboarding({ onComplete }: Props) {
 
             {currentStep === 'verified' && (
               <div className="space-y-3">
+                {(faceShot || idShot) && (
+                  <div className="flex gap-3">
+                    {faceShot && (
+                      <div className="flex-1 space-y-1">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- data-URL capture */}
+                        <img src={faceShot} alt="Captured face" className="w-full rounded-lg border border-slate-700 aspect-video object-cover" />
+                        <p className="text-center text-[10px] text-slate-500">Face capture</p>
+                      </div>
+                    )}
+                    {idShot && (
+                      <div className="flex-1 space-y-1">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- data-URL capture */}
+                        <img src={idShot} alt="Captured ID document" className="w-full rounded-lg border border-slate-700 aspect-video object-cover" />
+                        <p className="text-center text-[10px] text-slate-500">ID document</p>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="rounded-lg bg-green-900/30 border border-green-800 p-3 text-xs text-green-300 space-y-1">
                   <p className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5" /> Face successfully captured</p>
                   <p className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5" /> ID document verified</p>

@@ -2,6 +2,59 @@
 
 ## Session Log
 
+### 2026-07-18 — Proctoring system fixed: every detector now actually fires; fullscreen enforced; biometric gate shows the real camera ✅
+
+Bug report: all vision detection (face/multi-face/gaze/object) + background noise never
+produced a violation, fullscreen exit was log-only, window_blur duplicated real tab-switches,
+biometric capture never showed the person/ID. Diagnosed each root cause against a fresh
+production build before patching; full detail + per-detector concrete test table in
+`PROCTORING_FIX_PROGRESS.md`.
+
+- **The vision killer was one line of middleware**: `/models` wasn't in `PUBLIC_PREFIXES`, so
+  every authenticated in-exam fetch of the self-hosted model assets was role-redirected to
+  `/student` (HTML) — MediaPipe's wasm loader hit `SyntaxError: Unexpected token '<'`, coco-ssd
+  got HTML for `model.json`, both silent catches nulled the models, and the widget quietly sat
+  in "Basic monitoring" forever. Face/multi-face/gaze/object detection had been structurally
+  dead in every authenticated context (dev AND prod) since Phase 3 shipped — which is exactly
+  why only tab-switch (no assets) worked, and why Phase 3's "deferred live QA" never caught it.
+  Model-load failures are now `console.error`-loud instead of silent.
+- **Audio never emitted**: analyser default smoothing (0.8) stretched loudness decay past the
+  2s quiet window (episodes couldn't close — and only a close emits), plus no max-episode
+  chunking meant continuous noise emitted nothing until unmount. Fixed (smoothing 0.2, 61s
+  chunks so continuous noise lands in the `d>60 → high` tier).
+- **window_blur duplicate**: on tab return, `visibilitychange(visible)` fires before `focus`,
+  clearing `hiddenAt` so the old guard emitted a bogus window_blur atop every tab_switch. Now a
+  tab-hide owns/clears the pending blur; genuine blur-while-visible emits once via a 1s timer
+  (no longer lost if the student never refocuses).
+- **Fullscreen enforced**: mount-time `requestFullscreen` (outside transient activation, often
+  rejected → false "denied" violation) replaced with best-effort auto-enter + a blocking
+  "Fullscreen Required" overlay whenever not fullscreen, whose button re-enters inside a real
+  gesture; violation only on real exits. Live-verified: auto-enter on start, one high violation
+  on exit, overlay blocks, button restores fullscreen.
+- **Biometric gate**: real `getUserMedia` live preview during face/ID capture with frozen
+  captured-frame display (verification itself still the simulated flow — no OCR/face-match
+  backend exists; unchanged scope, flagged).
+- **Bonus real bugs found & fixed during diagnosis**: `POST /api/attempts` 500'd on every
+  resume-without-client-state (P2002 fallback ran inside the Postgres-aborted transaction —
+  students couldn't re-enter an exam from a fresh browser); `/api/upload` failed 500 on every
+  evidence snapshot (user-scoped storage client vs policy-less private bucket — switched to the
+  service-role client like `/api/evidence` already used); events emitted while the tab is
+  hidden could die with the tab (background-tab timer throttling — buffer now flushes
+  immediately when emitting hidden); open `prohibited_object` episodes were dropped at unmount
+  (now finalized + 60s-chunked + real confidence); and the round-3-documented dev-only
+  StrictMode false negative is fixed at the root (`ProctoringEventBuffer.revive()` — the
+  state-held buffer came back from StrictMode's remount permanently disposed, silently
+  dropping every event in dev).
+- **Verification**: `tsc` clean · `lint` unchanged 3-error baseline · `vitest` 275/275 (two
+  mocked-Prisma attempts-route tests updated to the corrected route shape) · `build` clean ·
+  full per-detector matrix (16 rows: control/no-false-positives, no_face, multiple_faces,
+  gaze_away, phone, book, gapped + continuous audio, short/long tab-switch, sustained/brief
+  blur, fullscreen exit+re-enter, biometric preview, resume-201, dev-mode) run against a fresh
+  production build with fake-device camera/mic fed pre-validated media, checking real
+  `Violation` rows — see `PROCTORING_FIX_PROGRESS.md`. All QA data (disposable tenant, attempts,
+  violations, 11 storage evidence files) confirmed deleted afterward. A real human+camera pass
+  on detection accuracy under real lighting remains worthwhile and is flagged in the progress doc.
+
 ### 2026-07-17 (cont'd) — Exam auto-completes on the teacher side when closing time is reached ✅
 
 Follow-up bug report after the live-video work: an exam whose `endTime` had passed kept
@@ -644,6 +697,7 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Current Status
+- **Proctoring system fixed end-to-end** ✅ **COMPLETE** (2026-07-18) — all 7 detection types (face, multi-face, tab-switch, fullscreen exit, background noise, abnormal gaze, prohibited object) now reliably produce correctly-typed, correctly-severitied, non-duplicated violations, verified per-detector against a fresh production build with real DB rows; fullscreen is now enforced (blocking overlay + re-enter button), the biometric gate shows the real camera feed with captured-frame display, evidence snapshot uploads work (were 100% failing on storage RLS), exam resume from a fresh browser works (was a 500), and the dev-mode StrictMode event-loss false negative is fixed at the root. Root cause of all dead vision detection: the auth middleware was redirecting `/models/*` asset fetches to HTML. See `PROCTORING_FIX_PROGRESS.md` and the Session Log.
 - **Exam auto-completes on the teacher side when closing time is reached** ✅ **COMPLETE** (2026-07-17) — `computeEffectiveExamStatus` now derives `completed` once `endTime` has passed (symmetric with the existing `scheduled→live` rule), fixing exams list/dashboard/cross-exam Live Monitor all showing a stale "Live" badge forever past the actual close time; also fixed the matching "Active Exams" stat aggregate, which had the identical gap. See the Session Log.
 - **Cross-exam Live Monitor page (`/teacher/monitor`) now has the eye button/live video too** ✅ **COMPLETE** (2026-07-17) — the "Go Live"/snapshot/actions panel only ever existed on the per-exam monitor page; extracted it to a shared `StudentActionsModal` component and wired it into both. See the Session Log.
 - **Invitation UI polish** ✅ **COMPLETE** (2026-07-17) — presentation-only pass across all public accept pages and internal invite-sending dialogs (new shared `PasswordInput` show/hide toggle, spinner loading states, admin's invite panel converted to a real modal). No backend/logic changes. See the Session Log.
@@ -668,10 +722,11 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Build Status
-- `npm run build` → **PASSES** (0 errors, 88 routes — no new routes since the live-video work; the follow-up fixes are data-layer/component changes only)
+- `npm run build` → **PASSES** (0 errors, 88 routes — proctoring fixes are middleware/component/data-layer changes, no new routes)
 - `npm run lint` → 3 pre-existing baseline errors (`useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff), 0 warnings
 - `npx tsc --noEmit` → clean
-- `npx vitest run` → 275/275 passing (268 baseline + 7 new for the exam-auto-complete fix) (+ `pytest` 10/10 in `psychometrics/`)
+- `npx vitest run` → 275/275 passing (+ `pytest` 10/10 in `psychometrics/`)
+- Last verified: 2026-07-18 (proctoring system fix — per-detector live verification against a fresh production build, see `PROCTORING_FIX_PROGRESS.md`)
 - Last verified: 2026-07-17 (exam auto-completes on the teacher side when closing time is reached)
 - Last verified: 2026-07-17 (cross-exam Live Monitor eye button/live video fix)
 - Last verified: 2026-07-17 (invitation UI polish — presentation-only)

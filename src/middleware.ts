@@ -1,7 +1,11 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
-const PUBLIC_PREFIXES = ['/', '/login', '/register', '/invite', '/classes/join', '/api', '/_next', '/favicon', '/auth'];
+// '/models' is the self-hosted proctoring model assets (MediaPipe wasm/task, coco-ssd) in
+// public/models — static files, not a protected route. Without it, the role-path check below
+// redirected every in-exam model fetch to /student (HTML), so both vision models silently
+// failed to load and face/multi-face/gaze/object detection never ran at all.
+const PUBLIC_PREFIXES = ['/', '/login', '/register', '/invite', '/classes/join', '/api', '/_next', '/favicon', '/auth', '/models'];
 
 const ROLE_PATHS: Record<string, string[]> = {
   admin:   ['/admin'],

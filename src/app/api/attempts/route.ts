@@ -111,30 +111,22 @@ export const POST = withErrorHandling(async (request: Request) => {
   // running materialization itself. If the pool has shrunk below the blueprint since it was
   // saved, materializePooledQuestions throws InsufficientPoolError and the whole transaction
   // (including the attempt row) rolls back — no half-materialized attempt is left behind.
-  let attempt: Prisma.ExamAttemptModel;
-  try {
-    attempt = await prisma.$transaction(async (tx) => {
-      let created: Prisma.ExamAttemptModel;
-      let isNew = true;
-      try {
-        created = await tx.examAttempt.create({
+  // The P2002 fallback must run OUTSIDE the transaction: in Postgres, once the create()
+  // inside the transaction fails, the whole transaction is aborted (25P02) and any further
+  // query inside it — including the previous in-transaction findUniqueOrThrow fallback —
+  // errors too. That made every resume without an existing client session (fresh browser,
+  // cleared storage, second device) a hard 500 instead of returning the existing attempt.
+  let attempt: Prisma.ExamAttemptModel | null = existingAttempt;
+  if (!attempt) {
+    try {
+      attempt = await prisma.$transaction(async (tx) => {
+        const created = await tx.examAttempt.create({
           data: { examId, studentId: user.id, status: 'in_progress' },
         });
-      } catch (err) {
-        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-          created = await tx.examAttempt.findUniqueOrThrow({
-            where: { examId_studentId: { examId, studentId: user.id } },
-          });
-          isNew = false;
-        } else {
-          throw err;
-        }
-      }
 
-      // Stratified dynamic pooling: only for the attempt this call actually created (never
-      // re-draw on resume — the student must keep the same private question set every time
-      // they reopen the exam, and never double-draw when a concurrent request already won).
-      if (isNew) {
+        // Stratified dynamic pooling: only for the attempt this call actually created (never
+        // re-draw on resume — the student must keep the same private question set every time
+        // they reopen the exam, and never double-draw when a concurrent request already won).
         const settings = exam.settings as unknown as ExamSettings;
         if (settings?.dynamicPoolingBlueprint && settings.dynamicPoolingBankIds?.length) {
           await materializePooledQuestions(tx, {
@@ -145,18 +137,25 @@ export const POST = withErrorHandling(async (request: Request) => {
             blueprint: settings.dynamicPoolingBlueprint,
           });
         }
+        return created;
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        // A concurrent request won the create race — its transaction (and any pooled
+        // materialization) committed; read the winner's row without materializing again.
+        attempt = await prisma.examAttempt.findUniqueOrThrow({
+          where: { examId_studentId: { examId, studentId: user.id } },
+        });
+      } else if (err instanceof InsufficientPoolError) {
+        return NextResponse.json({
+          error: 'insufficient_pool',
+          message: 'This exam cannot start right now — its question pool is smaller than configured. Contact your instructor.',
+          shortfalls: err.shortfalls,
+        }, { status: 409 });
+      } else {
+        throw err;
       }
-      return created;
-    });
-  } catch (err) {
-    if (err instanceof InsufficientPoolError) {
-      return NextResponse.json({
-        error: 'insufficient_pool',
-        message: 'This exam cannot start right now — its question pool is smaller than configured. Contact your instructor.',
-        shortfalls: err.shortfalls,
-      }, { status: 409 });
     }
-    throw err;
   }
 
   return NextResponse.json({

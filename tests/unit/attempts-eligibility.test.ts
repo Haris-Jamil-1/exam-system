@@ -133,7 +133,12 @@ describe('POST /api/attempts — eligibility gate (Task 5)', () => {
   });
 
   it('resuming an existing attempt skips the eligibility gate (only brand-new attempts are gated)', async () => {
-    mockExamAttempt.findUnique.mockResolvedValue({ id: 'attempt-1', examId: 'exam-1', studentId: STUDENT_ID });
+    // Full row shape: the route now returns the existing attempt directly on resume (it
+    // previously re-fetched it inside the transaction — a path that 500'd on real Postgres).
+    mockExamAttempt.findUnique.mockResolvedValue({
+      id: 'attempt-1', examId: 'exam-1', studentId: STUDENT_ID,
+      status: 'in_progress', startedAt: new Date(), trustScore: 100, violationCount: 0,
+    });
     mockExam.findUnique.mockResolvedValue(baseExam({ classId: CLASS_B, teacherId: TEACHER }));
     // mockUser.findUnique deliberately not stubbed with matching class — should never be consulted
     mockUser.findUnique.mockResolvedValue({ studentTeachers: [], classEnrollments: [] });

@@ -46,6 +46,14 @@ vi.mock('@/lib/prisma', () => ({
         const key = `${where.examId_studentId.examId}:${where.examId_studentId.studentId}`;
         return mockAttemptStore.get(key) ?? null;
       }),
+      // The P2002 loser reads the winner's committed row OUTSIDE the transaction (a query
+      // inside an aborted Postgres transaction would itself fail with 25P02).
+      findUniqueOrThrow: vi.fn(async ({ where }: { where: { examId_studentId: { examId: string; studentId: string } } }) => {
+        const key = `${where.examId_studentId.examId}:${where.examId_studentId.studentId}`;
+        const row = mockAttemptStore.get(key);
+        if (!row) throw new Error('not found');
+        return row;
+      }),
     },
     examEnrollment: { upsert: vi.fn().mockResolvedValue({}) },
     // Mirrors real transaction semantics: create() reserves the row immediately (like a live

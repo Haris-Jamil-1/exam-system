@@ -29,6 +29,8 @@ export function TabGuard({ buffer }: TabGuardProps) {
   useEffect(() => {
     let hiddenAt: string | null = null;
     let blurredAt: string | null = null;
+    let blurEmitted = false;
+    let blurTimer: ReturnType<typeof setTimeout> | null = null;
     let escalateTimer: ReturnType<typeof setTimeout> | null = null;
 
     function emitTabSwitch(startedAt: string, description: string) {
@@ -45,6 +47,14 @@ export function TabGuard({ buffer }: TabGuardProps) {
     function handleVisibilityChange() {
       if (document.visibilityState === 'hidden') {
         hiddenAt = new Date().toISOString();
+        // A tab-hide always fires blur first — the tab_switch episode owns it entirely.
+        // Clearing the pending blur here (not checking hiddenAt on focus) is what prevents
+        // the duplicate: on return, visibilitychange(visible) fires BEFORE focus and used to
+        // reset hiddenAt, so the old `!hiddenAt` guard in handleFocus passed and every single
+        // tab switch also produced a bogus window_blur violation.
+        blurredAt = null;
+        blurEmitted = false;
+        if (blurTimer !== null) { clearTimeout(blurTimer); blurTimer = null; }
         addViolation({ type: 'tab_switch', timestamp: hiddenAt, description: 'Tab switch detected' });
         emitTabSwitch(hiddenAt, 'Student switched browser tab or minimized window');
         escalateTimer = setTimeout(() => {
@@ -59,24 +69,45 @@ export function TabGuard({ buffer }: TabGuardProps) {
       }
     }
 
+    function emitWindowBlur(startedAt: string, endedAt: string | null) {
+      addViolation({ type: 'window_blur', timestamp: startedAt, description: 'Window blur detected' });
+      buffer.emit({
+        type: 'window_blur',
+        severity: 'low',
+        confidence: 1,
+        timestamp: startedAt,
+        endedAt,
+        description: 'Browser window lost focus',
+      });
+    }
+
     function handleBlur() {
       blurredAt = new Date().toISOString();
+      blurEmitted = false;
+      // Blur fires before visibilitychange on a tab-hide, so we can't yet tell a genuine
+      // focus-loss (another window/monitor, DevTools) from the start of a tab switch. Wait a
+      // beat: if the document is still visible, it's a real window_blur — emit it now rather
+      // than only on refocus, so a student who never refocuses before the exam ends still
+      // produces a record (the same lost-forever bug TabGuard's own tab-hide path once had).
+      if (blurTimer !== null) clearTimeout(blurTimer);
+      blurTimer = setTimeout(() => {
+        blurTimer = null;
+        if (blurredAt && document.visibilityState === 'visible' && !hiddenAt) {
+          blurEmitted = true;
+          emitWindowBlur(blurredAt, null);
+        }
+      }, 1_000);
     }
 
     function handleFocus() {
-      // Ignore blur caused by tab-hide — the visibility episode already covers it.
-      if (blurredAt && document.visibilityState === 'visible' && !hiddenAt) {
-        addViolation({ type: 'window_blur', timestamp: blurredAt, description: 'Window blur detected' });
-        buffer.emit({
-          type: 'window_blur',
-          severity: 'low',
-          confidence: 1,
-          timestamp: blurredAt,
-          endedAt: new Date().toISOString(),
-          description: 'Browser window lost focus',
-        });
+      if (blurTimer !== null) { clearTimeout(blurTimer); blurTimer = null; }
+      // A sub-second blur that ended before the timer fired: still a real (brief) focus loss —
+      // emit once with its duration. If the timer already emitted, don't emit a duplicate.
+      if (blurredAt && !blurEmitted && document.visibilityState === 'visible' && !hiddenAt) {
+        emitWindowBlur(blurredAt, new Date().toISOString());
       }
       blurredAt = null;
+      blurEmitted = false;
     }
 
     function handleKeyDown(e: KeyboardEvent) {
@@ -117,6 +148,7 @@ export function TabGuard({ buffer }: TabGuardProps) {
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('contextmenu', handleContextMenu);
       if (escalateTimer !== null) clearTimeout(escalateTimer);
+      if (blurTimer !== null) clearTimeout(blurTimer);
     };
   }, [buffer, addViolation]);
 

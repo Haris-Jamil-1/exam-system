@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 import { getAuthUser, unauthorized, withErrorHandling } from '@/lib/api-auth';
 import { adminSupabase } from '@/lib/supabase/admin';
 
@@ -33,9 +32,14 @@ export const POST = withErrorHandling(async (request: Request) => {
   const ext = file.name.split('.').pop() ?? 'bin';
   const path = `${folder}/${user.id}/${Date.now()}.${ext}`;
 
-  const supabase = await createClient();
+  // Storage ops go through the service-role client: the bucket is private with no storage
+  // RLS policies, so the user-scoped client's upload was rejected with "new row violates
+  // row-level security policy" — every proctoring evidence snapshot (multi-face/phone/
+  // sustained-no-face, and teacher-requested snapshots) silently failed to land. The caller
+  // is already authenticated above and the path is scoped under their own user id; the
+  // read side (/api/evidence) was already using the admin client the same way.
   const arrayBuffer = await file.arrayBuffer();
-  const { error } = await supabase.storage
+  const { error } = await adminSupabase.storage
     .from(BUCKET)
     .upload(path, arrayBuffer, { contentType: file.type, upsert: false });
 
@@ -44,7 +48,7 @@ export const POST = withErrorHandling(async (request: Request) => {
   }
 
   // Generate a signed URL valid for 1 hour (files are private)
-  const { data: signed } = await supabase.storage
+  const { data: signed } = await adminSupabase.storage
     .from(BUCKET)
     .createSignedUrl(path, 3600);
 
