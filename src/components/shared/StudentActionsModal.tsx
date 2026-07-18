@@ -25,7 +25,7 @@ export const STATUS_CONFIG: Record<MonitorStudent['status'], { label: string; cl
 };
 
 export const VIOLATION_LABELS: Record<string, string> = {
-  tab_switch: 'Tab Switch', window_blur: 'Window Blur',
+  tab_switch: 'Tab Switch', window_blur: 'Gaze/Voice Violation',
   fullscreen_exit: 'Fullscreen Exit', no_face: 'No Face',
   multiple_faces: 'Multiple Faces', audio_detected: 'Audio Detected',
   phone_detected: 'Phone Detected', gaze_away: 'Gaze Away',
