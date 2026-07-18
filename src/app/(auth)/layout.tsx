@@ -8,7 +8,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
           <div className="inline-flex h-12 w-12 rounded-xl bg-blue-600 items-center justify-center mb-4">
             <span className="text-white font-bold text-xl">E</span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">ExamPro</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Evalix</h1>
           <p className="text-sm text-gray-500 mt-1">AI-Powered Exam Proctoring Platform</p>
         </div>
         <div className="bg-white rounded-2xl shadow-lg border border-gray-100 p-8">

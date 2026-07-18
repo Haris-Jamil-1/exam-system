@@ -234,20 +234,20 @@ export async function createClassInvites(classId: string, emails: string[]): Pro
     const joinUrl = `${appUrl}/classes/join/${invite.token}`;
 
     const { error: emailError } = await getResend().emails.send({
-      from: 'ExamPro <noreply@aurixy.store>',
+      from: 'Evalix <noreply@aurixy.store>',
       to: email,
-      subject: `You're invited to join "${cls.name}" on ExamPro`,
+      subject: `You're invited to join "${cls.name}" on Evalix`,
       html: `
         <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;background:#fff">
           <div style="margin-bottom:24px">
             <div style="display:inline-flex;width:44px;height:44px;background:#1E88E5;border-radius:10px;align-items:center;justify-content:center">
               <span style="color:#fff;font-size:20px;font-weight:700">E</span>
             </div>
-            <span style="margin-left:10px;font-size:18px;font-weight:700;color:#1A1D23;vertical-align:middle">ExamPro</span>
+            <span style="margin-left:10px;font-size:18px;font-weight:700;color:#1A1D23;vertical-align:middle">Evalix</span>
           </div>
           <h2 style="font-size:22px;font-weight:700;color:#1A1D23;margin:0 0 8px">You've been invited to a class</h2>
           <p style="color:#6B7280;font-size:15px;margin:0 0 24px">
-            You've been invited to join <strong>${cls.name}</strong> on ExamPro.
+            You've been invited to join <strong>${cls.name}</strong> on Evalix.
             Click the button below to accept.
           </p>
           <a href="${joinUrl}" style="display:inline-block;background:#1E88E5;color:#fff;font-weight:600;font-size:15px;padding:12px 28px;border-radius:8px;text-decoration:none">

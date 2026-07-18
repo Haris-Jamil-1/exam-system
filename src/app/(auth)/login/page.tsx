@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { LoginForm } from '@/components/auth/LoginForm';
 
-export const metadata = { title: 'Sign In — ExamPro' };
+export const metadata = { title: 'Sign In — Evalix' };
 
 export default async function LoginPage({
   searchParams,

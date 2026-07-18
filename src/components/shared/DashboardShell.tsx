@@ -162,7 +162,7 @@ export function DashboardShell({
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1E88E5] shadow-sm shadow-blue-200">
               <Shield className="h-[18px] w-[18px] text-white" strokeWidth={2.5} />
             </div>
-            <span className="text-[17px] font-bold tracking-tight text-[#1A1D23]">ExamPro</span>
+            <span className="text-[17px] font-bold tracking-tight text-[#1A1D23]">Evalix</span>
           </Link>
           <button onClick={() => setMobileOpen(false)} className="rounded-lg p-1.5 text-[#6B7280] hover:bg-slate-100 lg:hidden" aria-label="Close menu">
             <X className="h-5 w-5" />

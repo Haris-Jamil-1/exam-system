@@ -3,7 +3,7 @@ import { AlertTriangle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { ResetPasswordForm } from '@/components/auth/ResetPasswordForm';
 
-export const metadata = { title: 'Set New Password — ExamPro' };
+export const metadata = { title: 'Set New Password — Evalix' };
 
 export default async function ResetPasswordPage({
   searchParams,

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { RegisterForm } from '@/components/auth/RegisterForm';
 
-export const metadata = { title: 'Register — ExamPro' };
+export const metadata = { title: 'Register — Evalix' };
 
 export default function RegisterPage() {
   return (

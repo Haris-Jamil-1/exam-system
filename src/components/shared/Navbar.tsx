@@ -9,7 +9,7 @@ export function Navbar() {
           <div className="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center">
             <span className="text-white font-bold text-sm">E</span>
           </div>
-          <span className="font-bold text-xl text-gray-900">ExamPro</span>
+          <span className="font-bold text-xl text-gray-900">Evalix</span>
         </Link>
         <div className="flex items-center gap-3">
           <Link href="/login">

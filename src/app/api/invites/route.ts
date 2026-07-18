@@ -48,24 +48,24 @@ export const POST = withErrorHandling(async (request: Request) => {
       }
 
       const { error: emailError } = await getResend().emails.send({
-        from: 'ExamPro <noreply@aurixy.store>',
+        from: 'Evalix <noreply@aurixy.store>',
         to: email,
-        subject: `You've been added to a new class on ExamPro`,
+        subject: `You've been added to a new class on Evalix`,
         html: `
           <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;background:#fff">
             <div style="margin-bottom:24px">
               <div style="display:inline-flex;width:44px;height:44px;background:#1E88E5;border-radius:10px;align-items:center;justify-content:center">
                 <span style="color:#fff;font-size:20px;font-weight:700">E</span>
               </div>
-              <span style="margin-left:10px;font-size:18px;font-weight:700;color:#1A1D23;vertical-align:middle">ExamPro</span>
+              <span style="margin-left:10px;font-size:18px;font-weight:700;color:#1A1D23;vertical-align:middle">Evalix</span>
             </div>
             <h2 style="font-size:22px;font-weight:700;color:#1A1D23;margin:0 0 8px">You've been added to a class</h2>
             <p style="color:#6B7280;font-size:15px;margin:0 0 24px">
               Hi ${existingStudent.name ?? 'there'},<br><br>
-              You've been added to a new class on ExamPro. Sign in to your existing account to see your updated exams and assignments.
+              You've been added to a new class on Evalix. Sign in to your existing account to see your updated exams and assignments.
             </p>
             <a href="${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/login" style="display:inline-block;background:#1E88E5;color:#fff;font-weight:600;font-size:15px;padding:12px 28px;border-radius:8px;text-decoration:none">
-              Sign In to ExamPro
+              Sign In to Evalix
             </a>
             <p style="color:#9CA3AF;font-size:13px;margin:24px 0 0">
               If you didn't expect this email, you can safely ignore it.
@@ -97,20 +97,20 @@ export const POST = withErrorHandling(async (request: Request) => {
   const roleLabel = role === 'teacher' ? 'Teacher' : 'Student';
 
   const { error: emailError } = await getResend().emails.send({
-    from: 'ExamPro <noreply@aurixy.store>',
+    from: 'Evalix <noreply@aurixy.store>',
     to: email,
-    subject: `You're invited to ExamPro as a ${roleLabel}`,
+    subject: `You're invited to Evalix as a ${roleLabel}`,
     html: `
       <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;background:#fff">
         <div style="margin-bottom:24px">
           <div style="display:inline-flex;width:44px;height:44px;background:#1E88E5;border-radius:10px;align-items:center;justify-content:center">
             <span style="color:#fff;font-size:20px;font-weight:700">E</span>
           </div>
-          <span style="margin-left:10px;font-size:18px;font-weight:700;color:#1A1D23;vertical-align:middle">ExamPro</span>
+          <span style="margin-left:10px;font-size:18px;font-weight:700;color:#1A1D23;vertical-align:middle">Evalix</span>
         </div>
         <h2 style="font-size:22px;font-weight:700;color:#1A1D23;margin:0 0 8px">You've been invited</h2>
         <p style="color:#6B7280;font-size:15px;margin:0 0 24px">
-          You've been invited to join ExamPro as a <strong>${roleLabel}</strong>.
+          You've been invited to join Evalix as a <strong>${roleLabel}</strong>.
           Click the button below to accept your invitation and set up your account.
         </p>
         <a href="${acceptUrl}" style="display:inline-block;background:#1E88E5;color:#fff;font-weight:600;font-size:15px;padding:12px 28px;border-radius:8px;text-decoration:none">

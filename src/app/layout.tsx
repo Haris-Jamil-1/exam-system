@@ -15,7 +15,7 @@ const cairo = Cairo({
 });
 
 export const metadata: Metadata = {
-  title: 'ExamPro — AI-Powered Exam Proctoring',
+  title: 'Evalix — AI-Powered Exam Proctoring',
   description: 'AI-powered exam proctoring platform for universities, institutes and certification bodies',
 };
 

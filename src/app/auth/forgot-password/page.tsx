@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { ForgotPasswordForm } from '@/components/auth/ForgotPasswordForm';
 
-export const metadata = { title: 'Forgot Password — ExamPro' };
+export const metadata = { title: 'Forgot Password — Evalix' };
 
 export default function ForgotPasswordPage() {
   return (

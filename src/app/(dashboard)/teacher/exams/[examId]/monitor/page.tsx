@@ -33,7 +33,7 @@ export default function MonitorPage() {
   const notifyHigh = useCallback((v: { type: string; description: string }) => {
     if (typeof Notification === 'undefined') return;
     if (Notification.permission === 'granted' && document.visibilityState === 'hidden') {
-      new Notification(`ExamPro: ${VIOLATION_LABELS[v.type] ?? v.type}`, { body: v.description });
+      new Notification(`Evalix: ${VIOLATION_LABELS[v.type] ?? v.type}`, { body: v.description });
     }
   }, []);
 

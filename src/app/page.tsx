@@ -96,7 +96,7 @@ function Navbar() {
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#1E88E5] shadow-sm shadow-blue-200">
             <Shield className="h-[18px] w-[18px] text-white" strokeWidth={2.5} />
           </div>
-          <span className="text-lg font-bold tracking-tight text-[#1A1D23]">ExamPro</span>
+          <span className="text-lg font-bold tracking-tight text-[#1A1D23]">Evalix</span>
         </Link>
 
         {/* Center links */}
@@ -313,7 +313,7 @@ function CtaBand() {
             Ready to modernize your exams?
           </h2>
           <p className="mx-auto mt-5 max-w-[520px] text-[17px] leading-[1.6] text-white/75">
-            Join institutions running secure, AI-proctored exams with ExamPro. Set up your first exam in under three minutes.
+            Join institutions running secure, AI-proctored exams with Evalix. Set up your first exam in under three minutes.
           </p>
           <Link
             href="/register"
@@ -336,9 +336,9 @@ function Footer() {
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1E88E5]">
             <Shield className="h-4 w-4 text-white" strokeWidth={2.5} />
           </div>
-          <span className="text-[16px] font-bold text-[#1A1D23]">ExamPro</span>
+          <span className="text-[16px] font-bold text-[#1A1D23]">Evalix</span>
         </div>
-        <p className="text-[13px] text-[#9CA3AF]">© 2026 ExamPro. AI-Powered Exam Proctoring Platform.</p>
+        <p className="text-[13px] text-[#9CA3AF]">© 2026 Evalix. AI-Powered Exam Proctoring Platform.</p>
       </div>
     </footer>
   );
