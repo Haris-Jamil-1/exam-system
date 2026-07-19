@@ -100,7 +100,7 @@ function LanguageToggle() {
         className="flex items-center gap-1.5 rounded-full border border-[#E8ECF4] bg-white px-3.5 py-2 text-[13px] font-semibold text-[#1A1D23] transition-colors hover:border-[#CBD5E1]"
       >
         <span aria-hidden>🇸🇦</span>
-        {locale === 'ar' ? 'English' : 'العربية'}
+        {locale === 'ar' ? 'العربية' : 'English'}
         <ChevronDown className="h-3.5 w-3.5 text-[#6B7280]" />
       </button>
       {open && (
