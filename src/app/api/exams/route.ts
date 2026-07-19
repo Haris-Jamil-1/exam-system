@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getExams, createExam } from '@/lib/data';
 import { getAuthUser, unauthorized, forbidden, withErrorHandling } from '@/lib/api-auth';
+import { computeExamDurationMinutes, MIN_EXAM_DURATION_MINUTES } from '@/lib/exam-duration';
 
 const examSettingsSchema = z.object({
   shuffleQuestions: z.boolean().default(true),
@@ -14,7 +15,9 @@ const examSettingsSchema = z.object({
 const createExamSchema = z.object({
   title: z.string().min(3),
   subject: z.string().min(2),
-  duration: z.number().min(5),
+  // duration is derived server-side from startTime/endTime (see createExam); a client-sent
+  // value is accepted for backward compatibility but ignored whenever the window is valid.
+  duration: z.number().min(5).optional(),
   totalMarks: z.number().min(1),
   passingMarks: z.number().min(1),
   status: z.enum(['draft', 'scheduled', 'live', 'completed']).default('draft'),
@@ -24,7 +27,10 @@ const createExamSchema = z.object({
   settings: examSettingsSchema,
   classId: z.string().optional(),
   // institutionId and teacherId are NOT accepted from body — set from JWT
-});
+}).refine(
+  d => (computeExamDurationMinutes(d.startTime, d.endTime) ?? 0) >= MIN_EXAM_DURATION_MINUTES,
+  { message: `endTime must be at least ${MIN_EXAM_DURATION_MINUTES} minutes after startTime`, path: ['endTime'] },
+);
 
 export async function GET() {
   const user = await getAuthUser();

@@ -232,6 +232,7 @@ export default function AdminAnalyticsPage() {
           <TrendingUp className="h-[18px] w-[18px] text-[#16A34A]" strokeWidth={2} />
           <h2 className="text-[15px] font-bold text-[#1A1D23]">Teacher Performance</h2>
         </div>
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[#EBF0F8]">
@@ -253,6 +254,7 @@ export default function AdminAnalyticsPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

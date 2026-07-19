@@ -188,7 +188,7 @@ function SectionForm({ form, setForm, onSave, onCancel, saving }: {
 }) {
   return (
     <div className="border rounded-lg p-3 space-y-3 bg-blue-50/50 border-blue-200">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label className="text-xs">Title</Label>
           <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. Reading Comprehension" className="h-8 text-sm" />
@@ -202,7 +202,7 @@ function SectionForm({ form, setForm, onSave, onCancel, saving }: {
         <Label className="text-xs">Instructions <span className="text-muted-foreground font-normal">(shown before this section starts)</span></Label>
         <Textarea value={form.instructions} onChange={e => setForm({ ...form, instructions: e.target.value })} rows={2} className="text-sm" />
       </div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="space-y-1">
           <Label className="text-xs">Duration (min) <span className="text-muted-foreground font-normal">optional</span></Label>
           <Input type="number" min={1} value={form.durationMinutes} onChange={e => setForm({ ...form, durationMinutes: e.target.value })} placeholder="No limit" className="h-8 text-sm" />

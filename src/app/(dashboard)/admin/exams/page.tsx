@@ -171,7 +171,7 @@ export default function AdminExamsPage() {
 
       {/* All exams tab */}
       {tab === 'approved' && (
-        <div className="rounded-2xl border border-[#EBF0F8] bg-white shadow-[0_2px_8px_rgba(0,0,0,0.05)]">
+        <div className="rounded-2xl border border-[#EBF0F8] bg-white shadow-[0_2px_8px_rgba(0,0,0,0.05)] overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#EBF0F8]">

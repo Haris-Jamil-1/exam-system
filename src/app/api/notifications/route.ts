@@ -46,15 +46,27 @@ export async function GET() {
       }
     }
   } else if (user.role === 'teacher') {
-    // Recent violations on teacher's exams
+    // Recent violations on teacher's exams. window_blur is excluded — it's a low-signal
+    // companion of tab_switch and was drowning out the detections teachers actually act on
+    // (gaze/voice); those get explicit labels below instead of the raw enum name.
+    const VIOLATION_LABELS: Record<string, string> = {
+      gaze_away: 'gaze violation (looking away)',
+      audio_detected: 'voice violation (background noise)',
+      tab_switch: 'tab switch',
+      fullscreen_exit: 'fullscreen exit',
+      no_face: 'face not visible',
+      multiple_faces: 'multiple faces detected',
+      phone_detected: 'phone detected',
+      prohibited_object: 'prohibited object detected',
+    };
     const violations = await prisma.violation.findMany({
-      where: { exam: { teacherId: user.id }, timestamp: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+      where: { exam: { teacherId: user.id }, type: { not: 'window_blur' }, timestamp: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
       orderBy: { timestamp: 'desc' },
       take: 10,
       select: { id: true, type: true, severity: true, description: true, timestamp: true, student: { select: { name: true } }, exam: { select: { title: true } } },
     });
     for (const v of violations) {
-      const label = v.type.replace(/_/g, ' ');
+      const label = VIOLATION_LABELS[v.type] ?? v.type.replace(/_/g, ' ');
       notifs.push({ id: `viol-${v.id}`, title: `${v.severity === 'high' ? 'High-severity' : 'Proctoring'} violation`, body: `${v.student.name} — ${label} in "${v.exam.title}".`, time: relTime(v.timestamp), icon: 'AlertTriangle', iconBg: '#FEE2E2', iconColor: '#E53935', read: false });
     }
     // Exam approval updates

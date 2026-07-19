@@ -146,8 +146,8 @@ export default function EditExamPage() {
         <span className="font-medium text-[#1A1D23]">Edit</span>
       </div>
 
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
           <h2 className="text-xl font-semibold">{exam.title}</h2>
           <p className="text-sm text-muted-foreground">{exam.subject} · {exam.duration} min · {exam.totalMarks} marks</p>
         </div>
@@ -319,7 +319,7 @@ export default function EditExamPage() {
                 <div className="flex items-start gap-2 flex-1">
                   <GripVertical className="h-5 w-5 text-gray-300 mt-0.5 shrink-0 cursor-grab" />
                   <div className="flex-1 space-y-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="text-xs font-medium text-gray-500">Q{i + 1}</span>
                       <Badge variant="outline" className="text-xs capitalize">{q.type.replace('_', ' ')}</Badge>
                       <Badge variant="outline" className="text-xs capitalize">{q.difficulty}</Badge>
@@ -357,7 +357,7 @@ export default function EditExamPage() {
                       )}
                     </div>
                     {q.options && (
-                      <div className="grid grid-cols-2 gap-1 mt-1">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 mt-1">
                         {q.options.map(opt => (
                           <span key={opt.id} className={`text-xs px-2 py-0.5 rounded ${opt.isCorrect ? 'bg-green-100 text-green-700' : 'text-gray-500'}`}>
                             {opt.text}
@@ -380,7 +380,7 @@ export default function EditExamPage() {
       <Card>
         <CardHeader><CardTitle>Add Question</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Select value={newType} onValueChange={v => setNewType(v as QuestionType)}>
               <SelectTrigger><SelectValue placeholder="Type" /></SelectTrigger>
               <SelectContent>

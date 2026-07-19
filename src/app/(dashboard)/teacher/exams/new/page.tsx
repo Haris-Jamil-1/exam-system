@@ -14,21 +14,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { createExam, createQuestion, getItems, incrementItemUsage, getMyClasses } from '@/lib/data';
 import { BlueprintPoolingPanel } from '@/components/exams/BlueprintPoolingPanel';
+import { computeExamDurationMinutes, MIN_EXAM_DURATION_MINUTES } from '@/lib/exam-duration';
 import type { QuestionType, Item, ClassSummary } from '@/types';
-import { Plus, Check, ChevronRight, ChevronLeft, Search, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Check, ChevronRight, ChevronLeft, Search, ChevronDown, ChevronUp, Clock } from 'lucide-react';
 
 const step1Schema = z.object({
   title: z.string().min(3, 'Title required'),
   subject: z.string().min(2, 'Subject required'),
-  duration: z.number().min(5).max(480),
   totalMarks: z.number().min(1),
   passingMarks: z.number().min(1),
   startTime: z.string().min(1, 'Start time required'),
   endTime: z.string().min(1, 'End time required'),
   instructions: z.string().optional(),
-});
+}).refine(
+  d => (computeExamDurationMinutes(d.startTime, d.endTime) ?? 0) >= MIN_EXAM_DURATION_MINUTES,
+  { message: `End time must be at least ${MIN_EXAM_DURATION_MINUTES} minutes after start time`, path: ['endTime'] },
+);
 
-type Step1Data = z.infer<typeof step1Schema>;
+type Step1FormValues = z.infer<typeof step1Schema>;
+// duration is no longer entered by the teacher — it's derived from the start/end window.
+type Step1Data = Step1FormValues & { duration: number };
 
 const STEPS = ['Basic Info', 'Select Questions', 'Settings'];
 
@@ -75,8 +80,8 @@ function ItemBankPicker({ selectedIds, onToggle }: {
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-2">
-        <div className="relative flex-1">
+      <div className="flex flex-wrap gap-2">
+        <div className="relative w-full sm:w-auto sm:flex-1 sm:min-w-40">
           <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input placeholder="Search by stem or tag…" className="ps-8 h-8 text-sm" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
@@ -270,13 +275,22 @@ export default function NewExamPage() {
 
   const totalAdded = selectedBankItems.size;
 
-  const { register, handleSubmit, setValue, formState: { errors } } = useForm<Step1Data>({
+  const { register, handleSubmit, setValue, formState: { errors } } = useForm<Step1FormValues>({
     resolver: zodResolver(step1Schema),
     mode: 'onChange',
   });
 
-  function onStep1(data: Step1Data) {
-    setStep1Data(data);
+  // Mirrors of the hidden startTime/endTime form fields so the auto-calculated duration
+  // can render live as the teacher picks times (watch() is off-limits per the repo's
+  // react-compiler lint rules).
+  const [startISO, setStartISO] = useState('');
+  const [endISO, setEndISO] = useState('');
+  const autoDuration = startISO && endISO ? computeExamDurationMinutes(startISO, endISO) : null;
+
+  function onStep1(data: Step1FormValues) {
+    const duration = computeExamDurationMinutes(data.startTime, data.endTime);
+    if (duration === null) return; // schema refine already blocks this; belt and suspenders
+    setStep1Data({ ...data, duration });
     setStep(1);
   }
 
@@ -410,19 +424,12 @@ export default function NewExamPage() {
                     : 'Visible to every student linked to you — for tighter scoping, assign this exam to a specific class.'}
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Subject</Label>
-                  <Input placeholder="Computer Science" {...register('subject')} />
-                  {errors.subject && <p className="text-sm text-red-500">{errors.subject.message}</p>}
-                </div>
-                <div className="space-y-2">
-                  <Label>Duration (minutes)</Label>
-                  <Input type="number" defaultValue={60} {...register('duration', { valueAsNumber: true })} />
-                  {errors.duration && <p className="text-sm text-red-500">{errors.duration.message}</p>}
-                </div>
+              <div className="space-y-2">
+                <Label>Subject</Label>
+                <Input placeholder="Computer Science" {...register('subject')} />
+                {errors.subject && <p className="text-sm text-red-500">{errors.subject.message}</p>}
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Total Marks</Label>
                   <Input type="number" defaultValue={100} {...register('totalMarks', { valueAsNumber: true })} />
@@ -432,12 +439,12 @@ export default function NewExamPage() {
                   <Input type="number" defaultValue={60} {...register('passingMarks', { valueAsNumber: true })} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Start Time</Label>
                   <input type="hidden" {...register('startTime')} />
                   <DateTimeField
-                    onChange={v => setValue('startTime', v, { shouldValidate: true })}
+                    onChange={v => { setValue('startTime', v, { shouldValidate: true }); setStartISO(v); }}
                   />
                   {errors.startTime && <p className="text-sm text-red-500">{errors.startTime.message}</p>}
                 </div>
@@ -445,10 +452,19 @@ export default function NewExamPage() {
                   <Label>End Time</Label>
                   <input type="hidden" {...register('endTime')} />
                   <DateTimeField
-                    onChange={v => setValue('endTime', v, { shouldValidate: true })}
+                    onChange={v => { setValue('endTime', v, { shouldValidate: true }); setEndISO(v); }}
                   />
                   {errors.endTime && <p className="text-sm text-red-500">{errors.endTime.message}</p>}
                 </div>
+              </div>
+              {/* Duration is derived from the window above — no manual entry */}
+              <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                <Clock className="h-4 w-4 shrink-0" />
+                {autoDuration !== null ? (
+                  <span><span className="font-semibold">{autoDuration} minutes</span> — duration is calculated automatically from the start and end time.</span>
+                ) : (
+                  <span>Exam duration will be calculated automatically once you set the start and end time.</span>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Instructions <span className="text-muted-foreground font-normal">(shown to students before they start)</span></Label>

@@ -1,13 +1,21 @@
 'use client';
 // Biometric pre-exam gate — 3-step flow: webcam → ID document → verified.
-// The preview area shows the REAL camera feed while capturing (previously this whole screen
-// was simulated with icons — the student never saw themselves or their ID card at all), and
-// each capture freezes an actual frame from the stream so the student sees exactly what was
-// taken. Verification itself is still the Phase-1 simulated flow (no OCR/face-match backend
-// exists yet — see Phase 3 notes); what's real now is the capture and what the student sees.
+// The preview shows the REAL camera feed, and verification is now real too (previously the
+// analysis delays were simulated): the face capture must contain exactly one live face, the
+// ID capture must contain exactly one card-sized portrait (any other object is rejected —
+// there is simply no face for the detector to find), and the live face must MATCH the ID
+// portrait (128-d face embeddings, see src/lib/face-verification.ts) before the exam can
+// start. Still out of scope client-side: OCR of the ID's text and anti-spoof liveness.
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Camera, CreditCard, ShieldCheck, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import {
+  preloadFaceModels,
+  analyzeLiveFace,
+  analyzeIdPhoto,
+  faceMatchDistance,
+  FACE_MATCH_THRESHOLD,
+} from '@/lib/face-verification';
+import { Camera, CreditCard, ShieldCheck, Loader2, CheckCircle2, AlertTriangle, RotateCcw } from 'lucide-react';
 
 interface Props {
   onComplete: () => void;
@@ -36,13 +44,27 @@ const STEPS: { id: Step; icon: React.ReactNode; title: string; desc: string }[] 
   },
 ];
 
+const ERROR_MESSAGES: Record<string, string> = {
+  no_face: 'No face detected. Look straight at the camera in good lighting and try again.',
+  multiple_faces: 'More than one face detected. Make sure you are alone in the frame.',
+  face_too_small: 'Move closer so your face fills the circle guide, then capture again.',
+  no_id_face: 'No photo detected on the document. Hold your ID card so its photo is clearly visible and glare-free.',
+  id_multiple_faces: 'Only your ID card should be in the frame — hold the card up so it covers your face, then capture again.',
+  live_face_not_card: 'That looks like a live face, not an ID card. Hold your ID document up to the camera instead.',
+  model_unavailable: 'Identity verification could not load. Check your connection, then retry.',
+  camera_unavailable: 'Camera frame unavailable — check your camera permission and try again.',
+};
+
 export function BiometricOnboarding({ onComplete }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const faceDescriptorRef = useRef<Float32Array | null>(null);
   const [currentStep, setCurrentStep] = useState<Step>('webcam');
   const [processing, setProcessing] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   const [faceShot, setFaceShot] = useState<string | null>(null);
   const [idShot, setIdShot] = useState<string | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [modelState, setModelState] = useState<'loading' | 'ready' | 'failed'>('loading');
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -61,6 +83,10 @@ export function BiometricOnboarding({ onComplete }: Props) {
       }
     }
     void init();
+    // Warm the detection/recognition models while the student reads the instructions.
+    void preloadFaceModels().then(ok => {
+      if (!cancelled) setModelState(ok ? 'ready' : 'failed');
+    });
 
     return () => {
       cancelled = true;
@@ -71,36 +97,89 @@ export function BiometricOnboarding({ onComplete }: Props) {
   const stepIndex = STEPS.findIndex(s => s.id === currentStep);
   const step = STEPS[stepIndex];
 
-  function captureFrame(): string | null {
+  function captureFrame(): { canvas: HTMLCanvasElement; dataUrl: string } | null {
     const video = videoRef.current;
     if (!video || video.videoWidth === 0) return null;
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d')?.drawImage(video, 0, 0);
-    return canvas.toDataURL('image/jpeg', 0.85);
+    return { canvas, dataUrl: canvas.toDataURL('image/jpeg', 0.85) };
+  }
+
+  async function retryModels() {
+    setModelState('loading');
+    setVerifyError(null);
+    const ok = await preloadFaceModels();
+    setModelState(ok ? 'ready' : 'failed');
+  }
+
+  function restartVerification() {
+    faceDescriptorRef.current = null;
+    setFaceShot(null);
+    setIdShot(null);
+    setVerifyError(null);
+    setCurrentStep('webcam');
   }
 
   async function handleCaptureFace() {
     setProcessing(true);
-    setFaceShot(captureFrame());
-    // Phase 3: run a real face detector / liveness check on the captured frame
-    await new Promise(r => setTimeout(r, 1800));
+    setVerifyError(null);
+    const frame = captureFrame();
+    if (!frame) {
+      setVerifyError(ERROR_MESSAGES.camera_unavailable);
+      setProcessing(false);
+      return;
+    }
+    setFaceShot(frame.dataUrl);
+    const result = await analyzeLiveFace(frame.canvas);
     setProcessing(false);
+    if (!result.ok) {
+      setFaceShot(null);
+      setVerifyError(ERROR_MESSAGES[result.reason]);
+      return;
+    }
+    faceDescriptorRef.current = result.descriptor;
     setCurrentStep('id');
   }
 
   async function handleCaptureID() {
     setProcessing(true);
-    setIdShot(captureFrame());
-    // Phase 3: send the captured frame to an OCR / ID verification endpoint
-    await new Promise(r => setTimeout(r, 1500));
+    setVerifyError(null);
+    const frame = captureFrame();
+    if (!frame) {
+      setVerifyError(ERROR_MESSAGES.camera_unavailable);
+      setProcessing(false);
+      return;
+    }
+    setIdShot(frame.dataUrl);
+    const result = await analyzeIdPhoto(frame.canvas);
+    if (!result.ok) {
+      setProcessing(false);
+      setIdShot(null);
+      setVerifyError(ERROR_MESSAGES[result.reason === 'multiple_faces' ? 'id_multiple_faces' : result.reason]);
+      return;
+    }
+    const liveDescriptor = faceDescriptorRef.current;
+    if (!liveDescriptor) {
+      // Shouldn't happen (step order enforces it), but never verify against nothing.
+      setProcessing(false);
+      setIdShot(null);
+      restartVerification();
+      return;
+    }
+    const distance = faceMatchDistance(liveDescriptor, result.descriptor);
     setProcessing(false);
+    if (distance > FACE_MATCH_THRESHOLD) {
+      setIdShot(null);
+      setVerifyError('The photo on this ID does not match your captured face. Retake the ID capture — or restart verification if the face capture was poor.');
+      return;
+    }
     setCurrentStep('verified');
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 sm:p-6">
       <div className="w-full max-w-lg space-y-6">
         {/* Header */}
         <div className="text-center space-y-1">
@@ -207,6 +286,36 @@ export function BiometricOnboarding({ onComplete }: Props) {
               </div>
             </div>
 
+            {modelState === 'loading' && currentStep !== 'verified' && (
+              <p className="flex items-center gap-2 text-xs text-slate-400">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading verification models…
+              </p>
+            )}
+
+            {modelState === 'failed' && currentStep !== 'verified' && (
+              <div className="rounded-lg bg-red-900/30 border border-red-800 p-3 text-xs text-red-300 space-y-2">
+                <p className="flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {ERROR_MESSAGES.model_unavailable}
+                </p>
+                <Button size="sm" variant="outline" onClick={retryModels} className="gap-1.5 h-7 text-xs border-red-700 bg-transparent text-red-200 hover:bg-red-900/40">
+                  <RotateCcw className="h-3 w-3" /> Retry loading
+                </Button>
+              </div>
+            )}
+
+            {verifyError && !processing && (
+              <div className="rounded-lg bg-amber-900/30 border border-amber-800 p-3 text-xs text-amber-200 space-y-2">
+                <p className="flex items-start gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" /> <span>{verifyError}</span>
+                </p>
+                {currentStep === 'id' && (
+                  <button type="button" onClick={restartVerification} className="flex items-center gap-1 text-amber-300 hover:text-amber-100 underline">
+                    <RotateCcw className="h-3 w-3" /> Restart from face capture
+                  </button>
+                )}
+              </div>
+            )}
+
             {currentStep === 'webcam' && (
               <div className="space-y-3">
                 <div className="rounded-lg bg-slate-800 p-3 text-xs text-slate-300 space-y-1">
@@ -216,7 +325,7 @@ export function BiometricOnboarding({ onComplete }: Props) {
                 </div>
                 <Button
                   onClick={handleCaptureFace}
-                  disabled={processing}
+                  disabled={processing || cameraError || modelState !== 'ready'}
                   className="w-full gap-2 bg-blue-600 hover:bg-blue-700"
                 >
                   {processing
@@ -230,17 +339,17 @@ export function BiometricOnboarding({ onComplete }: Props) {
             {currentStep === 'id' && (
               <div className="space-y-3">
                 <div className="rounded-lg bg-slate-800 p-3 text-xs text-slate-300 space-y-1">
-                  <p className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-green-400" /> Hold your ID card clearly visible</p>
-                  <p className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-green-400" /> Keep the card flat and avoid glare</p>
-                  <p className="flex items-center gap-1.5"><AlertTriangle className="h-3.5 w-3.5 text-amber-400" /> All four corners must be visible</p>
+                  <p className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-green-400" /> Hold your ID card up so it fills the frame (covering your face)</p>
+                  <p className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-green-400" /> Keep the card flat and avoid glare on the photo</p>
+                  <p className="flex items-center gap-1.5"><AlertTriangle className="h-3.5 w-3.5 text-amber-400" /> The photo on the card will be matched against your face</p>
                 </div>
                 <Button
                   onClick={handleCaptureID}
-                  disabled={processing}
+                  disabled={processing || cameraError || modelState !== 'ready'}
                   className="w-full gap-2 bg-blue-600 hover:bg-blue-700"
                 >
                   {processing
-                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Verifying ID…</>
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Matching ID to your face…</>
                     : <><CreditCard className="h-4 w-4" /> Capture ID Document</>
                   }
                 </Button>
@@ -268,8 +377,8 @@ export function BiometricOnboarding({ onComplete }: Props) {
                   </div>
                 )}
                 <div className="rounded-lg bg-green-900/30 border border-green-800 p-3 text-xs text-green-300 space-y-1">
-                  <p className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5" /> Face successfully captured</p>
-                  <p className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5" /> ID document verified</p>
+                  <p className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5" /> Face detected and captured</p>
+                  <p className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5" /> ID photo matched to your face</p>
                   <p className="flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5" /> Biometric baseline stored for this session</p>
                 </div>
                 <Button
@@ -284,7 +393,7 @@ export function BiometricOnboarding({ onComplete }: Props) {
         </div>
 
         <p className="text-center text-xs text-slate-600">
-          Biometric data is used only for exam integrity. It is not stored beyond your session without your consent.
+          Biometric data is processed entirely in your browser and used only for exam integrity. It is not stored beyond your session without your consent.
         </p>
       </div>
     </div>

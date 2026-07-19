@@ -9,6 +9,55 @@
 
 ## Session Log
 
+### 2026-07-20 — Real face↔ID matching in the biometric gate, auto-derived exam duration, mobile UI pass, notification-panel cleanup ✅
+
+Four-item punch list, pushed and deployed at the end.
+
+- **Biometric gate now actually verifies** (was the flagged simulated flow): new
+  `src/lib/face-verification.ts` using `@vladmandic/face-api` (SSD MobileNet detector +
+  68-landmark + 128-d FaceNet-style recognition embeddings), self-hosted in
+  `public/models/face-api/` (~12MB, copied from the npm package — no external calls, all
+  processing in-browser). The face capture must contain **exactly one** sufficiently large
+  live face (objects/two-people/ID-held-up-as-face all rejected — distinct error messages);
+  the ID capture must contain **exactly one card-photo-sized** face (a live face in the ID
+  frame is rejected by a box-height heuristic, blocking the show-your-face-twice bypass; any
+  other object simply has no face to find); and the two embeddings must match at the standard
+  0.6 threshold before "Start Exam" unlocks. **Threshold calibrated against live QA, not
+  guessed**: a first-draft 0.65 was demonstrably unsafe — a real different-person pair
+  measured 0.621 in a Chromium run against the production build's served weights (same-person
+  0.16) — so 0.6 stands. Models preload while the student reads instructions; load failure
+  fails **closed** (blocks capture with a Retry button) since an open gate would defeat the
+  feature — flagged as a judgment call. Mismatch offers retake-ID or restart-from-face. Still
+  out of scope client-side (flagged in the file header): OCR of ID text, document
+  authenticity, anti-spoof liveness. Verified via Playwright against a fresh production
+  build: weights load through the middleware (the exact `/models` 307 bug class from
+  2026-07-18 re-checked), full detect→landmark→descriptor pass runs, single-face crops
+  detected at both live and card scale, object-only frame yields zero faces. A real
+  human+camera pass under real lighting remains worthwhile.
+- **Exam duration auto-calculated** — the wizard's manual "Duration (minutes)" input is gone;
+  duration is derived from the start/end window (`src/lib/exam-duration.ts`, pure + 7 unit
+  tests), shown live in the wizard as an info box, validated ≥5 min (zod refine on both the
+  wizard schema and `POST /api/exams`), and **derived server-side in `createExam`** so a
+  client-sent value is never trusted. `duration == window length` keeps the existing
+  min(start+duration, endTime) deadline math exactly equivalent.
+- **Mobile UI pass** — the notification dropdown was a fixed 360px panel anchored to the bell
+  (overflowed/overlapped on phones; now a full-width fixed sheet under the topbar on <sm).
+  The wizard's Start/End time boxes, SectionsManager's duration/weight/threshold row, the
+  edit page's Add Question type/difficulty/marks row, AiGeneratePanel, and the curriculum CLO
+  form were all fixed-column grids that crushed/overlapped on mobile — now `grid-cols-1
+  sm:grid-cols-N`. All 9 dashboard tables without a scroll container (admin
+  institutions/users/exams/items/analytics, teacher exams/students, BlueprintPoolingPanel,
+  item-review options) got `overflow-x-auto` wrappers so wide tables scroll instead of
+  forcing page-level horizontal overflow. Student exams/results already had mobile card
+  variants; exam-taking is desktop-only by design (DesktopGuard) and was left alone.
+- **Bell notification panel** — `window_blur` violations no longer appear (low-signal
+  companion of tab_switch, was drowning the panel); violation types now render friendly
+  labels ("gaze violation (looking away)", "voice violation (background noise)", etc.)
+  instead of raw enum text.
+- **Verification**: `tsc` clean · `lint` unchanged 3-error/0-warning baseline · `vitest`
+  288/288 (275 baseline + 13 new: `exam-duration`, `face-verification`) · `build` clean ·
+  face-api smoke QA against a fresh production build as above.
+
 ### 2026-07-18 — Proctoring system fixed: every detector now actually fires; fullscreen enforced; biometric gate shows the real camera ✅
 
 Bug report: all vision detection (face/multi-face/gaze/object) + background noise never
@@ -729,10 +778,11 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Build Status
-- `npm run build` → **PASSES** (0 errors, 88 routes — proctoring fixes are middleware/component/data-layer changes, no new routes)
+- `npm run build` → **PASSES** (0 errors, 88 routes)
 - `npm run lint` → 3 pre-existing baseline errors (`useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff), 0 warnings
 - `npx tsc --noEmit` → clean
-- `npx vitest run` → 275/275 passing (+ `pytest` 10/10 in `psychometrics/`)
+- `npx vitest run` → 288/288 passing (+ `pytest` 10/10 in `psychometrics/`)
+- Last verified: 2026-07-20 (real face↔ID matching, auto-derived duration, mobile UI pass, notification-panel cleanup)
 - Last verified: 2026-07-18 (proctoring system fix — per-detector live verification against a fresh production build, see `PROCTORING_FIX_PROGRESS.md`)
 - Last verified: 2026-07-17 (exam auto-completes on the teacher side when closing time is reached)
 - Last verified: 2026-07-17 (cross-exam Live Monitor eye button/live video fix)

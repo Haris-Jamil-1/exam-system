@@ -282,7 +282,7 @@ export default function ExamsPage() {
 
       <Card>
         <CardContent className="p-0">
-          <div className="rounded-md overflow-hidden">
+          <div className="rounded-md overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 border-b">
                 <tr>

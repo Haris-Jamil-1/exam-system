@@ -2,6 +2,7 @@
 import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';
 import { computeEffectiveExamStatus } from '@/lib/exam-status';
+import { computeExamDurationMinutes } from '@/lib/exam-duration';
 import type { Exam, ExamSettings, StatValue } from '@/types';
 
 type PrismaExam = {
@@ -107,7 +108,9 @@ export async function createExam(data: Omit<Exam, 'id' | 'createdAt'>): Promise<
       data: {
         title: data.title,
         subject: data.subject,
-        duration: data.duration,
+        // Duration is derived from the availability window, never trusted from the client —
+        // the wizard no longer even has a duration input.
+        duration: computeExamDurationMinutes(data.startTime, data.endTime) ?? data.duration,
         totalMarks: data.totalMarks,
         passingMarks: data.passingMarks,
         status: data.status,

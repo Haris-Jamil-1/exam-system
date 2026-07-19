@@ -265,7 +265,10 @@ export function DashboardShell({
               {notifOpen && (
                 <div
                   ref={panelRef}
-                  className="absolute end-0 top-[calc(100%+8px)] z-50 w-[360px] rounded-2xl border border-[#E8ECF4] bg-white shadow-[0_8px_32px_rgba(15,23,42,0.12)]"
+                  // Anchored dropdown on ≥sm screens; full-width fixed sheet under the topbar on
+                  // phones, where a 360px panel anchored to the bell would overflow the viewport
+                  // and overlap/clip against the other header icons.
+                  className="fixed inset-x-3 top-[72px] z-50 rounded-2xl border border-[#E8ECF4] bg-white shadow-[0_8px_32px_rgba(15,23,42,0.12)] sm:absolute sm:inset-x-auto sm:end-0 sm:top-[calc(100%+8px)] sm:w-[360px]"
                 >
                   {/* Header */}
                   <div className="flex items-center justify-between border-b border-[#E8ECF4] px-4 py-3.5">

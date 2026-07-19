@@ -184,7 +184,7 @@ export function AiGeneratePanel({ bankId, onGenerated, onClose }: AiGeneratePane
             <p className="text-xs text-muted-foreground">{docText.length.toLocaleString()} characters loaded</p>
           )}
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="space-y-2">
             <Label>Question Type</Label>
             <Select value={genType} onValueChange={v => setGenType(v as QuestionType)}>

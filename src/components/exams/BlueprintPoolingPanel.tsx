@@ -104,7 +104,7 @@ export function BlueprintPoolingPanel({
               ) : pool.length === 0 ? (
                 <p className="text-xs text-muted-foreground">No approved items with a CLO mapping found in the selected bank(s).</p>
               ) : (
-                <div className="border rounded-lg overflow-hidden">
+                <div className="border rounded-lg overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead className="bg-muted/50">
                       <tr>

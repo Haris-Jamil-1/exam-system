@@ -100,7 +100,7 @@ function ItemReviewCard({ item, authorName, onApprove, onReturn }: {
               {expanded ? 'Hide options' : `Show ${item.options!.length} options`}
             </button>
             {expanded && (
-              <div className="mt-2 border rounded-lg overflow-hidden">
+              <div className="mt-2 border rounded-lg overflow-x-auto">
                 <table className="w-full text-xs">
                   <tbody className="divide-y">
                     {item.options!.map((opt, j) => (
@@ -184,7 +184,7 @@ export default function AdminItemsPage() {
       <PageHeader en="Item Review" ar="مراجعة الأسئلة" subEn="Review and approve question items submitted by teachers" subAr="مراجعة وموافقة على أسئلة المعلمين" />
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[
           { label: 'Pending Review', value: pending.length, icon: <ClipboardCheck className="h-5 w-5 text-orange-500" />, color: 'text-orange-600' },
           { label: 'Approved Items', value: approved.length, icon: <Check className="h-5 w-5 text-green-500" />, color: 'text-green-600' },
@@ -315,7 +315,7 @@ export default function AdminItemsPage() {
 
         <TabsContent value="all">
           <Card>
-            <CardContent className="p-0">
+            <CardContent className="p-0 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 border-b">
                   <tr>
