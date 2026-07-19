@@ -169,7 +169,7 @@ Chromium-based browser and allow camera/microphone access.
 Live video is a direct browser-to-browser connection. On strict corporate/campus firewalls
 a direct path may be impossible (the status will say a firewall is likely blocking it) —
 snapshots still work. Supporting these networks requires adding a TURN relay server (see
-`docs/ARCHITECTURE.md`, §9).
+`ARCHITECTURE.md`, §9).
 
 **Why did an exam show "Fail (section)" despite a passing overall score?**
 The exam has per-section passing thresholds; the student missed one section's threshold,
@@ -200,7 +200,7 @@ way; archiving a class hides it without touching enrollment history.
 
 ```bash
 npm install                    # also runs prisma generate
-cp .env.example .env.local     # then fill in — see the env table in docs/ARCHITECTURE.md §7
+cp .env.example .env.local     # then fill in — see the env table in ARCHITECTURE.md §7
 npm run db:push                # push prisma/schema.prisma to the database
 npm run dev                    # http://localhost:3000
 npm run test:unit              # 275 vitest unit tests
@@ -214,7 +214,7 @@ email), `JUDGE0_API_URL`/`JUDGE0_API_KEY` (code execution), `CRON_SECRET`,
 `PSYCHOMETRICS_SECRET`. Deployment target is Vercel (`vercel.json` defines the two daily
 cron jobs).
 
-**Full technical documentation:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — stack,
+**Full technical documentation:** [`ARCHITECTURE.md`](./ARCHITECTURE.md) — stack,
 directory map, data model, auth/RBAC/RLS, end-to-end flow walkthroughs, complete API
 surface, conventions, and known gotchas. Feature inventory:
-[`docs/FEATURES.md`](docs/FEATURES.md).
+[`FEATURES.md`](./FEATURES.md).

@@ -2,9 +2,10 @@
 
 > **Note (2026-07-19 close-out):** all per-session `*_PROGRESS.md` / QA files, the
 > `docs/phase3/` design docs, and `tests/README.md` referenced in the Session Log below were
-> removed in the repo cleanup — retrieve them from git history if needed. Current
-> documentation lives in `docs/ARCHITECTURE.md`, `docs/FEATURES.md`, and `README.md`; the
-> cleanup itself is logged in `CLEANUP_PROGRESS.md`.
+> removed in the repo cleanup — retrieve them from git history if needed (as are
+> `CORRECTIONS.md` and the `CLEANUP_PROGRESS.md` run log, removed by Haris afterward).
+> Current documentation lives entirely in `docs/`: `README.md` (platform intro + user
+> guide, also the GitHub repo homepage), `ARCHITECTURE.md`, and `FEATURES.md`.
 
 ## Session Log
 

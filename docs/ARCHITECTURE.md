@@ -4,10 +4,10 @@
 > and safely modify this system. Every path, model, and route name in this document is real
 > and current as of 2026-07-19.
 
-Companion docs: [FEATURES.md](./FEATURES.md) (feature inventory) · [../README.md](../README.md)
-(user guide) · [CORRECTIONS.md](./CORRECTIONS.md) (production data-correction audit trail).
-Historical design docs and per-session progress logs were removed in the 2026-07-19 close-out
-and are retrievable from git history.
+Companion docs: [FEATURES.md](./FEATURES.md) (feature inventory) · [README.md](./README.md)
+(platform intro + user guide). Historical design docs, QA/corrections records, and
+per-session progress logs were removed in the 2026-07-19 close-out and are retrievable from
+git history.
 
 ---
 
@@ -49,8 +49,6 @@ Supabase Postgres. Supabase is used for **Auth**, **Postgres**, **Storage** (pri
 ```
 exam-system/
 ├── CLAUDE.md                     # AI-session project instructions + full session log (dev history)
-├── CLEANUP_PROGRESS.md           # 2026-07-19 close-out run log
-├── README.md                     # Client-facing platform intro + user guide
 ├── package.json                  # Scripts: dev, build (prisma generate && next build), test:unit, test:e2e, test:data-integrity
 ├── next.config.ts                # Minimal — next-intl plugin wiring
 ├── vercel.json                   # Build config + cron schedules (purge-evidence 03:00, psychometrics 04:00 daily)
@@ -73,9 +71,9 @@ exam-system/
 │       └── test_stats.py         # pytest fixtures validating each formula against hand-computed values
 │
 ├── docs/
+│   ├── README.md                 # Client-facing platform intro + user guide (repo homepage)
 │   ├── ARCHITECTURE.md           # This file
-│   ├── FEATURES.md               # Client-facing feature inventory (tables)
-│   └── CORRECTIONS.md            # Audit trail of the 2026-07-06 production data corrections
+│   └── FEATURES.md               # Client-facing feature inventory (tables)
 │
 ├── messages/
 │   ├── en.json / ar.json         # next-intl translation catalogs
