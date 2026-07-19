@@ -52,5 +52,123 @@
     "cancel": "Cancel",
     "submit": "Submit",
     "start": "Start Exam"
+  },
+  "landing": {
+    "nav": {
+      "features": "Features",
+      "howItWorks": "How It Works",
+      "signIn": "Sign In",
+      "getStarted": "Get Started",
+      "getStartedFree": "Get Started Free",
+      "language": "Language"
+    },
+    "hero": {
+      "eyebrow": "AI-Powered · Secure · Online Exams",
+      "headline": "The Smarter Way to Run <highlight>Secure</highlight> Online Exams",
+      "subheading": "AI-powered proctoring, automatic question generation, and real-time analytics — all in one trusted platform.",
+      "ctaPrimary": "Get Started Free",
+      "ctaSecondary": "See How It Works",
+      "iconStrip": {
+        "aiProctoring": "AI Proctoring",
+        "autoQuestionGeneration": "Auto Question Generation",
+        "realTimeMonitoring": "Real-Time Monitoring",
+        "advancedAnalytics": "Advanced Analytics"
+      },
+      "mockup": {
+        "sessionLabel": "Evalix — Live Exam Session",
+        "live": "LIVE",
+        "timeRemaining": "Time Remaining",
+        "identityVerified": "Identity verified",
+        "fullscreenEnforced": "Fullscreen enforced",
+        "monitoringActive": "Monitoring active",
+        "liveProctoring": "Live Proctoring",
+        "active": "Active",
+        "faceDetected": "Face detected · No violations",
+        "aiGrading": "AI Grading",
+        "essayGraded": "Essay graded by AI · Awaiting teacher review"
+      }
+    },
+    "features": {
+      "heading": "Everything you need, built in",
+      "subheading": "A complete toolkit for secure, intelligent online examinations — without stitching together five different tools.",
+      "items": {
+        "aiProctoring": {
+          "title": "AI Proctoring",
+          "description": "Detects face absence, multiple people, gaze deviation, and background audio in real time, with enforced fullscreen and tab-lock — all running on-device."
+        },
+        "autoQuestionGeneration": {
+          "title": "Auto Question Generation",
+          "description": "Generate exam-ready questions with Claude from your own course material, aligned to specific learning objectives and reviewed before they go live."
+        },
+        "realTimeMonitoring": {
+          "title": "Real-Time Monitoring",
+          "description": "Watch every active exam from one dashboard, get instant violation alerts, and snapshot, warn, or force-submit a student's session in a click."
+        },
+        "advancedAnalytics": {
+          "title": "Advanced Analytics",
+          "description": "Facility index, discrimination index, and reliability stats computed per exam, plus a per-student trust score built from every proctoring signal."
+        },
+        "instantResults": {
+          "title": "Instant Results",
+          "description": "Objective questions are scored the moment an exam is submitted; essay and coding answers get an AI-suggested grade a teacher confirms before it counts."
+        }
+      }
+    },
+    "deepDive": {
+      "heading": "Built around how exams actually run",
+      "subheading": "Four core systems power every exam on Evalix, end to end.",
+      "items": {
+        "questionGeneration": {
+          "title": "AI-Powered Question Generation",
+          "description": "Point Evalix at your course material and Claude drafts exam-ready questions across multiple formats — MCQ, essay, coding, and more — tagged to the right learning objective and held as drafts until a teacher approves them."
+        },
+        "proctoring": {
+          "title": "Real-Time Proctoring",
+          "description": "Face presence, multiple-face detection, gaze tracking, background audio, fullscreen enforcement, and tab-switch detection all run locally in the browser and report violations the moment they happen."
+        },
+        "monitoring": {
+          "title": "Live Monitoring Dashboard",
+          "description": "Teachers see every student's status update live, review flagged moments with full context, and can send a warning, capture a snapshot, or force-submit — all from one screen."
+        },
+        "multiTenant": {
+          "title": "Multi-Tenant, Role-Based Access",
+          "description": "Every institution gets its own isolated space, with dedicated permissions for students, teachers, admins, and a platform-wide super-admin tier."
+        }
+      }
+    },
+    "trust": {
+      "eyebrow": "Used by educators worldwide",
+      "heading": "Designed around real academic integrity",
+      "points": {
+        "p1": "Proctoring runs on-device — raw video and audio are never uploaded, only violation events.",
+        "p2": "AI never finalizes a grade by itself — every essay and coding score needs a teacher's confirmation.",
+        "p3": "Every institution's data is isolated, with role-based access enforced for students, teachers, and admins."
+      }
+    },
+    "howItWorks": {
+      "heading": "How it works",
+      "subheading": "Get from sign-up to a live proctored exam in minutes",
+      "steps": {
+        "s1": { "title": "Register your institution", "desc": "Sign up and invite teachers instantly via secure email links." },
+        "s2": { "title": "Create & configure exams", "desc": "Build question banks manually or let AI generate questions from your documents." },
+        "s3": { "title": "Monitor in real time", "desc": "Watch live status, receive violation alerts, and review trust scores after exams." }
+      }
+    },
+    "cta": {
+      "badge": "Start free. Upgrade anytime.",
+      "heading": "Ready to modernize your exams?",
+      "subheading": "Join institutions running secure, AI-proctored exams with Evalix. Set up your first exam in under three minutes.",
+      "button": "Get Started Free"
+    },
+    "footer": {
+      "tagline": "AI-powered proctoring and exam generation for institutions.",
+      "product": "Product",
+      "account": "Account",
+      "roles": "Roles",
+      "roleStudents": "Students",
+      "roleTeachers": "Teachers",
+      "roleAdmins": "Institution Admins",
+      "copyright": "© 2026 Evalix. AI-Powered Exam Proctoring Platform."
+    }
   }
 }
