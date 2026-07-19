@@ -5,9 +5,9 @@
 > and current as of 2026-07-19.
 
 Companion docs: [FEATURES.md](./FEATURES.md) (feature inventory) · [../README.md](../README.md)
-(user guide) · `docs/phase3/01–06` (deep design docs for proctoring, AI generation, AI grading,
-live monitoring, psychometrics) · [CORRECTIONS.md](./CORRECTIONS.md) (production data-correction
-audit trail).
+(user guide) · [CORRECTIONS.md](./CORRECTIONS.md) (production data-correction audit trail).
+Historical design docs and per-session progress logs were removed in the 2026-07-19 close-out
+and are retrievable from git history.
 
 ---
 
@@ -75,8 +75,7 @@ exam-system/
 ├── docs/
 │   ├── ARCHITECTURE.md           # This file
 │   ├── FEATURES.md               # Client-facing feature inventory (tables)
-│   ├── CORRECTIONS.md            # Audit trail of the 2026-07-06 production data corrections
-│   └── phase3/01..06-*.md        # Design docs: proctoring, AI creation, AI grading, monitoring, psychometrics, integration
+│   └── CORRECTIONS.md            # Audit trail of the 2026-07-06 production data corrections
 │
 ├── messages/
 │   ├── en.json / ar.json         # next-intl translation catalogs
@@ -677,7 +676,7 @@ All routes live under `src/app/api/**/route.ts`. Every route authenticates itsel
 | `CRON_SECRET` | Protects `/api/cron/*` (Vercel sends it automatically) | cron routes |
 | `PSYCHOMETRICS_SECRET` | Optional shared secret for the Python fn (`X-Service-Key`) | `api/psychometrics/compute.py`, `src/lib/psychometrics-client.ts` |
 | `AI_COST_PER_CALL` / `JUDGE0_COST_PER_SUBMISSION` | Cost estimates on the Super Admin panel (defaults $0.02 / $0.0005) | `/api/super/overview` |
-| `TEST_*` (`TEST_SUPABASE_URL`, `TEST_SUPABASE_SECRET_KEY`, `TEST_SUPABASE_ANON_KEY`, `TEST_DATABASE_URL`, `TEST_DIRECT_URL`, `TEST_BASE_URL`, `TEST_PORT`, `TEST_REUSE_EXISTING_SERVER`) | Playwright e2e — a **separate** Supabase project (see `tests/README.md`) | `playwright.config.ts`, `e2e/`, `tests/fixtures/` |
+| `TEST_*` (`TEST_SUPABASE_URL`, `TEST_SUPABASE_SECRET_KEY`, `TEST_SUPABASE_ANON_KEY`, `TEST_DATABASE_URL`, `TEST_DIRECT_URL`, `TEST_BASE_URL`, `TEST_PORT`, `TEST_REUSE_EXISTING_SERVER`) | Playwright e2e — a **separate** Supabase project (see §8.5) | `playwright.config.ts`, `e2e/`, `tests/fixtures/` |
 | `QA_PREFIX` / `QA_ALLOW_PROD_OVERRIDE` | Guard rails for QA fixture scripts | `tests/fixtures/guard-non-prod.ts` |
 
 ---
@@ -743,7 +742,32 @@ All routes live under `src/app/api/**/route.ts`. Every route authenticates itsel
 5. Add scoped data functions + unit tests; run `npx tsc --noEmit`, `npm run lint`,
    `npm run test:unit`, `npm run build` (all must stay at baseline).
 
-### 8.5 Verification bar
+### 8.5 Running the Playwright e2e suite (one-time setup)
+
+The e2e suite creates real exams, attempts, and Supabase Auth users, so it must **never**
+run against the production project — `tests/fixtures/guard-non-prod.ts` (imported by every
+network-touching script) throws if the `TEST_*` env vars are missing or resolve to the
+known prod project ref/app URL. Setup:
+
+1. Create a **second, fully separate Supabase project** (free tier is fine — a second
+   Postgres database is not enough; Supabase Auth exists per-project).
+2. From its dashboard collect: Project URL, anon/publishable key, service-role key, and
+   both connection strings (pooled 6543 + direct 5432).
+3. Push the schema to it: `TEST_DATABASE_URL="<pooled>?pgbouncer=true" DIRECT_URL="<direct>"
+   npx prisma db push` — run in a shell that has **not** sourced the prod `.env.local`
+   (`db push` reads plain `DIRECT_URL`, not a `TEST_` prefix).
+4. Export the `TEST_*` vars from §7 (e.g. via a `.env.test.local` you `source`; never add
+   them to `.env.local`): `TEST_BASE_URL=http://localhost:3100`, `TEST_PORT=3100`,
+   `TEST_DATABASE_URL`, `TEST_DIRECT_URL`, `TEST_SUPABASE_URL`, `TEST_SUPABASE_ANON_KEY`,
+   `TEST_SUPABASE_SECRET_KEY`.
+5. Run: `npm run test:e2e` (seeds two throwaway tenants via
+   `tests/fixtures/seed-tenants.ts` — every entity name is prefixed with `QA_PREFIX`,
+   default `qa_<timestamp>_` — then runs Playwright). Cleanup is explicit, not automatic:
+   `npm run test:e2e:teardown` deletes the tenants recorded in
+   `tests/fixtures/.qa-fixture.json` in FK-safe order plus their Supabase Auth users.
+   Delete `.qa-fixture.json` and re-seed for a fresh tenant pair.
+
+### 8.6 Verification bar
 
 Every change lands with: `tsc` clean · lint at the 3-error baseline · vitest green ·
 `npm run build` clean. There is no dev/staging database — live QA uses **disposable,
@@ -789,7 +813,7 @@ here before (`ProctoringEventBuffer.revive()` exists because of it).
   `DashboardShell`'s avatar-initials read `localStorage` client-side. Cosmetic-plus
   (React remounts the tree; mutations still work) but makes UI-click-only test automation
   flaky. Flagged for a future pass, not yet fixed.
-- **E2e suite needs a second Supabase project** (`tests/README.md`, `TEST_*` env vars) —
+- **E2e suite needs a second Supabase project** (§8.5, `TEST_*` env vars) —
   unit tests and the build are the always-runnable verification.
 - **`Item.facilityIndex`/`discriminationIndex`** are rolling aggregates only updated by
   psychometrics compute runs; sparse pooled matrices yield honest NULL alpha values.
@@ -817,6 +841,6 @@ is rarely needed — the layering is strict enough that changes stay local.
 | **Invite/class flow change** | `src/lib/data/invites.ts`; `src/lib/invite-accept-decision.ts`; `src/lib/data/invite-guards.ts`; the accept routes under `src/app/api/{invites,class-invites}/`; the public pages `src/app/invite/[token]/page.tsx` / `src/app/classes/join/[token]/page.tsx` |
 | **Permissions change** | The relevant pure module: `src/lib/item-bank-permissions.ts`, `src/lib/class-permissions.ts`, or `src/lib/exam-eligibility.ts` + its unit test in `tests/unit/` |
 
-After any change, the acceptance bar is §8.5. Unit tests for pure logic live in
+After any change, the acceptance bar is §8.6. Unit tests for pure logic live in
 `tests/unit/` — mirror an existing test file's style (plain vitest, mocked Prisma where
 routes are tested).

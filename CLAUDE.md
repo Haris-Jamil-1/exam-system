@@ -1,9 +1,10 @@
 # ExamPro (now Evalix) — AI-Proctored E-Testing Platform
 
-> **Note (2026-07-19 close-out):** all per-session `*_PROGRESS.md` / QA files referenced in
-> the Session Log below were removed in the repo cleanup — retrieve them from git history if
-> needed. Current documentation lives in `docs/ARCHITECTURE.md`, `docs/FEATURES.md`, and
-> `README.md`; the cleanup itself is logged in `CLEANUP_PROGRESS.md`.
+> **Note (2026-07-19 close-out):** all per-session `*_PROGRESS.md` / QA files, the
+> `docs/phase3/` design docs, and `tests/README.md` referenced in the Session Log below were
+> removed in the repo cleanup — retrieve them from git history if needed. Current
+> documentation lives in `docs/ARCHITECTURE.md`, `docs/FEATURES.md`, and `README.md`; the
+> cleanup itself is logged in `CLEANUP_PROGRESS.md`.
 
 ## Session Log
 

@@ -89,7 +89,7 @@ Run started: 2026-07-19. Resume from the last unchecked phase if interrupted.
 
 **Explicitly KEPT (checked and confirmed referenced/needed):**
 - `CLAUDE.md` — active project instructions for Claude Code sessions
-- `docs/phase3/01–06*.md` — genuine architecture/design docs for the proctoring/AI/monitoring/psychometrics subsystems
+- ~~`docs/phase3/01–06*.md`~~ — initially kept as design docs, removed in the follow-up pass below per user request
 - `requirements.txt` (root) — required by Vercel to detect the Python function in `api/psychometrics/`
 - `api/psychometrics/` — live Vercel Python Function (psychometrics)
 - `scripts/mgmt-sql.sh` — operational Supabase Management-API SQL helper (used when pg egress is blocked)
@@ -163,3 +163,19 @@ secrets) and added a `!.env.example` exception to `.gitignore` so the documented
   `.env.example`, this file.
 - **Build/test status:** everything green (see Phase 5 above). Nothing was skipped;
   nothing needed restoring.
+
+---
+
+## Follow-up pass (2026-07-19, after user review)
+
+User flagged that the `docs/phase3/` design docs and extra README files should also go:
+
+- **Deleted:** `docs/phase3/01–06*.md` (6 design docs — superseded by
+  `docs/ARCHITECTURE.md`; retrievable from git history) and `tests/README.md` (its
+  e2e-setup content was folded into `docs/ARCHITECTURE.md` §8.5 first, so nothing is lost).
+- **Removed locally (untracked artifacts):** `api/psychometrics/.pytest_cache/` (now
+  gitignored) and `.vercel/README.txt` (Vercel CLI artifact, regenerates).
+- **Reference fixes:** all `docs/phase3` / `tests/README.md` mentions in
+  `docs/ARCHITECTURE.md` updated; `CLAUDE.md` history note extended.
+- The only README in the repo is now the root `README.md`.
+- Re-verified: build clean · vitest 275/275.
