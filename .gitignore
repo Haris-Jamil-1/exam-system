@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -46,3 +47,6 @@ next-env.d.ts
 /test-results/
 /e2e/.results.json
 /tests/fixtures/.qa-fixture.json
+
+# python
+__pycache__/
