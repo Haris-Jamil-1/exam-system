@@ -10,6 +10,7 @@ import type { ViolationType } from '@/types';
 const VIOLATION_TYPES = [
   'tab_switch', 'window_blur', 'fullscreen_exit', 'no_face', 'multiple_faces',
   'audio_detected', 'phone_detected', 'gaze_away', 'prohibited_object',
+  'unverified_start',
 ] as const;
 
 const eventSchema = z.object({

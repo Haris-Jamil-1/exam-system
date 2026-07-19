@@ -19,6 +19,11 @@ import { Camera, CreditCard, ShieldCheck, Loader2, CheckCircle2, AlertTriangle, 
 
 interface Props {
   onComplete: () => void;
+  /**
+   * Escape hatch: enter the exam without face/ID verification. The caller is responsible
+   * for reporting the skip to the teacher (an `unverified_start` violation on the attempt).
+   */
+  onSkip?: () => void;
 }
 
 type Step = 'webcam' | 'id' | 'verified';
@@ -55,7 +60,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   camera_unavailable: 'Camera frame unavailable — check your camera permission and try again.',
 };
 
-export function BiometricOnboarding({ onComplete }: Props) {
+export function BiometricOnboarding({ onComplete, onSkip }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const faceDescriptorRef = useRef<Float32Array | null>(null);
   const [currentStep, setCurrentStep] = useState<Step>('webcam');
@@ -353,6 +358,26 @@ export function BiometricOnboarding({ onComplete }: Props) {
                     : <><CreditCard className="h-4 w-4" /> Capture ID Document</>
                   }
                 </Button>
+              </div>
+            )}
+
+            {/* Escape hatch: always available before verification completes (covers broken
+                cameras and model-load failures too). The skip itself is reported to the
+                teacher as an unverified_start violation once the attempt starts. */}
+            {onSkip && currentStep !== 'verified' && (
+              <div className="border-t border-slate-800 pt-3 space-y-1.5">
+                <button
+                  type="button"
+                  onClick={onSkip}
+                  disabled={processing}
+                  className="w-full text-center text-xs text-slate-400 underline underline-offset-2 hover:text-slate-200 disabled:opacity-50"
+                >
+                  Start without verification
+                </button>
+                <p className="flex items-center justify-center gap-1 text-center text-[10px] text-slate-500">
+                  <AlertTriangle className="h-3 w-3 shrink-0 text-amber-500" />
+                  Your teacher will be notified that you started without identity verification.
+                </p>
               </div>
             )}
 

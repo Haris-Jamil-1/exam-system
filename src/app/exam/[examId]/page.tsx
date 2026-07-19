@@ -1,7 +1,7 @@
 'use client';
 // Phase 2: sequential/forwardOnly/autoAdvance enforced server-side via ExamSession
 // Phase 3: biometric onboarding uses real face-api.js capture
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { getExamById, getQuestionsForStudent, getQuestionsForStudentSection, getSections, getSectionAttempts } from '@/lib/data';
 import type { Exam, PublicQuestion, Question, ExamSection } from '@/types';
@@ -75,6 +75,10 @@ export default function ExamPage() {
 
   // Biometric gate — shown before exam if proctoring level is strict
   const [biometricDone, setBiometricDone] = useState(false);
+  // Set when the student used the gate's "start without verification" escape hatch —
+  // reported to the teacher as an unverified_start violation once the attempt exists
+  // (the gate runs before any attempt row is created, so it can't be logged earlier).
+  const skippedVerificationRef = useRef(false);
   // Pre-exam instructions gate — the duration timer only starts once this is dismissed
   const [instructionsDone, setInstructionsDone] = useState(false);
   const [startingExam, setStartingExam] = useState(false);
@@ -246,6 +250,27 @@ export default function ExamPage() {
       const session: AttemptSession = { attemptId: attempt.id, startedAt: attempt.startedAt };
       sessionStorage.setItem(SESSION_KEY(examId), JSON.stringify(session));
       setAttemptId(attempt.id);
+
+      // The gate's "start without verification" choice is only reportable now that the
+      // attempt row exists. Best-effort: a failure here must never block the exam start.
+      if (skippedVerificationRef.current) {
+        skippedVerificationRef.current = false; // report once, even if start is retried later
+        void fetch('/api/violations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            attemptId: attempt.id,
+            examId,
+            events: [{
+              type: 'unverified_start',
+              severity: 'high',
+              confidence: 1,
+              timestamp: new Date().toISOString(),
+              description: 'Student started the exam without completing face/ID identity verification',
+            }],
+          }),
+        }).catch(err => console.error('[exam-start] failed to report unverified start:', err));
+      }
 
       if (isSectioned) {
         // Sectioned exams have no overall duration timer — each section gates its own via
@@ -519,7 +544,15 @@ export default function ExamPage() {
 
   // ── Biometric gate ────────────────────────────────────────────────────────────
   if (exam && !biometricDone) {
-    return <BiometricOnboarding onComplete={() => setBiometricDone(true)} />;
+    return (
+      <BiometricOnboarding
+        onComplete={() => setBiometricDone(true)}
+        onSkip={() => {
+          skippedVerificationRef.current = true;
+          setBiometricDone(true);
+        }}
+      />
+    );
   }
 
   // ── Pre-exam instructions screen ──────────────────────────────────────────────

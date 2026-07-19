@@ -16,7 +16,8 @@ export type TrustViolationType =
   | 'audio_detected'
   | 'phone_detected'
   | 'gaze_away'
-  | 'prohibited_object';
+  | 'prohibited_object'
+  | 'unverified_start';
 
 export interface TrustScoreInput {
   type: TrustViolationType;
@@ -45,6 +46,9 @@ export const TRUST_WEIGHTS: Record<TrustViolationType, TypeWeight> = {
   phone_detected:    { base: 18, cap: 50 },
   gaze_away:         { base: 3,  cap: 15 },
   prohibited_object: { base: 12, cap: 40 },
+  // One-time deduction (cap = base × high multiplier): skipping identity verification
+  // costs 12 points once; it can't stack, since it happens at most once per gate.
+  unverified_start:  { base: 8,  cap: 12 },
 };
 
 export const SEVERITY_MULTIPLIER: Record<'low' | 'medium' | 'high', number> = {

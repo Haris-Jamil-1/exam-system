@@ -38,6 +38,11 @@ describe('deriveSeverity — server-side severity policy', () => {
     expect(deriveSeverity('audio_detected', 60, 'low')).toBe('medium');
     expect(deriveSeverity('audio_detected', 61, 'low')).toBe('high');
   });
+
+  it('unverified_start (biometric gate skipped) is always high — the teacher must be notified', () => {
+    expect(deriveSeverity('unverified_start', null, 'low')).toBe('high');
+    expect(deriveSeverity('unverified_start', 0, 'medium')).toBe('high');
+  });
 });
 
 describe('episodeDurationSeconds', () => {

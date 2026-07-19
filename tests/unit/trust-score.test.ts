@@ -70,4 +70,11 @@ describe('computeTrustScore', () => {
     expect(SEVERITY_MULTIPLIER.low).toBeLessThan(SEVERITY_MULTIPLIER.medium);
     expect(SEVERITY_MULTIPLIER.medium).toBeLessThan(SEVERITY_MULTIPLIER.high);
   });
+
+  it('unverified_start deducts its cap exactly once at high severity (8 × 1.5 = 12 = cap)', () => {
+    const skip = v({ type: 'unverified_start', severity: 'high' });
+    expect(computeTrustScore([skip])).toBe(100 - TRUST_WEIGHTS.unverified_start.cap);
+    // A duplicate row (shouldn't happen, but defensive) can't stack past the cap.
+    expect(computeTrustScore([skip, skip])).toBe(100 - TRUST_WEIGHTS.unverified_start.cap);
+  });
 });

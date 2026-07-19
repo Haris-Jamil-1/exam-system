@@ -58,6 +58,7 @@ export async function GET() {
       multiple_faces: 'multiple faces detected',
       phone_detected: 'phone detected',
       prohibited_object: 'prohibited object detected',
+      unverified_start: 'started without verification',
     };
     const violations = await prisma.violation.findMany({
       where: { exam: { teacherId: user.id }, type: { not: 'window_blur' }, timestamp: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },

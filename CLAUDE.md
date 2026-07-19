@@ -9,6 +9,26 @@
 
 ## Session Log
 
+### 2026-07-20 (cont'd) — "Start without verification" escape hatch on the biometric gate, teacher notified ✅
+
+Follow-up to the same day's verification work: students can now bypass the face/ID gate via a
+deliberately understated "Start without verification" link (always available — also covers
+broken cameras and model-load failures, softening the fail-closed judgment call from earlier
+today), with an explicit on-screen warning that the teacher will be told.
+
+- New `unverified_start` ViolationType (Prisma enum value pushed live via `prisma db push`,
+  confirmed with a live `enum_range` query). The gate itself can't log it — no attempt row
+  exists yet — so the exam page carries the skip in a ref and posts one violation event right
+  after `POST /api/attempts` succeeds (best-effort, never blocks the start; reported once even
+  if the start button is retried).
+- Wired through the whole violations pipeline: server-side severity is always `high` (puts it
+  in the teacher push-notification tier), trust score takes a one-time 12-point deduction
+  (`base 8 × high 1.5 = cap 12` — structurally can't stack), and the teacher's bell panel
+  shows "**started without verification**" via the label map added earlier today. Monitor
+  timeline/violation feeds pick it up like any other violation.
+- **Verification**: `tsc` clean · `lint` unchanged 3-error baseline · `vitest` 290/290 (2 new:
+  severity + trust-score cases) · `build` clean · live DB enum confirmed via mgmt-sql.
+
 ### 2026-07-20 — Real face↔ID matching in the biometric gate, auto-derived exam duration, mobile UI pass, notification-panel cleanup ✅
 
 Four-item punch list, pushed and deployed at the end.
@@ -781,8 +801,8 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 - `npm run build` → **PASSES** (0 errors, 88 routes)
 - `npm run lint` → 3 pre-existing baseline errors (`useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff), 0 warnings
 - `npx tsc --noEmit` → clean
-- `npx vitest run` → 288/288 passing (+ `pytest` 10/10 in `psychometrics/`)
-- Last verified: 2026-07-20 (real face↔ID matching, auto-derived duration, mobile UI pass, notification-panel cleanup)
+- `npx vitest run` → 290/290 passing (+ `pytest` 10/10 in `psychometrics/`)
+- Last verified: 2026-07-20 (start-without-verification escape hatch + real face↔ID matching, auto-derived duration, mobile UI pass, notification-panel cleanup)
 - Last verified: 2026-07-18 (proctoring system fix — per-detector live verification against a fresh production build, see `PROCTORING_FIX_PROGRESS.md`)
 - Last verified: 2026-07-17 (exam auto-completes on the teacher side when closing time is reached)
 - Last verified: 2026-07-17 (cross-exam Live Monitor eye button/live video fix)

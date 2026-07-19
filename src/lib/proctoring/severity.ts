@@ -40,6 +40,10 @@ export function deriveSeverity(
       return d > 60 ? 'high' : d > 20 ? 'medium' : 'low';
     case 'prohibited_object':
       return 'medium';
+    case 'unverified_start':
+      // Deliberate student choice to bypass identity verification — always worth the
+      // teacher's attention (high puts it in the push-notification tier).
+      return 'high';
     default:
       // Unknown/future type: trust the client's suggestion rather than guessing.
       return clientSeverity;

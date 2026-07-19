@@ -323,7 +323,8 @@ export type ViolationType =
   | 'audio_detected'
   | 'phone_detected'
   | 'gaze_away'
-  | 'prohibited_object';
+  | 'prohibited_object'
+  | 'unverified_start';
 
 export interface Violation {
   id: string;

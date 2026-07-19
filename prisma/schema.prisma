@@ -71,6 +71,9 @@ enum ViolationType {
   phone_detected
   gaze_away
   prohibited_object
+  // Student used the biometric gate's "start without verification" escape hatch —
+  // logged once per skipped gate so the teacher sees it in the monitor + bell panel.
+  unverified_start
 }
 
 enum ViolationSeverity {
