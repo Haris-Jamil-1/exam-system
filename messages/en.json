@@ -75,17 +75,13 @@
         "advancedAnalytics": "Advanced Analytics"
       },
       "mockup": {
-        "sessionLabel": "Evalix — Live Exam Session",
-        "live": "LIVE",
         "timeRemaining": "Time Remaining",
         "identityVerified": "Identity verified",
         "fullscreenEnforced": "Fullscreen enforced",
         "monitoringActive": "Monitoring active",
         "liveProctoring": "Live Proctoring",
         "active": "Active",
-        "faceDetected": "Face detected · No violations",
-        "aiGrading": "AI Grading",
-        "essayGraded": "Essay graded by AI · Awaiting teacher review"
+        "faceDetected": "Face detected · No violations"
       }
     },
     "features": {

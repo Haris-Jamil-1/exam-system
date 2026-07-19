@@ -75,17 +75,13 @@
         "advancedAnalytics": "تحليلات متقدمة"
       },
       "mockup": {
-        "sessionLabel": "Evalix — جلسة اختبار مباشرة",
-        "live": "مباشر",
         "timeRemaining": "الوقت المتبقي",
         "identityVerified": "تم التحقق من الهوية",
         "fullscreenEnforced": "وضع ملء الشاشة مفعّل",
         "monitoringActive": "المراقبة نشطة",
         "liveProctoring": "المراقبة المباشرة",
         "active": "نشط",
-        "faceDetected": "تم رصد الوجه · لا توجد مخالفات",
-        "aiGrading": "تصحيح بالذكاء الاصطناعي",
-        "essayGraded": "تم تصحيح المقال بالذكاء الاصطناعي · بانتظار مراجعة المعلم"
+        "faceDetected": "تم رصد الوجه · لا توجد مخالفات"
       }
     },
     "features": {

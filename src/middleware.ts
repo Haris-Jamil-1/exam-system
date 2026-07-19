@@ -7,6 +7,12 @@ import { NextResponse, type NextRequest } from 'next/server';
 // failed to load and face/multi-face/gaze/object detection never ran at all.
 const PUBLIC_PREFIXES = ['/', '/login', '/register', '/invite', '/classes/join', '/api', '/_next', '/favicon', '/auth', '/models'];
 
+// Any other file served straight out of /public (images, fonts, etc.) — same class of bug as
+// '/models' above: a literal-prefix allowlist silently 307s every new static asset that isn't
+// added to it by name. Matching on extension instead means new public/ assets never need a
+// middleware change to load.
+const STATIC_ASSET_RE = /\.(?:png|jpe?g|gif|webp|avif|svg|ico|css|js|json|woff2?|ttf|map|mp4|webm|wasm|task)$/i;
+
 const ROLE_PATHS: Record<string, string[]> = {
   admin:   ['/admin'],
   teacher: ['/teacher'],
@@ -17,7 +23,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Allow public routes and static assets
-  if (PUBLIC_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/'))) {
+  if (PUBLIC_PREFIXES.some(p => pathname === p || pathname.startsWith(p + '/')) || STATIC_ASSET_RE.test(pathname)) {
     return NextResponse.next();
   }
 

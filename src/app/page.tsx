@@ -1,6 +1,7 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useTranslations, useLocale } from 'next-intl';
 import {
   ShieldCheck, ArrowRight, Check, Menu, X, ChevronDown,
@@ -293,40 +294,15 @@ function HeroMockup() {
         aria-hidden
       />
 
-      <div className="overflow-hidden rounded-2xl border border-[#E8ECF4] bg-white shadow-[0_20px_50px_rgba(30,136,229,0.14)]">
-        <div className="flex items-center gap-1.5 border-b border-[#E8ECF4] bg-[#FAFCFA] px-4 py-3">
-          <span className="h-2.5 w-2.5 rounded-full bg-[#F87171]" />
-          <span className="h-2.5 w-2.5 rounded-full bg-[#FBBF24]" />
-          <span className="h-2.5 w-2.5 rounded-full bg-[#4ADE80]" />
-          <span className="ms-3 text-[12px] font-medium text-[#9CA3AF]">{t('hero.mockup.sessionLabel')}</span>
-          <span
-            className="ms-auto inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold text-white"
-            style={{ backgroundColor: BRAND[600] }}
-          >
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" /> {t('hero.mockup.live')}
-          </span>
-        </div>
-
-        <div className="space-y-4 p-5 pb-16">
-          <div className="flex items-center justify-between rounded-xl border border-[#E8ECF4] bg-[#FAFCFA] px-4 py-3">
-            <div className="flex items-center gap-2 text-[#1A1D23]">
-              <Clock className="h-4 w-4" style={{ color: BRAND[700] }} />
-              <span className="text-[13px] font-medium text-[#6B7280]">{t('hero.mockup.timeRemaining')}</span>
-            </div>
-            <span className="font-mono text-[15px] font-bold text-[#1A1D23]" dir="ltr">48:12</span>
-          </div>
-
-          <div className="space-y-2.5">
-            {['identityVerified', 'fullscreenEnforced', 'monitoringActive'].map(item => (
-              <div key={item} className="flex items-center gap-2.5">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full" style={{ backgroundColor: BRAND[100] }}>
-                  <Check className="h-3 w-3" style={{ color: BRAND[700] }} strokeWidth={3} />
-                </span>
-                <span className="text-[13.5px] text-[#374151]">{t(`hero.mockup.${item}`)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+      <div className="relative aspect-[928/964] overflow-hidden rounded-2xl border border-[#E8ECF4] bg-white shadow-[0_20px_50px_rgba(30,136,229,0.14)]">
+        <Image
+          src="/hero-proctoring.jpg"
+          alt=""
+          fill
+          sizes="(max-width: 1024px) 90vw, 480px"
+          className="object-cover"
+          priority
+        />
       </div>
 
       <div className="absolute -end-6 -top-6 w-[190px] rounded-xl border border-[#E8ECF4] bg-white p-3.5 shadow-[0_12px_28px_rgba(30,136,229,0.14)] sm:-end-10">
@@ -344,14 +320,24 @@ function HeroMockup() {
         <p className="mt-2 text-[11.5px] leading-snug text-[#6B7280]">{t('hero.mockup.faceDetected')}</p>
       </div>
 
-      <div className="absolute -bottom-16 -start-4 w-[200px] rounded-xl border border-[#E8ECF4] bg-white p-3.5 shadow-[0_12px_28px_rgba(30,136,229,0.14)] sm:-start-10">
-        <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#EDE9FE]">
-            <Sparkles className="h-4 w-4 text-[#7C3AED]" />
-          </span>
-          <p className="text-[12.5px] font-semibold text-[#1A1D23]">{t('hero.mockup.aiGrading')}</p>
+      <div className="absolute -bottom-10 -start-4 w-[210px] rounded-xl border border-[#E8ECF4] bg-white p-3.5 shadow-[0_12px_28px_rgba(30,136,229,0.14)] sm:-start-10">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 text-[#1A1D23]">
+            <Clock className="h-3.5 w-3.5" style={{ color: BRAND[700] }} />
+            <span className="text-[11.5px] font-medium text-[#6B7280]">{t('hero.mockup.timeRemaining')}</span>
+          </div>
+          <span className="font-mono text-[13px] font-bold text-[#1A1D23]" dir="ltr">48:12</span>
         </div>
-        <p className="mt-2 text-[11.5px] leading-snug text-[#6B7280]">{t('hero.mockup.essayGraded')}</p>
+        <div className="mt-2.5 space-y-1.5">
+          {['identityVerified', 'fullscreenEnforced', 'monitoringActive'].map(item => (
+            <div key={item} className="flex items-center gap-2">
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: BRAND[100] }}>
+                <Check className="h-2.5 w-2.5" style={{ color: BRAND[700] }} strokeWidth={3.5} />
+              </span>
+              <span className="text-[11.5px] text-[#374151]">{t(`hero.mockup.${item}`)}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
