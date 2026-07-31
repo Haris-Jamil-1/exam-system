@@ -16,10 +16,13 @@ export const POST = withErrorHandling(async (request: Request) => {
     let text = '';
 
     if (ext === 'pdf') {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const pdfParse = require('pdf-parse');
-      const result = await pdfParse(buffer);
-      text = result.text as string;
+      // unpdf ships a serverless-safe pdfjs build (no DOM globals like DOMMatrix),
+      // so it works in the Node serverless runtime — pdf-parse v2's bundled pdfjs
+      // crashed here with `DOMMatrix is not defined` at module evaluation.
+      const { extractText, getDocumentProxy } = await import('unpdf');
+      const doc = await getDocumentProxy(new Uint8Array(buffer));
+      const result = await extractText(doc, { mergePages: true });
+      text = result.text;
     } else if (ext === 'docx' || ext === 'doc') {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const mammoth = require('mammoth');
