@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Search, ChevronDown, ChevronUp, Check, Clock, Hourglass, Archive, AlertTriangle, Upload, Users2, Sparkles, ChevronRight, Building2, Lock } from 'lucide-react';
+import { Plus, Search, ChevronDown, ChevronUp, Check, Clock, Hourglass, Archive, ArchiveRestore, AlertTriangle, Upload, Users2, Sparkles, ChevronRight, Building2, Lock } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { RichText } from '@/components/rich/RichText';
 import { BulkImportModal } from '@/components/shared/BulkImportModal';
@@ -44,10 +44,11 @@ function psychometricFlag(item: Item): { label: string; title: string } | null {
   return null;
 }
 
-function ItemRow({ item, onSubmit, onArchive }: { item: Item; onSubmit: (id: string) => void; onArchive: (id: string) => void }) {
+function ItemRow({ item, onSubmit, onArchive, onUnarchive }: { item: Item; onSubmit: (id: string) => void; onArchive: (id: string) => void; onUnarchive: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [unarchiving, setUnarchiving] = useState(false);
   const hasOptions = item.options && item.options.length > 0;
   const hasExpandable = hasOptions || !!item.correctAnswer;
   const flag = psychometricFlag(item);
@@ -62,6 +63,12 @@ function ItemRow({ item, onSubmit, onArchive }: { item: Item; onSubmit: (id: str
     setArchiving(true);
     await onArchive(item.id);
     setArchiving(false);
+  }
+
+  async function handleUnarchive() {
+    setUnarchiving(true);
+    await onUnarchive(item.id);
+    setUnarchiving(false);
   }
 
   return (
@@ -160,7 +167,13 @@ function ItemRow({ item, onSubmit, onArchive }: { item: Item; onSubmit: (id: str
               <span className="text-xs text-green-600 flex items-center gap-1"><Check className="h-3 w-3" /> Approved</span>
             )}
             {item.status === 'archived' && (
-              <span className="text-xs text-muted-foreground flex items-center gap-1"><Archive className="h-3 w-3" /> Archived</span>
+              <>
+                <span className="text-xs text-muted-foreground flex items-center gap-1"><Archive className="h-3 w-3" /> Archived</span>
+                <Button size="sm" variant="ghost" onClick={handleUnarchive} disabled={unarchiving} className="gap-1 h-7 text-xs text-muted-foreground hover:text-green-600" title="Restore item to the active bank">
+                  <ArchiveRestore className="h-3 w-3" />
+                  {unarchiving ? '…' : 'Restore'}
+                </Button>
+              </>
             )}
             {item.status !== 'archived' && (
               <Button size="sm" variant="ghost" onClick={handleArchive} disabled={archiving} className="gap-1 h-7 text-xs text-muted-foreground hover:text-red-600" title="Archive item">
@@ -256,6 +269,17 @@ export default function ItemBankDetailPage() {
     }
   }
 
+  // Restores to 'draft' rather than whatever status it was archived from — an item's prior
+  // status isn't tracked anywhere, and landing back in draft means it goes through the normal
+  // submit/approve flow again instead of silently reappearing as already-approved.
+  async function handleUnarchive(id: string) {
+    const updated = await updateItem(id, { status: 'draft' });
+    if (updated) {
+      setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'draft' as ItemStatus } : i));
+      invalidateData('items');
+    }
+  }
+
   function filterItems(status: string) {
     return items.filter(item => {
       if (status !== 'all' && item.status !== status) return false;
@@ -287,7 +311,7 @@ export default function ItemBankDetailPage() {
             {tableItems.length === 0 ? (
               <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">No items found</td></tr>
             ) : tableItems.map(item => (
-              <ItemRow key={item.id} item={item} onSubmit={handleSubmitForReview} onArchive={handleArchive} />
+              <ItemRow key={item.id} item={item} onSubmit={handleSubmitForReview} onArchive={handleArchive} onUnarchive={handleUnarchive} />
             ))}
           </tbody>
         </table>
