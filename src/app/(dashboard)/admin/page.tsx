@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import {
@@ -11,6 +11,8 @@ import type { StatValue } from '@/types';
 import { getAdminDashboardData } from '@/lib/data';
 import type { ScheduleConflict } from '@/lib/data/exams';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useServerData } from '@/hooks/useServerData';
+import { invalidateData } from '@/lib/data-refresh';
 import type { PendingExam } from '@/types';
 
 const STAT_META: Record<string, { label: string; icon: React.ElementType; iconBg: string; iconColor: string }> = {
@@ -38,24 +40,16 @@ export default function AdminDashboard() {
   const a = useTranslations('actions');
   const currentUser = useCurrentUser();
 
-  const [stats, setStats]     = useState<StatValue[]>([]);
-  const [pending, setPending] = useState<PendingExam[]>([]);
-  const [approved, setApproved] = useState<ApprovedExam[]>([]);
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
   const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
-  const [institutionName, setInstitutionName] = useState('');
   const [conflictModal, setConflictModal] = useState<{ examTitle: string; conflicts: ScheduleConflict[] } | null>(null);
 
-  useEffect(() => {
-    getAdminDashboardData().then(({ stats: s, pendingExams: p, approvedExams: a, teachers: t, institution: inst }) => {
-      setStats(s);
-      setPending(p as PendingExam[]);
-      setApproved(a as ApprovedExam[]);
-      setTeachers(t as Teacher[]);
-      setInstitutionName(inst?.name ?? '');
-    });
-  }, []);
+  const { data } = useServerData(() => getAdminDashboardData(), []);
+  const stats = (data?.stats ?? []) as StatValue[];
+  const pending = (data?.pendingExams ?? []) as PendingExam[];
+  const approved = (data?.approvedExams ?? []) as ApprovedExam[];
+  const teachers = (data?.teachers ?? []) as Teacher[];
+  const institutionName = data?.institution?.name ?? '';
 
   const firstName = currentUser?.name?.split(' ').slice(-1)[0] ?? 'Admin';
   const visiblePending = pending.filter(e => !approvedIds.has(e.id) && !rejectedIds.has(e.id));
@@ -72,7 +66,12 @@ export default function AdminDashboard() {
       setConflictModal({ examTitle, conflicts: body.conflicts });
       return;
     }
-    if (res.ok) setApprovedIds(prev => new Set([...prev, id]));
+    if (res.ok) {
+      setApprovedIds(prev => new Set([...prev, id]));
+      // Refreshes the stat cards, the approved-exams table and the sidebar badge —
+      // all of which used to keep pre-approval numbers until a hard reload.
+      invalidateData();
+    }
   }
   async function reject(id: string) {
     await fetch(`/api/exams/${id}`, {
@@ -81,6 +80,7 @@ export default function AdminDashboard() {
       body: JSON.stringify({ approvalStatus: 'rejected' }),
     });
     setRejectedIds(prev => new Set([...prev, id]));
+    invalidateData();
   }
 
   const statusStyle: Record<string, { chip: string; icon: React.ElementType; pulse?: boolean }> = {

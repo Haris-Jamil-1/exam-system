@@ -1,6 +1,6 @@
 'use server';
 import { prisma } from '@/lib/prisma';
-import { createClient } from '@/lib/supabase/server';
+import { getSessionContext } from '@/lib/session';
 import { computeEffectiveExamStatus } from '@/lib/exam-status';
 import { computeExamDurationMinutes } from '@/lib/exam-duration';
 import type { Exam, ExamSettings, StatValue } from '@/types';
@@ -42,20 +42,6 @@ function mapExam(e: PrismaExam): Exam {
 
 const COUNT_SELECT = { questions: true, enrollments: true } as const;
 
-async function getSessionContext() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  const institutionId = (user?.user_metadata?.institutionId as string | undefined) ?? null;
-  const role = (user?.user_metadata?.role as string | undefined) ?? null;
-  const supabaseId = user?.id ?? null;
-  let prismaUserId: string | null = null;
-  if (supabaseId) {
-    const u = await prisma.user.findUnique({ where: { supabaseId }, select: { id: true } });
-    prismaUserId = u?.id ?? null;
-  }
-  return { institutionId, role, prismaUserId };
-}
-
 export async function getExams(_institutionId?: string): Promise<Exam[]> {
   const { institutionId, role, prismaUserId } = await getSessionContext();
   if (!institutionId) return [];
@@ -80,14 +66,9 @@ export async function getExamById(id: string): Promise<Exam | undefined> {
 
 export async function createExam(data: Omit<Exam, 'id' | 'createdAt'>): Promise<Exam> {
   // Always resolve institutionId and teacherId from the authenticated session
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  const institutionId = (user?.user_metadata?.institutionId as string | undefined) ?? data.institutionId;
-  let teacherId = data.teacherId;
-  if (user?.id) {
-    const teacher = await prisma.user.findFirst({ where: { supabaseId: user.id }, select: { id: true } });
-    if (teacher) teacherId = teacher.id;
-  }
+  const session = await getSessionContext();
+  const institutionId = session.institutionId ?? data.institutionId;
+  const teacherId = session.prismaUserId ?? data.teacherId;
 
   // A caller-supplied classId is never trusted blindly — it must be one of this teacher's own
   // classes in their own institution, otherwise the exam would silently scope itself to (and

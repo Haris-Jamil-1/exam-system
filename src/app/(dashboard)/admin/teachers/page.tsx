@@ -1,6 +1,8 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
-import { getTeachersList, getMyInstitution, setUserSuspension, createBulkTeacherInvites } from '@/lib/data';
+import { useRef, useState } from 'react';
+import { getAdminTeachersPageData, setUserSuspension, createBulkTeacherInvites } from '@/lib/data';
+import { useServerData } from '@/hooks/useServerData';
+import { invalidateData } from '@/lib/data-refresh';
 import { parseBulkEmails } from '@/lib/class-permissions';
 import { parseEmailsFromBuffer } from '@/lib/bulk-email-file-parse';
 import {
@@ -38,8 +40,6 @@ const OUTCOME_LABEL: Record<string, string> = {
 };
 
 export default function AdminTeachersPage() {
-  const [teachers, setTeachers]         = useState<Teacher[]>([]);
-  const [institutionName, setInstitutionName] = useState('');
   const [search, setSearch]             = useState('');
   const [showInvite, setShowInvite]     = useState(false);
   const [inviteTab, setInviteTab]       = useState<'email' | 'bulk'>('email');
@@ -57,14 +57,9 @@ export default function AdminTeachersPage() {
   const [bulkSending, setBulkSending]   = useState(false);
   const [bulkResults, setBulkResults]   = useState<BulkResult[] | null>(null);
 
-  function refresh() {
-    Promise.all([getTeachersList(), getMyInstitution()]).then(([t, inst]) => {
-      setTeachers(t as Teacher[]);
-      if (inst) setInstitutionName(inst.name);
-    });
-  }
-
-  useEffect(refresh, []);
+  const { data, refresh } = useServerData(() => getAdminTeachersPageData(), [], { scope: 'users' });
+  const teachers = (data?.teachers ?? []) as Teacher[];
+  const institutionName = data?.institution?.name ?? '';
 
   async function handleToggleSuspend(teacher: Teacher) {
     const suspend = teacher.status !== 'suspended';
@@ -72,9 +67,7 @@ export default function AdminTeachersPage() {
     setBusyId(teacher.id);
     try {
       const updated = await setUserSuspension(teacher.id, suspend);
-      if (updated) {
-        setTeachers(prev => prev.map(t => t.id === teacher.id ? { ...t, status: suspend ? 'suspended' : 'active' } : t));
-      }
+      if (updated) invalidateData();
     } finally {
       setBusyId(null);
     }

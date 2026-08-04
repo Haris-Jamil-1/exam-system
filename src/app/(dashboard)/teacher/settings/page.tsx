@@ -8,7 +8,6 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Check, User, Lock, Bell, FileText, GraduationCap, ShieldCheck, Camera } from 'lucide-react';
-import { getMyInstitution } from '@/lib/data/users';
 import { getTeacherDashboardData } from '@/lib/data/analytics';
 
 type ProfileFormValues = { name: string; email: string; institution: string };
@@ -32,16 +31,8 @@ export default function TeacherSettingsPage() {
     defaultValues: { name: '', email: '', institution: '' },
   });
 
-  useEffect(() => {
-    getMyInstitution().then(inst => {
-      const name = inst?.name ?? '';
-      setInstitutionName(name);
-      if (currentUser) {
-        reset({ name: currentUser.name, email: currentUser.email, institution: name });
-      }
-    });
-  }, [currentUser, reset]);
-
+  // One server action instead of two serialized round trips: the dashboard
+  // payload already carries the institution.
   useEffect(() => {
     getTeacherDashboardData().then(d => {
       const byKey = Object.fromEntries(d.stats.map(s => [s.key, s.value]));
@@ -50,8 +41,13 @@ export default function TeacherSettingsPage() {
         totalStudents: Number(byKey.totalStudents ?? 0),
         avgTrust: String(byKey.avgTrust ?? '—'),
       });
+      const name = d.institution?.name ?? '';
+      setInstitutionName(name);
+      if (currentUser) {
+        reset({ name: currentUser.name, email: currentUser.email, institution: name });
+      }
     });
-  }, []);
+  }, [currentUser, reset]);
 
   async function onSubmit(values: ProfileFormValues) {
     const name = values.name.trim();

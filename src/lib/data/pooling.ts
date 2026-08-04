@@ -1,6 +1,6 @@
 'use server';
 import { prisma } from '@/lib/prisma';
-import { createClient } from '@/lib/supabase/server';
+import { getSessionInstitutionId } from '@/lib/session';
 import { getAccessibleBankIds } from './item-banks';
 import type { Prisma } from '@/generated/prisma/client';
 import { InsufficientPoolError } from './pooling-errors';
@@ -19,9 +19,7 @@ export interface CloPoolRow {
 type PoolingDb = Prisma.TransactionClient | typeof prisma;
 
 async function getInstitutionId(): Promise<string | null> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  return (user?.user_metadata?.institutionId as string | undefined) ?? null;
+  return getSessionInstitutionId();
 }
 
 /**

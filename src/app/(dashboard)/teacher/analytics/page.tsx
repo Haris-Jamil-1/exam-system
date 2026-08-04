@@ -1,6 +1,6 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { getAnalyticsKpis, getScoreDistribution, getTrustTrend, getQuestionDifficulty } from '@/lib/data';
+import { getTeacherAnalyticsData } from '@/lib/data';
+import { useServerData } from '@/hooks/useServerData';
 import type { StatValue } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TrendingUp, TrendingDown } from 'lucide-react';
@@ -11,24 +11,13 @@ import {
 } from 'recharts';
 
 export default function AnalyticsPage() {
-  const [kpis, setKpis] = useState<StatValue[]>([]);
-  const [scoreDist, setScoreDist] = useState<{ range: string; count: number }[]>([]);
-  const [trustTrend, setTrustTrend] = useState<{ week: string; avgTrust: number }[]>([]);
-  const [diffData, setDiffData] = useState<{ difficulty: string; correct: number; incorrect: number }[]>([]);
-
-  useEffect(() => {
-    Promise.all([
-      getAnalyticsKpis(),
-      getScoreDistribution(),
-      getTrustTrend(),
-      getQuestionDifficulty(),
-    ]).then(([k, sd, tt, dd]) => {
-      setKpis(k);
-      setScoreDist(sd);
-      setTrustTrend(tt);
-      setDiffData(dd);
-    });
-  }, []);
+  // Was four separate server actions in a Promise.all — which React queues one at
+  // a time, so it cost four full sequential round trips (~4.2s of a ~5.9s load).
+  const { data } = useServerData(() => getTeacherAnalyticsData(), []);
+  const kpis: StatValue[] = data?.kpis ?? [];
+  const scoreDist = data?.scoreDistribution ?? [];
+  const trustTrend = data?.trustTrend ?? [];
+  const diffData = data?.questionDifficulty ?? [];
 
   return (
     <div className="space-y-6">

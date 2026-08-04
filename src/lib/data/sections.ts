@@ -1,13 +1,10 @@
 'use server';
 import { prisma } from '@/lib/prisma';
-import { createClient } from '@/lib/supabase/server';
+import { getSessionUser } from '@/lib/session';
 import type { ExamSection, SectionAttempt } from '@/types';
 
 async function getCallerPrismaUser() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  return prisma.user.findUnique({ where: { supabaseId: user.id } });
+  return getSessionUser();
 }
 
 async function assertExamOwnership(examId: string) {

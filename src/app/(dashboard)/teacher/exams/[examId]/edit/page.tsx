@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getExamById, getQuestions, createQuestion, updateQuestion, deleteQuestion, updateExam, getSections } from '@/lib/data';
+import { getExamEditPageData, createQuestion, updateQuestion, deleteQuestion, updateExam } from '@/lib/data';
 import type { Exam, Question, QuestionType, ExamSection } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -46,8 +46,9 @@ export default function EditExamPage() {
   const stemSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   useEffect(() => {
-    Promise.all([getExamById(examId), getQuestions(examId), getSections(examId)]).then(([e, q, s]) => {
-      setExam(e ?? null);
+    // One server action instead of three serialized round trips.
+    getExamEditPageData(examId).then(({ exam: e, questions: q, sections: s }) => {
+      setExam(e);
       setInstructions(e?.instructions ?? '');
       setQuestions(q);
       setSections(s);

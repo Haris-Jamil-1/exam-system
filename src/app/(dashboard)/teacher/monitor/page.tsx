@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { getExams, getMonitorStudents, getMonitorFeed } from '@/lib/data';
+import { getExams, getMonitorPageData } from '@/lib/data';
 import type { Exam, MonitorStudent, Violation } from '@/types';
 import {
   Eye, AlertTriangle, Users, ShieldCheck,
@@ -48,7 +48,8 @@ export default function LiveMonitorPage() {
 
   const refresh = useCallback(async () => {
     if (!selectedId) return;
-    const [s, f] = await Promise.all([getMonitorStudents(selectedId), getMonitorFeed(selectedId)]);
+    // One server action instead of two — this runs on a 10s poll.
+    const { students: s, feed: f } = await getMonitorPageData(selectedId);
     setStudents(s);
     setFeed(f);
   }, [selectedId]);

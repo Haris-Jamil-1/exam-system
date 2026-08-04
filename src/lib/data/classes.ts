@@ -1,6 +1,6 @@
 'use server';
 import { prisma } from '@/lib/prisma';
-import { createClient } from '@/lib/supabase/server';
+import { getSessionUser } from '@/lib/session';
 import { canManageClass, deriveInviteStatus, type CallerContext } from '@/lib/class-permissions';
 import { isEmailActiveElsewhere } from './invite-guards';
 import { getResend } from '@/lib/resend-client';
@@ -14,10 +14,7 @@ const MAX_BULK_INVITES = 50;
 // ── Caller resolution ──────────────────────────────────────────────────────────
 
 async function getCaller(): Promise<CallerContext | null> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  const row = await prisma.user.findUnique({ where: { supabaseId: user.id } });
+  const row = await getSessionUser();
   if (!row) return null;
   return { id: row.id, institutionId: row.institutionId, role: row.role as CallerContext['role'], isSuperAdmin: row.isSuperAdmin };
 }

@@ -1,5 +1,4 @@
 'use client';
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import {
@@ -10,6 +9,7 @@ import {
 import type { ExamStatus, StatValue } from '@/types';
 import { getTeacherDashboardData } from '@/lib/data';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useServerData } from '@/hooks/useServerData';
 
 const STAT_META: Record<string, { label: string; icon: React.ElementType; iconBg: string; iconColor: string }> = {
   activeExams:    { label: 'Active Exams',      icon: FileText,      iconBg: '#E3F0FD', iconColor: '#1E88E5' },
@@ -39,17 +39,10 @@ export default function TeacherDashboard() {
   const a = useTranslations('actions');
   const currentUser = useCurrentUser();
 
-  const [stats, setStats]   = useState<StatValue[]>([]);
-  const [exams, setExams]   = useState<RecentExam[]>([]);
-  const [alerts, setAlerts] = useState<Alert[]>([]);
-
-  useEffect(() => {
-    getTeacherDashboardData().then(({ stats: s, exams: e, alerts: al }) => {
-      setStats(s);
-      setExams(e as RecentExam[]);
-      setAlerts(al as Alert[]);
-    });
-  }, []);
+  const { data } = useServerData(() => getTeacherDashboardData(), []);
+  const stats: StatValue[] = data?.stats ?? [];
+  const exams = (data?.exams ?? []) as RecentExam[];
+  const alerts = (data?.alerts ?? []) as Alert[];
 
   const firstName = currentUser?.name?.split(' ')[0] ?? 'Teacher';
 

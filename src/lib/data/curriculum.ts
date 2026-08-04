@@ -1,12 +1,10 @@
 'use server';
 import { prisma } from '@/lib/prisma';
-import { createClient } from '@/lib/supabase/server';
+import { getSessionInstitutionId } from '@/lib/session';
 import type { Course, Topic, LearningObjective } from '@/types';
 
 async function getInstitutionId(): Promise<string | null> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  return (user?.user_metadata?.institutionId as string | undefined) ?? null;
+  return getSessionInstitutionId();
 }
 
 function mapCourse(c: { id: string; code: string; title: string; institutionId: string; createdAt: Date }): Course {

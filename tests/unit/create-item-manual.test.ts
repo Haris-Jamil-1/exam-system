@@ -11,7 +11,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const { mockUser, mockPrismaUser, mockItem, mockGetCallerAndBankPermission } = vi.hoisted(() => ({
   mockUser: vi.fn(),
-  mockPrismaUser: { findFirst: vi.fn() },
+  // createItem now resolves the author through lib/session.ts's shared, request-memoised
+  // getSessionContext (findUnique on the supabaseId) rather than its own findFirst.
+  mockPrismaUser: { findFirst: vi.fn(), findUnique: vi.fn() },
   mockItem: { create: vi.fn(), findUnique: vi.fn() },
   mockGetCallerAndBankPermission: vi.fn(),
 }));
@@ -21,7 +23,15 @@ vi.mock('@/lib/prisma', () => ({
 }));
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: mockUser() } }) },
+    auth: {
+      getUser: async () => ({ data: { user: mockUser() } }),
+      getClaims: async () => {
+        const u = mockUser();
+        return u
+          ? { data: { claims: { sub: u.id, user_metadata: u.user_metadata } }, error: null }
+          : { data: null, error: null };
+      },
+    },
   }),
 }));
 vi.mock('@/lib/data/item-banks', () => ({
@@ -49,7 +59,7 @@ beforeEach(() => {
 
 describe('createItem — manual item builder (Task 3)', () => {
   it('creates an item with a real (coerced) number for marks and the resolved authorId, and it is retrievable via getItemById', async () => {
-    mockPrismaUser.findFirst.mockResolvedValue({ id: TEACHER_PRISMA_ID });
+    mockPrismaUser.findUnique.mockResolvedValue({ id: TEACHER_PRISMA_ID });
 
     const createdRow = {
       id: 'item-1', type: 'mcq', stem: 'What is 2+2?', marks: 4, difficulty: 'medium',
@@ -83,7 +93,7 @@ describe('createItem — manual item builder (Task 3)', () => {
   });
 
   it('throws an explicit, catchable error instead of silently falling back to an empty authorId when no matching User row exists', async () => {
-    mockPrismaUser.findFirst.mockResolvedValue(null); // Supabase session with no matching Prisma User
+    mockPrismaUser.findUnique.mockResolvedValue(null); // Supabase session with no matching Prisma User
 
     await expect(createItem({
       type: 'mcq', stem: 'What is 2+2?', marks: 4, difficulty: 'medium', order: 0,

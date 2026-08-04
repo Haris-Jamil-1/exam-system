@@ -1,6 +1,6 @@
 'use server';
 import { prisma } from '@/lib/prisma';
-import { createClient } from '@/lib/supabase/server';
+import { getSessionContext, getSessionIdentity } from '@/lib/session';
 import type { Item, Option, TestCase } from '@/types';
 import { getAccessibleBankIds, getCallerAndBankPermission } from './item-banks';
 import { canEdit as bankCanEdit, canRead as bankCanRead } from '@/lib/item-bank-permissions';
@@ -68,9 +68,7 @@ function mapItem(i: PrismaItem): Item {
 }
 
 async function getInstitutionId(): Promise<string | null> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  return (user?.user_metadata?.institutionId as string | undefined) ?? null;
+  return (await getSessionIdentity()).institutionId;
 }
 
 /**
@@ -121,9 +119,7 @@ export async function getItemById(id: string): Promise<Item | undefined> {
 }
 
 export async function createItem(data: Omit<Item, 'id' | 'createdAt' | 'usageCount'> & { bankId: string }): Promise<Item> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  const institutionId = (user?.user_metadata?.institutionId as string | undefined) ?? null;
+  const { institutionId } = await getSessionIdentity();
   if (!institutionId) throw new Error('Not authenticated');
   if (!data.bankId) throw new Error('bankId is required');
 
@@ -136,11 +132,9 @@ export async function createItem(data: Omit<Item, 'id' | 'createdAt' | 'usageCou
   // empty-string authorId previously hit Item.authorId's required FK constraint inside the
   // prisma.item.create() below, which the manual item builder's UI had no error handling for at
   // all — the save silently did nothing instead of surfacing this account-sync problem.
-  const prismaUser = user?.id
-    ? await prisma.user.findFirst({ where: { supabaseId: user.id }, select: { id: true } })
-    : null;
-  if (!prismaUser) throw new Error('No matching account record for this session — please sign in again');
-  const authorId = prismaUser.id;
+  const { prismaUserId } = await getSessionContext();
+  if (!prismaUserId) throw new Error('No matching account record for this session — please sign in again');
+  const authorId = prismaUserId;
   const { options, ...rest } = data;
   try {
     const row = await prisma.item.create({

@@ -48,16 +48,21 @@ export async function middleware(request: NextRequest) {
     },
   );
 
-  // Validates JWT server-side — never use getSession() here (it's unauthenticated)
-  const { data: { user } } = await supabase.auth.getUser();
+  // Validates the JWT server-side — never use getSession() here (it's unauthenticated).
+  // getClaims() verifies the ES256 signature locally against the project's cached JWKS
+  // (~1ms) instead of getUser()'s HTTPS round trip to the Auth API (~300ms measured).
+  // This middleware runs on EVERY request the app makes — including every Server Action
+  // POST — so that round trip was being paid once per action on top of the action's own.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const claims = claimsData?.claims;
 
-  if (!user) {
+  if (!claims?.sub) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
   }
 
-  const role = user.user_metadata?.role as string | undefined;
+  const role = (claims.user_metadata as { role?: string } | undefined)?.role;
   const allowed = ROLE_PATHS[role ?? ''] ?? [];
 
   // /super (platform Super Admin panel) is authenticated-only here; the real

@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { invalidateData } from '@/lib/data-refresh';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -359,6 +360,7 @@ export default function NewExamPage() {
         await incrementItemUsage(item.id);
       }
 
+      invalidateData('exams');
       router.push(`/teacher/exams/${exam.id}/edit`);
     } catch (err) {
       console.error('[handleFinish] Failed to create exam:', err);

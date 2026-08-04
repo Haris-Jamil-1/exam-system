@@ -1,6 +1,6 @@
 'use client';
-import { useEffect, useState } from 'react';
 import { getStudentExams } from '@/lib/data';
+import { useServerData } from '@/hooks/useServerData';
 import {
   Trophy, ShieldCheck, Clock, FileText,
   CheckCircle2, XCircle, TrendingUp, BarChart2,
@@ -20,12 +20,8 @@ type StudentExam = {
 };
 
 export default function StudentResultsPage() {
-  const [exams, setExams]     = useState<StudentExam[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    getStudentExams().then(e => { setExams(e as StudentExam[]); setLoading(false); });
-  }, []);
+  const { data, loading } = useServerData(() => getStudentExams(), [], { scope: 'exams' });
+  const exams = (data ?? []) as StudentExam[];
 
   const completed       = exams.filter(e => e.status === 'completed' && e.score !== undefined);
   // Exams submitted but results held by teacher (score === undefined on completed exams)

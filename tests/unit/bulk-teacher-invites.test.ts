@@ -15,7 +15,15 @@ vi.mock('@/lib/prisma', () => ({
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: mockUser() } }) },
+    auth: {
+      getUser: async () => ({ data: { user: mockUser() } }),
+      getClaims: async () => {
+        const u = mockUser();
+        return u
+          ? { data: { claims: { sub: u.id, user_metadata: u.user_metadata } }, error: null }
+          : { data: null, error: null };
+      },
+    },
   }),
 }));
 

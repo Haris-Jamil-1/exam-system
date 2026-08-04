@@ -1,7 +1,8 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { getStudentExams } from '@/lib/data';
+import { useServerData } from '@/hooks/useServerData';
 import {
   Calendar, Clock, FileText, Play, CheckCircle2,
   Radio, ChevronRight, ShieldCheck, Filter,
@@ -29,13 +30,9 @@ const STATUS_STYLE = {
 type Filter = 'all' | 'available' | 'upcoming' | 'completed';
 
 export default function StudentExamsPage() {
-  const [exams, setExams]     = useState<StudentExam[]>([]);
-  const [loading, setLoading] = useState(true);
   const [filter, setFilter]   = useState<Filter>('all');
-
-  useEffect(() => {
-    getStudentExams().then(e => { setExams(e as StudentExam[]); setLoading(false); });
-  }, []);
+  const { data, loading } = useServerData(() => getStudentExams(), [], { scope: 'exams' });
+  const exams = (data ?? []) as StudentExam[];
 
   const visible = filter === 'all' ? exams : exams.filter(e => e.status === filter);
   const counts = {

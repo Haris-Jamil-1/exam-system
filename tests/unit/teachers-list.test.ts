@@ -5,19 +5,30 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // down the other half of the claim — that getTeachersList's own query has no status/institution
 // filter that would additionally hide a freshly-joined teacher once their User row is correct.
 
-const { mockUser, mockPrismaUser, mockExamEnrollment } = vi.hoisted(() => ({
+const { mockUser, mockPrismaUser, mockExamEnrollment, mockPrismaExam } = vi.hoisted(() => ({
   mockUser: vi.fn(),
   mockPrismaUser: { findMany: vi.fn(), findUnique: vi.fn() },
   mockExamEnrollment: { count: vi.fn() },
+  mockPrismaExam: { findMany: vi.fn() },
 }));
 
 vi.mock('@/lib/prisma', () => ({
-  prisma: { user: mockPrismaUser, examEnrollment: mockExamEnrollment },
+  prisma: { user: mockPrismaUser, examEnrollment: mockExamEnrollment, exam: mockPrismaExam },
 }));
 
+// getClaims is the local ES256 verification path lib/session.ts now uses instead of
+// getUser's HTTPS round trip; it exposes the same `sub` / `user_metadata` fields.
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: mockUser() } }) },
+    auth: {
+      getUser: async () => ({ data: { user: mockUser() } }),
+      getClaims: async () => {
+        const u = mockUser();
+        return u
+          ? { data: { claims: { sub: u.id, user_metadata: u.user_metadata } }, error: null }
+          : { data: null, error: null };
+      },
+    },
   }),
 }));
 
@@ -33,6 +44,9 @@ beforeEach(() => {
   });
   mockPrismaUser.findUnique.mockResolvedValue({ id: 'admin-1' });
   mockExamEnrollment.count.mockResolvedValue(0);
+  // Per-teacher enrolment totals now come from one exam.findMany instead of an
+  // examEnrollment.count per teacher (the N+1 that pass removed).
+  mockPrismaExam.findMany.mockResolvedValue([]);
 });
 
 describe('getTeachersList', () => {

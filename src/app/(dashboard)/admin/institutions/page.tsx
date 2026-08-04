@@ -1,6 +1,6 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { getAllUsers, getExams, getMyInstitution } from '@/lib/data';
+import { getAdminInstitutionsPageData } from '@/lib/data';
+import { useServerData } from '@/hooks/useServerData';
 import type { CurrentUser, Exam } from '@/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,17 +9,17 @@ import { Button } from '@/components/ui/button';
 type InstitutionData = { id: string; name: string; domain: string; joinCode: string };
 
 export default function InstitutionsPage() {
-  const [institution, setInstitution] = useState<InstitutionData | null>(null);
-  const [users, setUsers] = useState<CurrentUser[]>([]);
-  const [exams, setExams] = useState<Exam[]>([]);
-
-  useEffect(() => {
-    Promise.all([getAllUsers(), getExams(), getMyInstitution()]).then(([u, e, inst]) => {
-      setUsers(u);
-      setExams(e);
-      if (inst) setInstitution({ id: inst.id, name: inst.name, domain: inst.domain, joinCode: inst.joinCode });
-    });
-  }, []);
+  const { data } = useServerData(() => getAdminInstitutionsPageData(), []);
+  const users: CurrentUser[] = data?.users ?? [];
+  const exams: Exam[] = data?.exams ?? [];
+  const institution: InstitutionData | null = data?.institution
+    ? {
+        id: data.institution.id,
+        name: data.institution.name,
+        domain: data.institution.domain,
+        joinCode: data.institution.joinCode,
+      }
+    : null;
 
   return (
     <div className="space-y-4">
