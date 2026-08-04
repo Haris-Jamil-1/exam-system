@@ -12,6 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Plus, Search, ChevronDown, ChevronUp, Check, Clock, Hourglass, Archive, AlertTriangle, Upload, Users2, Sparkles, ChevronRight, Building2, Lock } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { RichText } from '@/components/rich/RichText';
 import { BulkImportModal } from '@/components/shared/BulkImportModal';
 import { ManageAccessDialog } from '@/components/shared/ManageAccessDialog';
 import { AiGeneratePanel } from '@/components/items/AiGeneratePanel';
@@ -79,7 +80,7 @@ function ItemRow({ item, onSubmit, onArchive }: { item: Item; onSubmit: (id: str
             {!hasExpandable && <span className="w-4 shrink-0" />}
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <p className="font-medium text-sm leading-snug line-clamp-2">{item.stem}</p>
+                <p className="font-medium text-sm leading-snug line-clamp-2"><RichText content={item.stem} /></p>
                 {item.aiGenerated && (
                   <span
                     title="Generated with AI — review before approving"
@@ -319,7 +320,7 @@ export default function ItemBankDetailPage() {
         subEn={bank.description || (bank.bankLevel === 'institutional' ? 'Institutional bank' : 'Private bank')}
         subAr={bank.description || ''}
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge variant={bank.bankLevel === 'institutional' ? 'info' : 'outline'} className="gap-1">
               {bank.bankLevel === 'institutional' ? <Building2 className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
               {bank.bankLevel}

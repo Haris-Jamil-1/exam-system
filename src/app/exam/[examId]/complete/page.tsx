@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { useProctoringStore } from '@/store/proctoringStore';
 import { DesktopGuard } from '@/components/shared/DesktopGuard';
+import { RichText } from '@/components/rich/RichText';
 
 type PerQuestionResult = {
   questionId: string;
@@ -186,7 +187,7 @@ export default function ExamCompletePage() {
                     <div key={q.questionId} className="flex items-start gap-3 py-2 border-b last:border-0">
                       <span className="text-xs font-bold text-muted-foreground w-5 shrink-0 mt-0.5">Q{i + 1}</span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs text-gray-700 leading-snug line-clamp-2">{q.stem}</p>
+                        <p className="text-xs text-gray-700 leading-snug line-clamp-2"><RichText content={q.stem} /></p>
                         <div className="flex items-center gap-2 mt-1">
                           <span className="text-xs capitalize text-muted-foreground">{q.type.replace('_', ' ')}</span>
                           {!isPending && (

@@ -67,7 +67,24 @@ const OUTPUT_FORMAT = {
   },
 };
 
-function buildSystemPrompt(params: GenerationParams): string {
+/**
+ * Notation rules handed to the model so generated STEM items arrive already using the same
+ * lightweight LaTeX markup the platform renders (see src/lib/rich-text.ts + components/rich).
+ * Without this the model writes "H2SO4" and "x^2" as plain text, which renders literally.
+ *
+ * The `\$` escaping rule matters as much as the delimiters: the renderer deliberately refuses to
+ * treat "costs $5 and $10" as math, but an item that mixes a real expression with an unescaped
+ * currency amount could still parse ambiguously, so the model is told to escape currency outright.
+ */
+const NOTATION_GUIDANCE = [
+  'Mathematical and chemical notation: when the subject matter is notation-heavy (mathematics, physics, chemistry, engineering), write that notation as LaTeX inside delimiters — $...$ for inline notation and $$...$$ for a standalone displayed equation.',
+  'Use mhchem syntax inside math delimiters for anything chemical, e.g. $\\ce{H2SO4 + 2NaOH -> Na2SO4 + 2H2O}$ or $\\ce{CO2 + H2O <=> H2CO3}$ — never write formulas as bare text like "H2SO4".',
+  'Apply this to the stem, every option, correctAnswer and explanation alike. An option that is purely a value or formula should be exactly that expression, e.g. "$x = 3$" or "$\\ce{Na2SO4}$".',
+  'Never wrap ordinary prose in math delimiters, and write a literal currency dollar sign as \\$ so it is never mistaken for a delimiter.',
+  'For non-technical subjects, use plain text with no delimiters at all.',
+].join(' ');
+
+export function buildSystemPrompt(params: GenerationParams): string {
   const typeGuidance: Partial<Record<QuestionType, string>> = {
     mcq: 'Each item must have exactly 4 options with exactly one correct answer. correctAnswer is the full text of the correct option. Distractors must reflect common student misconceptions, not filler.',
     mrq: 'Each item must have 4-6 options with 2 or more correct answers. correctAnswer is an array of the correct option texts.',
@@ -88,6 +105,7 @@ function buildSystemPrompt(params: GenerationParams): string {
       : '',
     'Set marks proportional to difficulty (easy: 2, medium: 4, hard: 6) unless the material clearly warrants otherwise.',
     'Each explanation must briefly justify the correct answer.',
+    NOTATION_GUIDANCE,
     params.existingStems.length > 0
       ? `The item bank already contains the following question stems. Do NOT duplicate or trivially rephrase any of them:\n${params.existingStems.map(s => `- ${s}`).join('\n')}`
       : '',

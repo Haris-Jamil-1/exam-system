@@ -151,7 +151,7 @@ export default function TeacherClassDetailPage() {
         subEn={`${enrollments.length} student${enrollments.length === 1 ? '' : 's'}`}
         subAr=""
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {cls.archivedAt && <Badge variant="secondary">Archived</Badge>}
             <Button variant="outline" onClick={() => setRenameOpen(true)}>Rename</Button>
             <Button variant="outline" onClick={handleToggleArchive} className="gap-2">

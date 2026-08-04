@@ -8,7 +8,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { GradingPanel } from '@/components/grading/GradingPanel';
+import { RichText } from '@/components/rich/RichText';
 import { CheckCircle2, XCircle, HelpCircle, CheckCheck } from 'lucide-react';
+
+// Types whose stored "answer" text is the teacher-authored option label (so it may contain
+// math/chemistry and must render through the shared renderer). Free-text answers a student typed
+// are deliberately left as literal text — students don't author math, and reinterpreting their
+// input would change what the teacher sees them having written.
+const OPTION_BASED_TYPES = new Set(['mcq', 'mrq', 'true_false', 'matching', 'ordering']);
 
 export default function StudentSubmissionPage() {
   const { examId, studentId } = useParams<{ examId: string; studentId: string }>();
@@ -149,7 +156,7 @@ export default function StudentSubmissionPage() {
                       <div className="flex items-start gap-2 min-w-0">
                         {statusIcon}
                         <div className="min-w-0">
-                          <p className="text-sm font-medium">Q{i + 1}. {a.stem}</p>
+                          <p className="text-sm font-medium">Q{i + 1}. <RichText content={a.stem} /></p>
                           <span className="text-xs capitalize text-muted-foreground">{a.type.replace('_', ' ')}</span>
                         </div>
                       </div>
@@ -160,12 +167,12 @@ export default function StudentSubmissionPage() {
                     <div className="grid sm:grid-cols-2 gap-3 ps-6">
                       <div>
                         <p className="text-xs font-medium text-muted-foreground mb-0.5">Student&apos;s answer</p>
-                        <p className="text-sm break-words">{a.studentAnswer}</p>
+                        <p className="text-sm break-words">{OPTION_BASED_TYPES.has(a.type) ? <RichText content={a.studentAnswer} /> : a.studentAnswer}</p>
                       </div>
                       {!isPending && (
                         <div>
                           <p className="text-xs font-medium text-muted-foreground mb-0.5">Correct answer</p>
-                          <p className="text-sm break-words">{a.correctAnswer}</p>
+                          <p className="text-sm break-words"><RichText content={a.correctAnswer} /></p>
                         </div>
                       )}
                     </div>

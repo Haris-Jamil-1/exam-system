@@ -15,11 +15,13 @@ import { CodeQuestion } from '@/components/exam/CodeQuestion';
 import { FileUploadQuestion } from '@/components/exam/FileUploadQuestion';
 import { ItemCountdownBadge } from '@/components/exam/ItemCountdownBadge';
 import { DesktopGuard } from '@/components/shared/DesktopGuard';
+import { RichText } from '@/components/rich/RichText';
 import { classifyStartExamResponse, classifySectionStartResponse } from '@/lib/exam-start-errors';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Flag, ChevronLeft, ChevronRight, Clock, ChevronUp, ChevronDown, Pause, Play, Info, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -833,7 +835,7 @@ export default function ExamPage() {
                   )}
                 </div>
                 <p className="text-base font-medium text-gray-900">
-                  Q{currentQuestionIndex + 1}. {q.stem}
+                  Q{currentQuestionIndex + 1}. <RichText content={q.stem} />
                 </p>
               </div>
               <button
@@ -864,7 +866,7 @@ export default function ExamPage() {
                       onChange={() => setAnswer(q.id, opt.id)}
                       className="h-4 w-4 text-blue-600"
                     />
-                    <span className="text-sm">{opt.text}</span>
+                    <span className="text-sm"><RichText content={opt.text} /></span>
                   </label>
                 ))}
               </div>
@@ -893,7 +895,7 @@ export default function ExamPage() {
                         }}
                         className="h-4 w-4"
                       />
-                      <span className="text-sm">{opt.text}</span>
+                      <span className="text-sm"><RichText content={opt.text} /></span>
                     </label>
                   );
                 })}
@@ -947,24 +949,36 @@ export default function ExamPage() {
                   const selected = matchMap[opt.id] ?? '';
                   return (
                     <div key={opt.id} className="grid grid-cols-[1fr_auto_1fr] gap-x-3 items-center">
-                      <div className="rounded-lg border bg-gray-50 px-4 py-3 text-sm font-medium truncate">{opt.text}</div>
+                      <div className="rounded-lg border bg-gray-50 px-4 py-3 text-sm font-medium truncate"><RichText content={opt.text} /></div>
                       <span className="text-gray-400 text-xs">→</span>
-                      <select
-                        value={selected}
-                        onChange={e => {
+                      {/* A native <select> can only hold text, so a match choice containing math or
+                          chemistry rendered as raw LaTeX. This uses the app's existing Radix Select
+                          instead, whose items accept real markup — the choice renders identically in
+                          the list and in the closed trigger. textValue keeps keyboard typeahead
+                          working off the underlying source string. */}
+                      <Select
+                        value={selected || undefined}
+                        onValueChange={value => {
                           const cur = (answers[q.id] as unknown as Record<string, string> | undefined) ?? {};
-                          setAnswer(q.id, { ...cur, [opt.id]: e.target.value });
+                          setAnswer(q.id, { ...cur, [opt.id]: value });
                         }}
-                        className={cn(
-                          'w-full rounded-lg border px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white',
-                          selected ? 'border-blue-400' : 'border-gray-200 text-muted-foreground',
-                        )}
                       >
-                        <option value="">— select —</option>
-                        {q.matchingChoices!.map(choice => (
-                          <option key={choice} value={choice}>{choice}</option>
-                        ))}
-                      </select>
+                        <SelectTrigger
+                          className={cn(
+                            'h-auto min-h-12 w-full rounded-lg px-3 py-3 text-sm bg-white',
+                            selected ? 'border-blue-400' : 'border-gray-200 text-muted-foreground',
+                          )}
+                        >
+                          <SelectValue placeholder="— select —" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {q.matchingChoices!.map(choice => (
+                            <SelectItem key={choice} value={choice} textValue={choice}>
+                              <RichText content={choice} />
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   );
                 })}
@@ -991,7 +1005,7 @@ export default function ExamPage() {
                         }}
                         className="h-4 w-4"
                       />
-                      <span className="text-sm">{opt.text}</span>
+                      <span className="text-sm"><RichText content={opt.text} /></span>
                     </label>
                   );
                 })}
@@ -1155,7 +1169,7 @@ function OrderingQuestion({ questionId, options, answers, setAnswer }: OrderingP
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-700 text-xs font-bold">
             {i + 1}
           </span>
-          <span className="flex-1 text-sm">{opt.text}</span>
+          <span className="flex-1 text-sm"><RichText content={opt.text} /></span>
           <div className="flex flex-col gap-0.5">
             <button
               type="button"

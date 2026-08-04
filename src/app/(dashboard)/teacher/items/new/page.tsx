@@ -14,12 +14,12 @@ import { CurriculumPicker, type CurriculumSelection } from '@/components/shared/
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Plus, Trash2, Sparkles, Check, Code2, FileUp, Eye, EyeOff } from 'lucide-react';
+import { MathTextarea, MathInput } from '@/components/rich/MathTextField';
 
 type FormData = ItemFormData;
 
@@ -67,6 +67,9 @@ export default function NewItemPage() {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [stemValue, setStemValue] = useState('');
+  // Explanation/feedback shown with the answer key. The column and createItem() already
+  // persisted it (AI-generated items fill it in) — the manual builder just never exposed it.
+  const [explanation, setExplanation] = useState('');
   // Difficulty/Status are plain controlled state (not react-hook-form fields) — same pattern this
   // file already uses for codeLanguage/allowedExts/maxFileSizeMB — because the Select components
   // previously had no onChange/register wiring at all and always silently saved 'medium'/'draft'
@@ -90,14 +93,20 @@ export default function NewItemPage() {
 
   const {
     register,
+    setValue,
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<FormData>({
     resolver: zodResolver(itemFormSchema),
-    defaultValues: { marks: 4 },
+    defaultValues: { marks: 4, stem: '' },
   });
 
-  const stemField = register('stem');
+  // The stem is now a controlled field (the math toolbar has to insert at the caret, which
+  // needs the current value), so it feeds react-hook-form through setValue rather than register.
+  function handleStemChange(value: string) {
+    setStemValue(value);
+    setValue('stem', value, { shouldValidate: true });
+  }
 
   async function handleAIAssist() {
     if (!stemValue.trim()) return;
@@ -175,6 +184,7 @@ export default function NewItemPage() {
       await createItem({
         type: qType,
         stem: data.stem,
+        explanation: explanation.trim() || undefined,
         options: showOptions ? filledOptions.map(({ matchText: _mt, ...o }) => o) : undefined,
         correctAnswer,
         marks: data.marks,
@@ -281,11 +291,11 @@ export default function NewItemPage() {
                 </Button>
               </CardHeader>
               <CardContent className="space-y-3">
-                <Textarea
+                <MathTextarea
                   placeholder="Enter your question here..."
                   rows={4}
-                  {...stemField}
-                  onChange={e => { void stemField.onChange(e); setStemValue(e.target.value); }}
+                  value={stemValue}
+                  onValueChange={handleStemChange}
                 />
                 {errors.stem && <p className="text-sm text-red-500">{errors.stem.message}</p>}
 
@@ -331,20 +341,18 @@ export default function NewItemPage() {
                       {qType !== 'matching' && (
                         <span className="text-xs font-medium text-gray-400 w-4">{String.fromCharCode(65 + i)}</span>
                       )}
-                      <Input
+                      <MathInput
                         placeholder={qType === 'matching' ? `Term ${i + 1}` : `Option ${String.fromCharCode(65 + i)}`}
                         value={opt.text}
-                        onChange={e => updateOption(opt.id, e.target.value)}
-                        className="flex-1"
+                        onValueChange={value => updateOption(opt.id, value)}
                       />
                       {qType === 'matching' && (
                         <>
                           <span className="text-gray-400 text-xs">→</span>
-                          <Input
+                          <MathInput
                             placeholder={`Match ${i + 1}`}
                             value={opt.matchText ?? ''}
-                            onChange={e => updateMatchText(opt.id, e.target.value)}
-                            className="flex-1"
+                            onValueChange={value => updateMatchText(opt.id, value)}
                           />
                         </>
                       )}
@@ -368,10 +376,10 @@ export default function NewItemPage() {
               <Card>
                 <CardHeader><CardTitle>Correct Answer</CardTitle></CardHeader>
                 <CardContent className="space-y-2">
-                  <Input
+                  <MathInput
                     placeholder={qType === 'fill_blank' ? 'Expected answer (exact match, case-insensitive)' : 'Model answer for auto-grading'}
                     value={correctAnswerText}
-                    onChange={e => setCorrectAnswerText(e.target.value)}
+                    onValueChange={setCorrectAnswerText}
                   />
                   <p className="text-xs text-muted-foreground">
                     {qType === 'fill_blank'
@@ -381,6 +389,20 @@ export default function NewItemPage() {
                 </CardContent>
               </Card>
             )}
+
+            {/* Explanation / feedback */}
+            <Card>
+              <CardHeader className="pb-2"><CardTitle>Explanation</CardTitle></CardHeader>
+              <CardContent className="space-y-2">
+                <MathTextarea
+                  placeholder="Why is this the correct answer? Shown with the answer key."
+                  rows={3}
+                  value={explanation}
+                  onValueChange={setExplanation}
+                />
+                <p className="text-xs text-muted-foreground">Optional. Supports math and chemistry.</p>
+              </CardContent>
+            </Card>
 
             {/* Essay rubric */}
             {qType === 'essay' && (

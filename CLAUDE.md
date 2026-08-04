@@ -9,6 +9,111 @@
 
 ## Session Log
 
+### 2026-08-04 — Math & chemistry in question content (KaTeX + mhchem + MathLive), no schema change ✅
+
+Audit first: this codebase had **no rich-text editor at all** — no TipTap/Quill/Slate/Lexical, zero
+`contentEditable`, zero `dangerouslySetInnerHTML`. Stems/options/explanations are plain `String`
+columns authored in bare shadcn `<Textarea>`/`<Input>` and rendered as React text children. So the
+brief's "migrate to TipTap" fallback was **deliberately declined and justified in writing**: TipTap
+would force `stem` to become HTML/JSON, breaking `scoring.ts`'s option-text equality, both Claude
+prompt paths in `ai/grading.ts` + `ai/claude-generator.ts` (explicitly out of scope), pg_trgm dedup,
+3 search filters, CSV import and every `line-clamp` preview — for bold/italic/lists, which is a
+different feature than "math & chemistry". Haris confirmed the lighter scope.
+
+- **Storage unchanged.** No Prisma migration, no data migration. `stem`/`text`/`explanation` stay
+  plain strings; LaTeX lives inline as `$…$` / `$$…$$` / `\(…\)` / `\[…\]`, chemistry as mhchem's
+  `\ce{...}` inside those. Every pre-existing row parses to one text segment and renders exactly
+  as before.
+- **One renderer, everywhere** — `src/components/rich/RichText.tsx` is the only place authored
+  content is rendered: student exam page (stem, MCQ/MRQ/matching/ordering options), post-submit
+  review, teacher per-student answer review, exam edit page, bank/admin/wizard list previews.
+  Fast path: content with no delimiters renders as a plain text child and never loads KaTeX.
+- **Currency is the real backward-compat hazard, and is handled**: `$…$` only opens when the next
+  char isn't whitespace and only closes when the previous char isn't whitespace *and* the next
+  isn't a digit. `"The item costs $5 and the tax is $10."` stays literal; `"Solve $2x + 1 = 7$"`
+  renders. Unterminated delimiters, blank-line spans and >5000-char expressions all fall back to
+  literal text. 23 unit tests in `tests/unit/rich-text.test.ts`.
+- **Authoring** — `MathTextarea`/`MathInput` wrap the existing primitives with an insert-at-caret
+  toolbar (Σ Math / ⚗ Chemistry) plus a live preview that only appears once the field contains an
+  expression. Math mode drives a **MathLive** `<math-field>` (built imperatively, strictly typed via
+  `MathfieldElement`, no `JSX.IntrinsicElements` hack, no `any`); chemistry mode takes plain mhchem
+  notation with quick-insert glyphs and wraps it in `\ce{...}`. Per Haris's call the LaTeX source
+  stays visible and editable in both. Wired into the item builder (stem, options, matching pairs,
+  correct-answer, **plus a new Explanation field** — the column and `createItem` already persisted
+  it, the manual builder just never exposed it) and the exam edit page (Add Question + inline stem).
+- **XSS**: no new HTML-injection path exists. Text segments are React children (escaped); LaTeX goes
+  to KaTeX as a *source string* with `trust: false`, which disables `\href`/`\url`/`\includegraphics`
+  /`\html*` — the only commands that can emit URLs, attributes or markup. `dangerouslySetInnerHTML`
+  remains at zero occurrences repo-wide; KaTeX writes into a DOM node React doesn't own.
+- **Lazy loading verified against the build, not assumed**: KaTeX (296KB), MathLive (821KB) and the
+  KaTeX stylesheet each land in their own async chunk, confirmed absent from `build-manifest.json`'s
+  eager file lists. MathLive fonts self-hosted in `public/mathlive/fonts/` (20 woff2, 296KB, no
+  external calls) — no middleware change needed, `STATIC_ASSET_RE` already passes `.woff2`, the
+  generalisation added when `/models/*` was being role-redirected.
+- **Real bug found and fixed via live QA** (pre-existing, on the surface being extended): the exam
+  edit page's inline stem editor `await`ed the server round trip before updating the controlled
+  value, so every character typed while a save was in flight was echoed away by the stale prop —
+  typing `" Edited."` at a human cadence landed as `"di"`. Now updates local state immediately and
+  debounces the save per question (600ms), flushed on blur.
+- **Observed but not fixed (pre-existing, unrelated, out of scope)**: `/teacher/items/[bankId]`
+  horizontally overflows at 390px because of its action-button row (`flex-shrink-0`, 749px wide) —
+  measured with zero KaTeX nodes on the page, so not math-related; and the proctoring bundle 404s on
+  `tfjs-backend-wasm-simd.wasm`.
+- **Verification**: `tsc` clean · `lint` unchanged 3-error/0-warning baseline · `vitest` 313/313
+  (290 baseline + 23 new) · `build` clean, 88 routes. **30/30 live checks** via a disposable,
+  self-cleaning Playwright + Prisma script against a fresh production build (`next start`, not dev)
+  and the live DB: legacy plain stem unchanged and KaTeX never loaded for it, currency prose not
+  reinterpreted, inline+display math and mhchem chemistry rendered (arrows `⟶`/`⇌` confirmed in the
+  MathML layer), options render math, editing a pre-math question saves correctly, authoring a new
+  math+chem item through both dialogs persists the LaTeX byte-exact, and rendered math stays inside
+  a 390px viewport. All QA data confirmed deleted afterward (0 leftovers).
+- **Known limitations at first pass** (all but the last two closed by the follow-up below):
+  native `<select>` options in matching couldn't render math; AI generation didn't emit LaTeX;
+  no keyboard shortcut; no print handling; the bank page's own mobile overflow. Still open:
+  students can't author math in their own free-text answers (deliberate, per Haris's scope), and
+  there is no print/PDF *export route* in this app — only browser print of existing pages.
+
+### 2026-08-04 (cont'd) — math/chem follow-ups: AI emits LaTeX, matching dropdowns render math, shortcuts, print, mobile overflow ✅
+
+The five improvements suggested at the end of the pass above, implemented and live-verified.
+
+- **AI generation now emits LaTeX.** `buildSystemPrompt` (`ai/claude-generator.ts`, exported for
+  testability) gained a `NOTATION_GUIDANCE` block: `$…$`/`$$…$$` delimiters, mhchem `\ce{...}` for
+  chemistry rather than bare `H2SO4`, applied to stem/options/correctAnswer/explanation alike, an
+  option that is purely a formula written as exactly that expression, literal currency escaped as
+  `\$` (mirroring the renderer's own anti-currency rule), and plain text with no delimiters for
+  non-technical subjects. 7 tests in `tests/unit/generation-notation-prompt.test.ts` pin the
+  guidance plus the pre-existing prompt contract so a future edit can't silently drop it.
+- **Matching dropdowns render math.** The student exam page's native `<select>` (text-only, so a
+  math/chem choice showed raw LaTeX) is replaced by the app's existing Radix `Select`, whose
+  `SelectItem` already wraps children in `ItemText` — so a choice renders identically in the list
+  *and* in the closed trigger. `textValue={choice}` keeps keyboard typeahead working off the source
+  string; `value={selected || undefined}` respects Radix's reserved empty-string value.
+- **Keyboard shortcuts** — `Ctrl/Cmd+M` opens the equation dialog, `Ctrl/Cmd+Shift+M` the chemistry
+  one, on every math-enabled field. Advertised via `aria-keyshortcuts` + tooltips. Deliberately not
+  platform-detected: reading `navigator` during render would break the React Compiler purity rule
+  and hydrate differently than it server-rendered, so both modifiers are named.
+- **Print** — `@media print` rules in `globals.css` make display-math containers `overflow: visible`
+  and wrap instead of scroll (a scroll container silently truncates on paper), keep an expression
+  from splitting across a page break, and force `print-color-adjust: exact` on KaTeX glyphs. Screen
+  rendering untouched. There is still no print/PDF export *route* — this only makes browser print
+  of the existing review pages correct.
+- **Mobile overflow fixed at the shared-component level, in two places, both pre-existing**:
+  `PageHeader` now stacks below `sm` with `min-w-0` on the title (its non-shrinking action slot —
+  four buttons plus a badge, ~750px on the item-bank page — was forcing page-level overflow), and
+  `TabsList` gained `max-w-full overflow-x-auto` with `shrink-0` triggers so a 5-tab strip scrolls
+  inside itself instead of widening the page. The `TabsList` change fixes all four tab strips in
+  the app at once. Measured before/after at 390px: `scrollWidth` 960 → 588 (header fix) → **390 =
+  clientWidth** (tabs fix). Action rows on the item-bank and class-detail pages also now wrap.
+- **Verification**: `tsc` clean · `lint` unchanged 3-error/0-warning baseline · `vitest` 320/320
+  (313 + 7 new) · `build` clean, 88 routes. **15/15 live checks** on a second disposable fixture
+  (a matching question with math/chemistry on both sides) against a fresh production build:
+  zero native `<select>` remaining, dropdown choices and the closed trigger both rendering KaTeX
+  with no `\ce`/`$` visible, both shortcuts opening the right dialog and round-tripping an insert
+  to `$\ce{H2O}$` at the caret, plain typing unaffected, `scrollWidth === clientWidth` at 390px
+  with math still rendering, and round 1's no-KaTeX-for-plain-stems fast path intact. All QA data
+  confirmed deleted (0 leftovers).
+
 ### 2026-07-20 (cont'd) — "Start without verification" escape hatch on the biometric gate, teacher notified ✅
 
 Follow-up to the same day's verification work: students can now bypass the face/ID gate via a
@@ -801,7 +906,9 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 - `npm run build` → **PASSES** (0 errors, 88 routes)
 - `npm run lint` → 3 pre-existing baseline errors (`useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff), 0 warnings
 - `npx tsc --noEmit` → clean
-- `npx vitest run` → 290/290 passing (+ `pytest` 10/10 in `psychometrics/`)
+- `npx vitest run` → 320/320 passing (+ `pytest` 10/10 in `psychometrics/`)
+- Last verified: 2026-08-04 (math/chem follow-ups — AI LaTeX guidance, matching dropdowns, shortcuts, print CSS, mobile overflow; 15/15 live checks)
+- Last verified: 2026-08-04 (math & chemistry in question content — KaTeX/mhchem/MathLive, 30/30 live checks against a fresh production build)
 - Last verified: 2026-07-20 (start-without-verification escape hatch + real face↔ID matching, auto-derived duration, mobile UI pass, notification-panel cleanup)
 - Last verified: 2026-07-18 (proctoring system fix — per-detector live verification against a fresh production build, see `PROCTORING_FIX_PROGRESS.md`)
 - Last verified: 2026-07-17 (exam auto-completes on the teacher side when closing time is reached)

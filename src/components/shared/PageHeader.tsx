@@ -18,9 +18,13 @@ export function PageHeader({ en, ar, subEn, subAr, action }: PageHeaderProps) {
   const mainSub = isAr ? subAr : subEn;
   const secondarySub = isAr ? subEn : subAr;
 
+  // Stacks below `sm`. The action slot is often a row of several buttons (the item-bank page
+  // passes four plus a badge, ~750px), and as a non-shrinking sibling of the title it forced
+  // page-level horizontal overflow on phones. Stacking plus `min-w-0` on the title lets that row
+  // wrap instead. Layout at `sm` and above is unchanged.
   return (
-    <div className="flex items-start justify-between gap-4">
-      <div>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+      <div className="min-w-0">
         <div className="flex items-baseline gap-3 flex-wrap">
           <h1
             className="text-[22px] font-extrabold tracking-[-0.01em] text-[#1A1D23]"
@@ -58,7 +62,7 @@ export function PageHeader({ en, ar, subEn, subAr, action }: PageHeaderProps) {
           </div>
         )}
       </div>
-      {action && <div className="flex-shrink-0">{action}</div>}
+      {action && <div className="shrink-0 max-w-full">{action}</div>}
     </div>
   );
 }

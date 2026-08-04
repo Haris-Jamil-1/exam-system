@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getExamById, getQuestions, createQuestion, updateQuestion, deleteQuestion, updateExam, getSections } from '@/lib/data';
@@ -12,6 +12,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { SectionsManager } from '@/components/exams/SectionsManager';
+import { MathTextarea } from '@/components/rich/MathTextField';
+import { RichText } from '@/components/rich/RichText';
 import { Plus, Trash2, GripVertical, Save, Radio, CalendarCheck, CheckCircle2, ChevronRight } from 'lucide-react';
 
 const QUESTION_TYPES: { value: QuestionType; label: string }[] = [
@@ -22,6 +24,8 @@ const QUESTION_TYPES: { value: QuestionType; label: string }[] = [
   { value: 'essay', label: 'Essay' },
   { value: 'fill_blank', label: 'Fill in the Blank' },
 ];
+
+const STEM_SAVE_DEBOUNCE_MS = 600;
 
 export default function EditExamPage() {
   const { examId } = useParams<{ examId: string }>();
@@ -38,6 +42,8 @@ export default function EditExamPage() {
   const [saved, setSaved] = useState(false);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [instructions, setInstructions] = useState('');
+  // Pending debounced stem saves, keyed by question id.
+  const stemSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   useEffect(() => {
     Promise.all([getExamById(examId), getQuestions(examId), getSections(examId)]).then(([e, q, s]) => {
@@ -92,10 +98,28 @@ export default function EditExamPage() {
     setQuestions(prev => prev.filter(q => q.id !== id));
   }
 
-  async function updateStem(id: string, stem: string) {
-    await updateQuestion(id, { stem });
+  // The stem editor is a controlled field whose value comes from `questions`. Awaiting the server
+  // round trip before updating that state meant every character typed while a save was in flight
+  // was echoed away by the stale prop — live QA typing " Edited." at a human cadence landed as
+  // "di". Local state now updates immediately (so nothing is ever lost) and the save is debounced
+  // per question; blurring the field flushes it right away.
+  function updateStem(id: string, stem: string) {
     setQuestions(prev => prev.map(q => q.id === id ? { ...q, stem } : q));
     setSaved(false);
+    const timers = stemSaveTimers.current;
+    if (timers[id]) clearTimeout(timers[id]);
+    timers[id] = setTimeout(() => {
+      delete timers[id];
+      void updateQuestion(id, { stem });
+    }, STEM_SAVE_DEBOUNCE_MS);
+  }
+
+  function flushStemSave(id: string, stem: string) {
+    const timers = stemSaveTimers.current;
+    if (!timers[id]) return;
+    clearTimeout(timers[id]);
+    delete timers[id];
+    void updateQuestion(id, { stem });
   }
 
   async function updateTimeLimit(id: string, timeLimitSeconds: number | undefined) {
@@ -325,9 +349,10 @@ export default function EditExamPage() {
                       <Badge variant="outline" className="text-xs capitalize">{q.difficulty}</Badge>
                       <span className="text-xs text-gray-400">{q.marks} marks</span>
                     </div>
-                    <Textarea
+                    <MathTextarea
                       value={q.stem}
-                      onChange={e => updateStem(q.id, e.target.value)}
+                      onValueChange={value => updateStem(q.id, value)}
+                      onBlur={() => flushStemSave(q.id, q.stem)}
                       rows={2}
                       className="text-sm resize-none border-0 bg-transparent p-0 focus-visible:ring-0"
                     />
@@ -360,7 +385,7 @@ export default function EditExamPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 mt-1">
                         {q.options.map(opt => (
                           <span key={opt.id} className={`text-xs px-2 py-0.5 rounded ${opt.isCorrect ? 'bg-green-100 text-green-700' : 'text-gray-500'}`}>
-                            {opt.text}
+                            <RichText content={opt.text} />
                           </span>
                         ))}
                       </div>
@@ -407,11 +432,11 @@ export default function EditExamPage() {
           </div>
           <div className="space-y-2">
             <Label>Question Stem</Label>
-            <Textarea
+            <MathTextarea
               placeholder="Enter your question here..."
               rows={3}
               value={newStem}
-              onChange={e => setNewStem(e.target.value)}
+              onValueChange={setNewStem}
             />
           </div>
           <div className="flex gap-4 flex-wrap">

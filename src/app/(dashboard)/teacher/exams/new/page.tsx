@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { createExam, createQuestion, getItems, incrementItemUsage, getMyClasses } from '@/lib/data';
 import { BlueprintPoolingPanel } from '@/components/exams/BlueprintPoolingPanel';
+import { RichText } from '@/components/rich/RichText';
 import { computeExamDurationMinutes, MIN_EXAM_DURATION_MINUTES } from '@/lib/exam-duration';
 import type { QuestionType, Item, ClassSummary } from '@/types';
 import { Plus, Check, ChevronRight, ChevronLeft, Search, ChevronDown, ChevronUp, Clock } from 'lucide-react';
@@ -131,7 +132,7 @@ function ItemBankPicker({ selectedIds, onToggle }: {
                         <span className="text-xs text-muted-foreground">· used {item.usageCount}×</span>
                       )}
                     </div>
-                    <p className="text-sm font-medium leading-snug">{item.stem}</p>
+                    <p className="text-sm font-medium leading-snug"><RichText content={item.stem} /></p>
                     {item.tags.length > 0 && (
                       <div className="flex gap-1 mt-1 flex-wrap">
                         {item.tags.map(tag => (
@@ -510,7 +511,7 @@ export default function NewExamPage() {
                     <div key={item.id} className="flex items-start gap-3 border rounded-lg p-3 bg-green-50 border-green-200">
                       <span className="text-sm font-semibold text-green-600 w-6 shrink-0 mt-0.5">{i + 1}</span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium leading-snug">{item.stem}</p>
+                        <p className="text-sm font-medium leading-snug"><RichText content={item.stem} /></p>
                         <div className="flex gap-1.5 mt-1">
                           <Badge variant="info" className="text-xs">{TYPE_LABELS[item.type]}</Badge>
                           <Badge variant={DIFF_VARIANT[item.difficulty] as 'success' | 'warning' | 'danger'} className="text-xs capitalize">{item.difficulty}</Badge>

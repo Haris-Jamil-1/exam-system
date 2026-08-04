@@ -80,3 +80,29 @@ body {
 
 /* Selection */
 ::selection { background: rgba(30, 136, 229, 0.18); color: #1A202C; }
+
+/* ── Rendered math/chemistry in print ────────────────────────────────────────────────────────
+   There is no dedicated print/PDF export route in this app, but teachers do print question
+   review pages straight from the browser. On screen a long expression sits in its own
+   horizontally scrollable box; on paper a scroll container silently truncates it, so equations
+   must overflow visibly and wrap instead. Also keeps an expression from being split across a
+   page break. Screen rendering is untouched. */
+@media print {
+  .katex-display,
+  .katex-display > .katex {
+    overflow: visible !important;
+    white-space: normal !important;
+  }
+  .katex {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* KaTeX's own colour comes through as-is; force browsers not to drop it when
+     "background graphics" is off, so an error-coloured expression stays legible. */
+  .katex .mord,
+  .katex .mrel,
+  .katex .mbin {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

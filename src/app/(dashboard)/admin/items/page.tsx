@@ -10,6 +10,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Check, X, ChevronDown, ChevronUp, Search, ClipboardCheck, Package } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { RichText } from '@/components/rich/RichText';
 
 const TYPE_LABELS: Record<QuestionType, string> = {
   mcq: 'MCQ', mrq: 'MRQ', true_false: 'T/F', short_answer: 'Short',
@@ -57,7 +58,7 @@ function ItemReviewCard({ item, authorName, onApprove, onReturn }: {
               <span className="text-xs text-muted-foreground">by {authorName}</span>
               <span className="text-xs text-muted-foreground">· {new Date(item.createdAt).toLocaleDateString()}</span>
             </div>
-            <p className="font-medium text-sm leading-snug">{item.stem}</p>
+            <p className="font-medium text-sm leading-snug"><RichText content={item.stem} /></p>
             {item.tags.length > 0 && (
               <div className="flex gap-1 mt-1.5 flex-wrap">
                 {item.tags.map(tag => (
@@ -284,7 +285,7 @@ export default function AdminItemsPage() {
                         <span className="text-xs text-muted-foreground">by {authors[item.authorId] ?? '—'}</span>
                         <span className="text-xs text-muted-foreground">· used {item.usageCount}×</span>
                       </div>
-                      <p className="text-sm font-medium leading-snug">{item.stem}</p>
+                      <p className="text-sm font-medium leading-snug"><RichText content={item.stem} /></p>
                       {item.tags.length > 0 && (
                         <div className="flex gap-1 mt-1 flex-wrap">
                           {item.tags.map(tag => (
@@ -332,7 +333,7 @@ export default function AdminItemsPage() {
                   ) : allFiltered.map(item => (
                     <tr key={item.id} className="hover:bg-muted/20">
                       <td className="px-4 py-3">
-                        <p className="font-medium line-clamp-1">{item.stem}</p>
+                        <p className="font-medium line-clamp-1"><RichText content={item.stem} /></p>
                       </td>
                       <td className="px-4 py-3">
                         <Badge variant="info" className="text-xs">{TYPE_LABELS[item.type]}</Badge>
