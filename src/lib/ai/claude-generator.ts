@@ -37,6 +37,27 @@ const generatedItemSchema = z.object({
 
 const responseSchema = z.object({ items: z.array(generatedItemSchema).min(1) });
 
+type GeneratedItemLike = { options?: string[]; correctAnswer: string | string[] };
+
+/**
+ * The zod schema above can't express a cross-field rule — `options` is optional overall since
+ * essay/short_answer/fill_blank legitimately have none — so a matching item with a fully
+ * populated `correctAnswer` but missing/misaligned `options` passes schema validation and would
+ * otherwise persist as a broken, unusable question. For matching, `options` is the left-hand
+ * term list and `correctAnswer` the right-hand labels, index-aligned, so a real matching item
+ * structurally cannot have one without the other at the same length. Exported for unit testing;
+ * used by callClaude() to reject-and-retry a structurally invalid response the same way a
+ * JSON-parse or schema failure already does.
+ */
+export function isStructurallyValidMatchingBatch(items: GeneratedItemLike[]): boolean {
+  return items.every(item =>
+    Array.isArray(item.options) &&
+    item.options.length >= 2 &&
+    Array.isArray(item.correctAnswer) &&
+    item.correctAnswer.length === item.options.length,
+  );
+}
+
 // JSON schema for structured output (output_config.format) — mirrors the zod
 // schema above; zod stays the runtime validator on our side.
 const OUTPUT_FORMAT = {
@@ -149,6 +170,12 @@ async function callClaude(params: GenerationParams): Promise<GenerationResult> {
     }
     const validated = responseSchema.safeParse(parsed);
     if (!validated.success) continue;
+
+    // Treated the same as any other schema-invalid response: reject and retry, never silently
+    // repaired (doc 02's own stated policy for this loop).
+    if (params.type === 'matching' && !isStructurallyValidMatchingBatch(validated.data.items)) {
+      continue;
+    }
 
     const items: GeneratedQuestion[] = validated.data.items.slice(0, params.count).map(item => ({
       stem: item.stem,
