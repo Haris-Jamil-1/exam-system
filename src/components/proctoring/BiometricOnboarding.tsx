@@ -24,6 +24,13 @@ interface Props {
    * for reporting the skip to the teacher (an `unverified_start` violation on the attempt).
    */
   onSkip?: () => void;
+  /**
+   * Camera+microphone stream already acquired and liveness-verified by the device gate
+   * (useMediaReadiness). When present it is reused instead of opening a second camera stream,
+   * and is NOT stopped here — the gate owns its lifetime. Falls back to its own getUserMedia
+   * when absent, so this component still works standalone.
+   */
+  streamRef?: React.RefObject<MediaStream | null>;
 }
 
 type Step = 'webcam' | 'id' | 'verified';
@@ -60,7 +67,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   camera_unavailable: 'Camera frame unavailable — check your camera permission and try again.',
 };
 
-export function BiometricOnboarding({ onComplete, onSkip }: Props) {
+export function BiometricOnboarding({ onComplete, onSkip, streamRef }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const faceDescriptorRef = useRef<Float32Array | null>(null);
   const [currentStep, setCurrentStep] = useState<Step>('webcam');
@@ -72,16 +79,24 @@ export function BiometricOnboarding({ onComplete, onSkip }: Props) {
   const [modelState, setModelState] = useState<'loading' | 'ready' | 'failed'>('loading');
 
   useEffect(() => {
-    let stream: MediaStream | null = null;
+    // Only set when this component opened the camera itself — a stream handed down by the
+    // device gate belongs to the gate and must not be stopped from here.
+    let ownedStream: MediaStream | null = null;
     let cancelled = false;
 
     async function init() {
+      const shared = streamRef?.current ?? null;
+      if (shared && shared.getVideoTracks().some(t => t.readyState === 'live')) {
+        if (videoRef.current) videoRef.current.srcObject = shared;
+        return;
+      }
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         if (cancelled) {
           stream.getTracks().forEach(t => t.stop());
           return;
         }
+        ownedStream = stream;
         if (videoRef.current) videoRef.current.srcObject = stream;
       } catch {
         if (!cancelled) setCameraError(true);
@@ -95,9 +110,9 @@ export function BiometricOnboarding({ onComplete, onSkip }: Props) {
 
     return () => {
       cancelled = true;
-      stream?.getTracks().forEach(t => t.stop());
+      ownedStream?.getTracks().forEach(t => t.stop());
     };
-  }, []);
+  }, [streamRef]);
 
   const stepIndex = STEPS.findIndex(s => s.id === currentStep);
   const step = STEPS[stepIndex];
