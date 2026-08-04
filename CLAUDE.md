@@ -9,6 +9,81 @@
 
 ## Session Log
 
+### 2026-08-05 — Parallel batch: upload UI, upcoming-exams fix, proctoring device gate, performance/staleness ✅
+
+Four independent workstreams run as isolated git worktrees and integrated together. Each landed as
+its own commit; the merge needed one integration fix (below).
+
+- **Item-bank AI upload UI** (`671130b`, `src/components/items/AiGeneratePanel.tsx`) — upload moved
+  from a text link beside the label to a centred button in a drop-zone (drag-and-drop supported)
+  with a caption explaining what to upload and that an upload alone suffices. A single `sourceReady`
+  gate now backs both the button and `handleGenerate`, so **either** an upload **or** pasted text
+  passes — neither requires the other. Extraction failures used to be swallowed by a bare
+  `catch { setDocText('') }`, leaving Generate silently disabled with no explanation; every failure
+  now names its cause (unsupported type, empty file, extraction failed, no selectable text → a
+  scan), and the disabled button always carries a reason including the 10-char minimum that mirrors
+  the route's own `z.string().min(10)`.
+- **Student dashboard "Upcoming Exams" was empty** (`2d45444`) — **third recurrence of the roster
+  bug class**. `getStudentDashboardData` resolved the roster from `TeacherStudent` only, with no
+  `ClassEnrollment` branch and no `Exam.classId` check, so a class-invite student (who has no
+  `TeacherStudent` row) hit `{ in: [] }` and saw nothing — while the same exams listed correctly on
+  `/student/exams`, whose `getStudentExams` already had the right `OR`. The gap also leaked
+  class-scoped exams to every one of the teacher's students. Second defect on the same feature: the
+  "Upcoming Exams" **stat was structurally always 0** — it counted `ExamEnrollment` rows with a
+  future `startTime`, but `ExamEnrollment` is created in exactly one place (`POST /api/attempts`,
+  i.e. on *start*), and that route rejects starting before `startTime`. Fixed at the root:
+  `studentVisibleExamWhere()` in `exam-eligibility.ts` is the Prisma WHERE twin of the existing
+  `isStudentEligibleForExam()` predicate, and both read paths use it so they cannot drift again.
+  8 new tests, confirmed failing 5/5 against pre-fix source.
+- **Proctoring device gate** (`1f982fa`) — new `src/lib/proctoring/media-readiness.ts` (pure),
+  `src/hooks/useMediaReadiness.ts`, `src/components/proctoring/MediaCheckGate.tsx`. Requires camera
+  **and** mic and proves the streams are genuinely live (video dimensions non-zero *and* playback
+  position advancing; audio analyser readable), not merely permitted. Failures classified
+  specifically (denied / dismissed / no device / in use / insecure context / unsupported), each with
+  its own fix text. **Re-verifies at click time**, so revoking permission or unplugging a webcam
+  after page load is caught. Found and fixed a real pre-existing privacy bug: a **non-proctored**
+  exam still called `getUserMedia` — `setExam()` runs before an awaited questions fetch while
+  `biometricDone` is still false, so `BiometricOnboarding` mounted transiently and grabbed the
+  camera. **This invalidates the 2026-07-09 note claiming that path was verified clean.** The
+  2026-07-20 escape hatch is preserved: still exactly one `unverified_start`, legacy wording
+  byte-identical. Never gates a *running* attempt (hook switches off at `instructionsDone`), so a
+  mid-exam hiccup or resume can't strand a student.
+- **Performance / staleness** (`e5b03fa`, 53 files) — new `src/lib/session.ts`,
+  `src/lib/data-refresh.ts`, `src/hooks/useServerData.ts`, `src/lib/data/page-data.ts`.
+  *Staleness root cause*: every dashboard page is `'use client'` loading once into `useState`; the
+  data never passes through the RSC payload or `fetch()`, so `revalidatePath`/`revalidateTag`/
+  `router.refresh()`/segment config have **nothing to invalidate** — the stale copy is browser React
+  state. Fixed with a client invalidation bus (mutations call `invalidateData()`, subscribers
+  refetch; plus refocus refetch past a 15s window). *Slow-load root causes*: (1) **React serializes
+  Server Actions** — `Promise.all` of four actions issues four *sequential* POSTs, proven by request
+  timeline (650/2686/3713/4455ms, zero overlapping pairs); (2) `supabase.auth.getUser()` is a ~300ms
+  HTTPS round trip paid in middleware AND the layout AND each of 8 duplicated session helpers, each
+  plus a ~200ms Prisma lookup — replaced by local **ES256** JWT verification via `getClaims()`
+  against the cached JWKS (~1ms), memoised per request with React `cache()`; (3) two real N+1s.
+  Authorization is unchanged — `getAuthUser` still reads the live Prisma row and both `suspendedAt`
+  checks. **Negative finding: indexes are NOT the problem** — `EXPLAIN (ANALYZE, BUFFERS)` shows an
+  index scan in 0.190ms while the Prisma call takes 345ms; cost is round-trip count × latency. **No
+  index added, no live-DB schema change anywhere in this batch — nothing to revert.**
+  Local timings (`next start`, live DB, median of 3 — *local, not production cold-start*):
+  `/teacher/analytics` 5934→841ms · `/admin` 3890→1341 · `/admin/exams` 3611→839 ·
+  `/admin/users` 3066→225 · `/student` 627→42.
+- **Integration fix** (`a6daf91`) — all four branches auto-merged with **zero conflicts**, but the
+  suite then failed 5 tests: the dashboard tests mock `auth.getUser` while the perf work moved
+  identity to `auth.getClaims`. Two individually-correct branches whose test files never met. A
+  clean textual merge is not proof of a working merge — verified afterwards that the merged
+  `getStudentDashboardData` still routes through `getStudentVisibilityContext` and that neither
+  broken pattern survives.
+- **Verification**: `tsc` clean · `lint` unchanged 3-error/0-warning baseline *on real source*
+  (a raw `npm run lint` also walks `.claude/worktrees/` and reports tens of thousands of findings —
+  worktree artifact, not code) · `vitest` **351/351** (320 + 8 + 23) · `build` clean, 88 routes ·
+  live DB swept clean, 0 leftovers.
+- **Known gap, explicitly accepted by Haris before deploy**: the proctoring gate was **never tested
+  on real hardware** — no physically unplugged webcam, OS-level muted track, lens shutter, real
+  competing app, or permission revoked from browser settings. Denials were simulated by throwing the
+  correct `DOMException` names; the `no_signal` / `track_muted` branches are unit-tested but never
+  fired by a genuine device. Chromium only. A real human+hardware pass on the gate remains
+  worthwhile.
+
 ### 2026-08-04 — Math & chemistry in question content (KaTeX + mhchem + MathLive), no schema change ✅
 
 Audit first: this codebase had **no rich-text editor at all** — no TipTap/Quill/Slate/Lexical, zero
@@ -906,7 +981,8 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 - `npm run build` → **PASSES** (0 errors, 88 routes)
 - `npm run lint` → 3 pre-existing baseline errors (`useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff), 0 warnings
 - `npx tsc --noEmit` → clean
-- `npx vitest run` → 320/320 passing (+ `pytest` 10/10 in `psychometrics/`)
+- `npx vitest run` → 351/351 passing (+ `pytest` 10/10 in `psychometrics/`)
+- Last verified: 2026-08-05 (parallel batch — upload UI, upcoming-exams fix, proctoring device gate, performance/staleness; see the Session Log for the accepted real-hardware gap on the gate)
 - Last verified: 2026-08-04 (math/chem follow-ups — AI LaTeX guidance, matching dropdowns, shortcuts, print CSS, mobile overflow; 15/15 live checks)
 - Last verified: 2026-08-04 (math & chemistry in question content — KaTeX/mhchem/MathLive, 30/30 live checks against a fresh production build)
 - Last verified: 2026-07-20 (start-without-verification escape hatch + real face↔ID matching, auto-derived duration, mobile UI pass, notification-panel cleanup)
