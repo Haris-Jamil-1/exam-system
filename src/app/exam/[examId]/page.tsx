@@ -11,6 +11,13 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useExamTimer } from '@/hooks/useExamTimer';
 import { ProctoringOverlay } from '@/components/proctoring/ProctoringOverlay';
 import { BiometricOnboarding } from '@/components/proctoring/BiometricOnboarding';
+import { MediaCheckGate } from '@/components/proctoring/MediaCheckGate';
+import { useMediaReadiness } from '@/hooks/useMediaReadiness';
+import {
+  buildUnverifiedStartDescription,
+  formatMediaBlockMessage,
+  type MediaFailure,
+} from '@/lib/proctoring/media-readiness';
 import { CodeQuestion } from '@/components/exam/CodeQuestion';
 import { FileUploadQuestion } from '@/components/exam/FileUploadQuestion';
 import { ItemCountdownBadge } from '@/components/exam/ItemCountdownBadge';
@@ -77,14 +84,29 @@ export default function ExamPage() {
 
   // Biometric gate — shown before exam if proctoring level is strict
   const [biometricDone, setBiometricDone] = useState(false);
-  // Set when the student used the gate's "start without verification" escape hatch —
-  // reported to the teacher as an unverified_start violation once the attempt exists
-  // (the gate runs before any attempt row is created, so it can't be logged earlier).
-  const skippedVerificationRef = useRef(false);
+  // Set when the student used one of the pre-exam gates' escape hatches — reported to the
+  // teacher as a single unverified_start violation once the attempt exists (both gates run
+  // before any attempt row is created, so nothing can be logged earlier). `media` covers the
+  // device gate below, `biometric` the face/ID gate; the description names whichever applied.
+  const unverifiedStartRef = useRef<{ biometric: boolean; media: boolean; mediaFailures: MediaFailure[] }>({
+    biometric: false,
+    media: false,
+    mediaFailures: [],
+  });
+  // Device gate — the student chose to proceed with a camera/microphone that isn't working.
+  const [mediaSkipped, setMediaSkipped] = useState(false);
   // Pre-exam instructions gate — the duration timer only starts once this is dismissed
   const [instructionsDone, setInstructionsDone] = useState(false);
   const [startingExam, setStartingExam] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
+
+  // Camera + microphone must both be granted AND genuinely live before a proctored exam can
+  // start. Scoped deliberately: `exam.isProctoringEnabled === false` keeps `enabled` false for
+  // the whole page life, so getUserMedia is never called for a non-proctored exam; and the gate
+  // switches off once the attempt is running (instructionsDone) so a mid-exam device hiccup can
+  // never strand a student inside a live attempt — ProctoringOverlay owns the camera from then
+  // on, and a resumed attempt (which sets instructionsDone during load) is likewise untouched.
+  const media = useMediaReadiness(!!exam?.isProctoringEnabled && !mediaSkipped && !instructionsDone);
   // Pause overlay
   const [paused, setPaused] = useState(false);
   // File upload answers stored separately (File objects can't go into Zustand string answers)
@@ -229,6 +251,20 @@ export default function ExamPage() {
     setStartingExam(true);
     setStartError(null);
     try {
+      // Re-verify the devices at the moment of the click, never only at page load: a student
+      // can revoke the permission, unplug the webcam, or have another app grab the microphone
+      // between arriving on this screen and pressing the button. A failure here flips the hook
+      // into `blocked`, so the device gate re-renders over this screen with the specific
+      // reason + retry. Skipped deliberately for a student who took the escape hatch — they
+      // already opted out knowingly and the teacher is already being told.
+      if (exam.isProctoringEnabled && !mediaSkipped) {
+        const failures = await media.verifyNow();
+        if (failures.length > 0) {
+          setStartError(formatMediaBlockMessage(failures));
+          return;
+        }
+      }
+
       const res = await fetch('/api/attempts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -253,10 +289,19 @@ export default function ExamPage() {
       sessionStorage.setItem(SESSION_KEY(examId), JSON.stringify(session));
       setAttemptId(attempt.id);
 
-      // The gate's "start without verification" choice is only reportable now that the
+      // The gates' "start without verification" choices are only reportable now that the
       // attempt row exists. Best-effort: a failure here must never block the exam start.
-      if (skippedVerificationRef.current) {
-        skippedVerificationRef.current = false; // report once, even if start is retried later
+      // Still exactly one high-severity unverified_start event regardless of how many gates
+      // were bypassed — the severity/trust-deduction/bell-label pipeline is unchanged.
+      const bypass = unverifiedStartRef.current;
+      if (bypass.biometric || bypass.media) {
+        const description = buildUnverifiedStartDescription({
+          biometricSkipped: bypass.biometric,
+          mediaSkipped: bypass.media,
+          mediaFailures: bypass.mediaFailures,
+        });
+        // Report once, even if the start is retried later.
+        unverifiedStartRef.current = { biometric: false, media: false, mediaFailures: [] };
         void fetch('/api/violations', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -268,7 +313,7 @@ export default function ExamPage() {
               severity: 'high',
               confidence: 1,
               timestamp: new Date().toISOString(),
-              description: 'Student started the exam without completing face/ID identity verification',
+              description,
             }],
           }),
         }).catch(err => console.error('[exam-start] failed to report unverified start:', err));
@@ -544,13 +589,58 @@ export default function ExamPage() {
     );
   }
 
+  // ── Device gate: camera + microphone must be granted AND genuinely live ────────
+  // Runs for every proctored exam (not just strict ones — ProctoringOverlay needs both
+  // devices either way) and always before the biometric gate, which reuses this stream.
+  // Re-renders over the instructions screen if a track dies later, returning the student to
+  // the blocked state; never shown once the attempt is running (see the hook's `enabled`).
+  if (exam && exam.isProctoringEnabled && !mediaSkipped && !instructionsDone && media.status !== 'ready') {
+    return (
+      <MediaCheckGate
+        status={media.status === 'blocked' ? 'blocked' : 'checking'}
+        failures={media.failures}
+        onRetry={() => {
+          // Also clears any message left over from a click-time re-verify failure, so a
+          // recovered device doesn't drop the student back onto a stale error.
+          setStartError(null);
+          media.check();
+        }}
+        onSkip={() => {
+          // Preserves the 2026-07-20 escape hatch for the case it was explicitly meant to
+          // cover ("also covers broken cameras"): hardening the check must not leave a
+          // student with dead hardware unable to sit the exam at all. The teacher is told.
+          const cameraDead = media.failures.some(f => f.device === 'camera');
+          unverifiedStartRef.current = {
+            // A dead camera makes the face/ID step structurally impossible, so it counts as
+            // bypassed too rather than dead-ending the student on a second broken screen. A
+            // microphone-only failure still leaves identity verification perfectly doable.
+            biometric: unverifiedStartRef.current.biometric || cameraDead,
+            media: true,
+            mediaFailures: media.failures,
+          };
+          if (cameraDead) setBiometricDone(true);
+          setMediaSkipped(true);
+        }}
+      />
+    );
+  }
+
   // ── Biometric gate ────────────────────────────────────────────────────────────
-  if (exam && !biometricDone) {
+  // Derived from the exam itself, not only from the `biometricDone` flag: load() sets that
+  // flag for non-strict/non-proctored exams *after* an await (the questions fetch), so there
+  // was a render in between where this gate mounted for an exam that must never touch the
+  // camera — BiometricOnboarding's own getUserMedia({video:true}) fired and was torn down a
+  // moment later. Live-confirmed against a production build (a non-proctored exam recorded one
+  // getUserMedia call), and confirmed pre-existing by re-running the same probe on master.
+  const needsBiometricGate =
+    !!exam && !!exam.isProctoringEnabled && exam.settings?.proctoringLevel === 'strict' && !biometricDone;
+  if (needsBiometricGate) {
     return (
       <BiometricOnboarding
+        streamRef={media.streamRef}
         onComplete={() => setBiometricDone(true)}
         onSkip={() => {
-          skippedVerificationRef.current = true;
+          unverifiedStartRef.current = { ...unverifiedStartRef.current, biometric: true };
           setBiometricDone(true);
         }}
       />
