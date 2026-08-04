@@ -2,8 +2,8 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getExamById, getScoreDistribution, getQuestionDifficulty } from '@/lib/data';
-import { getStudentResults } from '@/lib/data/students';
+import { getExamResultsPageData } from '@/lib/data';
+import { useServerData } from '@/hooks/useServerData';
 import type { Exam } from '@/types';
 import type { StudentResult } from '@/lib/data/students';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,37 +20,26 @@ const PASS_COLORS = ['#22c55e', '#ef4444'];
 export default function ResultsPage() {
   const { examId } = useParams<{ examId: string }>();
 
-  const [exam, setExam] = useState<Exam | null>(null);
-  const [scoreDist, setScoreDist] = useState<{ range: string; count: number }[]>([]);
-  const [diffData, setDiffData] = useState<{ difficulty: string; correct: number; incorrect: number }[]>([]);
-  const [studentResults, setStudentResults] = useState<StudentResult[]>([]);
-  const [resultsPublished, setResultsPublished] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
+  // Was four server actions per load, re-run on a 15s poll — i.e. four serialized
+  // round trips every 15 seconds. Now one action, same poll.
+  const { data, refresh } = useServerData(() => getExamResultsPageData(examId), [examId]);
+  const exam = (data?.exam ?? null) as Exam | null;
+  const studentResults: StudentResult[] = data?.results ?? [];
+  const scoreDist = data?.scoreDistribution ?? [];
+  const diffData = data?.questionDifficulty ?? [];
+  const resultsPublished = !!exam?.resultsPublishedAt;
+
   useEffect(() => {
-    async function load() {
-      const [e, s, sd, dd] = await Promise.all([
-        getExamById(examId),
-        getStudentResults(examId),
-        getScoreDistribution(examId),
-        getQuestionDifficulty(examId),
-      ]);
-      setExam(e ?? null);
-      setStudentResults(s);
-      setScoreDist(sd);
-      setDiffData(dd);
-      if (e?.resultsPublishedAt) setResultsPublished(true);
-    }
-    load();
-    // Poll every 15 seconds so new submissions appear without manual refresh
-    const id = setInterval(load, 15000);
+    const id = setInterval(refresh, 15000);
     return () => clearInterval(id);
-  }, [examId]);
+  }, [refresh]);
 
   async function handlePublishResults() {
     setPublishing(true);
     const res = await fetch(`/api/exams/${examId}/publish-results`, { method: 'PATCH' });
-    if (res.ok) setResultsPublished(true);
+    if (res.ok) refresh();
     setPublishing(false);
   }
 

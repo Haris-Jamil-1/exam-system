@@ -2,7 +2,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getItemBankById, getItems, updateItem } from '@/lib/data';
+import { getItemBankPageData, updateItem } from '@/lib/data';
+import { invalidateData } from '@/lib/data-refresh';
 import type { Item, ItemBank, ItemStatus, QuestionType } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -226,23 +227,33 @@ export default function ItemBankDetailPage() {
   const [accessOpen, setAccessOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
 
+  // One server action instead of two.
   const refreshItems = useCallback(() => {
-    getItems({ bankId }).then(setItems);
+    getItemBankPageData(bankId).then(({ bank: b, items: i }) => {
+      setBank(b);
+      setItems(i);
+    });
   }, [bankId]);
 
   useEffect(() => {
-    getItemBankById(bankId).then(b => setBank(b ?? null));
     refreshItems();
-  }, [bankId, refreshItems]);
+  }, [refreshItems]);
 
   async function handleSubmitForReview(id: string) {
     const updated = await updateItem(id, { status: 'review' });
-    if (updated) setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'review' as ItemStatus } : i));
+    if (updated) {
+      setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'review' as ItemStatus } : i));
+      // Submitting for review changes the admin shell's "Item Review" badge count.
+      invalidateData('items');
+    }
   }
 
   async function handleArchive(id: string) {
     const updated = await updateItem(id, { status: 'archived' });
-    if (updated) setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'archived' as ItemStatus } : i));
+    if (updated) {
+      setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'archived' as ItemStatus } : i));
+      invalidateData('items');
+    }
   }
 
   function filterItems(status: string) {

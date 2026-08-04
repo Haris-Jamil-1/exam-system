@@ -1,13 +1,17 @@
-import { createClient } from '@/lib/supabase/server';
 import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
+import { getSessionIdentity } from '@/lib/session';
 
 export async function getAuthUser() {
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return null;
+  // Identity comes from the shared, request-memoised resolver (see lib/session.ts):
+  // the JWT is verified locally against the project's ES256 JWKS rather than via an
+  // HTTPS round trip to the Auth API. Only `sub` was ever used here, so this is a
+  // like-for-like substitution — every authorization decision below still reads the
+  // live Prisma row, including the suspension checks.
+  const { supabaseId } = await getSessionIdentity();
+  if (!supabaseId) return null;
   const prismaUser = await prisma.user.findUnique({
-    where: { supabaseId: user.id },
+    where: { supabaseId },
     include: { institution: { select: { suspendedAt: true } } },
   });
   if (!prismaUser) return null;

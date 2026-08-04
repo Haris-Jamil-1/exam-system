@@ -1,16 +1,13 @@
 'use server';
 import { prisma } from '@/lib/prisma';
-import { createClient } from '@/lib/supabase/server';
+import { getSessionUser } from '@/lib/session';
 import type { ItemBank, ItemBankLevel, ItemBankPermissionRole, ItemBankCollaborator } from '@/types';
 import { resolveBankPermission, canRead, canManage, type CallerContext, type PrismaBankForPermission } from '@/lib/item-bank-permissions';
 
 // ── Caller resolution ──────────────────────────────────────────────────────────
 
 async function getCaller(): Promise<CallerContext | null> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  const row = await prisma.user.findUnique({ where: { supabaseId: user.id } });
+  const row = await getSessionUser();
   if (!row) return null;
   return { id: row.id, institutionId: row.institutionId, role: row.role as CallerContext['role'] };
 }

@@ -1,13 +1,10 @@
 'use server';
 import { prisma } from '@/lib/prisma';
-import { createClient } from '@/lib/supabase/server';
+import { getSessionUser } from '@/lib/session';
 import type { Question, Option, PublicQuestion, TestCase } from '@/types';
 
 async function getCallerPrismaUser() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  return prisma.user.findUnique({ where: { supabaseId: user.id } });
+  return getSessionUser();
 }
 
 type PrismaOption = { id: string; text: string; isCorrect: boolean; questionId: string; order: number };

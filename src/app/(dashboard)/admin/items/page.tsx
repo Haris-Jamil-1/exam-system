@@ -1,6 +1,8 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { getItems, updateItem, getTeachersList } from '@/lib/data';
+import { useState } from 'react';
+import { getAdminItemsPageData, updateItem } from '@/lib/data';
+import { useServerData } from '@/hooks/useServerData';
+import { invalidateData } from '@/lib/data-refresh';
 import type { Item, QuestionType } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -139,29 +141,31 @@ function ItemReviewCard({ item, authorName, onApprove, onReturn }: {
 }
 
 export default function AdminItemsPage() {
-  const [items, setItems] = useState<Item[]>([]);
-  const [authors, setAuthors] = useState<Record<string, string>>({});
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [authorFilter, setAuthorFilter] = useState('all');
 
-  useEffect(() => {
-    Promise.all([getItems(), getTeachersList()]).then(([i, t]) => {
-      setItems(i);
-      const map: Record<string, string> = {};
-      for (const teacher of t) map[teacher.id] = teacher.name;
-      setAuthors(map);
-    });
-  }, []);
+  const { data, setData } = useServerData(() => getAdminItemsPageData(), [], { scope: 'items' });
+  const items: Item[] = data?.items ?? [];
+  const authors: Record<string, string> = Object.fromEntries(
+    (data?.teachers ?? []).map(t => [t.id, t.name]),
+  );
+
+  function applyLocalStatus(id: string, status: Item['status']) {
+    setData(prev => prev && { ...prev, items: prev.items.map(i => i.id === id ? { ...i, status } : i) });
+    // The sidebar's "Item Review" badge lives in the admin layout and counted
+    // review-status items once on mount — it went stale on every approve/return.
+    invalidateData();
+  }
 
   async function handleApprove(id: string) {
     await updateItem(id, { status: 'approved' });
-    setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'approved' } : i));
+    applyLocalStatus(id, 'approved');
   }
 
   async function handleReturn(id: string) {
     await updateItem(id, { status: 'draft' });
-    setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'draft' } : i));
+    applyLocalStatus(id, 'draft');
   }
 
   function filterItems(status: string) {

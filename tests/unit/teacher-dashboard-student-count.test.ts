@@ -6,19 +6,31 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // includes both relations, and that "Active Exams" is now time-aware (a scheduled exam whose
 // startTime has passed counts as active without needing its DB status manually flipped).
 
-const { mockUser, mockExam, mockViolation, mockExamAttempt } = vi.hoisted(() => ({
+const { mockUser, mockExam, mockViolation, mockExamAttempt, mockInstitution } = vi.hoisted(() => ({
   mockUser: { findUnique: vi.fn(), count: vi.fn() },
   mockExam: { count: vi.fn(), findMany: vi.fn() },
   mockViolation: { count: vi.fn(), findMany: vi.fn() },
   mockExamAttempt: { aggregate: vi.fn() },
+  // getTeacherDashboardData now also returns the institution, so the teacher
+  // settings page can render from one server action instead of two.
+  mockInstitution: { findUnique: vi.fn() },
 }));
 
 vi.mock('@/lib/prisma', () => ({
-  prisma: { user: mockUser, exam: mockExam, violation: mockViolation, examAttempt: mockExamAttempt },
+  prisma: {
+    user: mockUser, exam: mockExam, violation: mockViolation,
+    examAttempt: mockExamAttempt, institution: mockInstitution,
+  },
 }));
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: { id: 'supabase-teacher', user_metadata: { institutionId: 'inst-a', role: 'teacher' } } } }) },
+    auth: {
+      getUser: async () => ({ data: { user: { id: 'supabase-teacher', user_metadata: { institutionId: 'inst-a', role: 'teacher' } } } }),
+      getClaims: async () => ({
+        data: { claims: { sub: 'supabase-teacher', user_metadata: { institutionId: 'inst-a', role: 'teacher' } } },
+        error: null,
+      }),
+    },
   }),
 }));
 
@@ -35,6 +47,7 @@ beforeEach(() => {
   mockViolation.count.mockResolvedValue(0);
   mockViolation.findMany.mockResolvedValue([]);
   mockExamAttempt.aggregate.mockResolvedValue({ _avg: { trustScore: null } });
+  mockInstitution.findUnique.mockResolvedValue({ id: 'inst-a', name: 'Inst A' });
 });
 
 describe('getTeacherDashboardData — student count and active-exam fixes (Task 5)', () => {

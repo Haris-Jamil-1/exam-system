@@ -1,7 +1,9 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import { getInstitutionBanks, getMyPrivateBanks, getSharedWithMeBanks, createItemBank } from '@/lib/data';
+import { getItemBanksPageData, createItemBank } from '@/lib/data';
+import { useServerData } from '@/hooks/useServerData';
+import { invalidateData } from '@/lib/data-refresh';
 import type { ItemBank } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -53,21 +55,14 @@ function EmptyState({ icon: Icon, text }: { icon: typeof Library; text: string }
 }
 
 export default function ItemBanksPage() {
-  const [institutionBanks, setInstitutionBanks] = useState<ItemBank[]>([]);
-  const [privateBanks, setPrivateBanks] = useState<ItemBank[]>([]);
-  const [sharedBanks, setSharedBanks] = useState<ItemBank[]>([]);
+  const { data: banksData } = useServerData(() => getItemBanksPageData(), [], { scope: 'item-banks' });
+  const institutionBanks: ItemBank[] = banksData?.institutionBanks ?? [];
+  const privateBanks: ItemBank[] = banksData?.privateBanks ?? [];
+  const sharedBanks: ItemBank[] = banksData?.sharedBanks ?? [];
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [creating, setCreating] = useState(false);
-
-  function refresh() {
-    getInstitutionBanks().then(setInstitutionBanks);
-    getMyPrivateBanks().then(setPrivateBanks);
-    getSharedWithMeBanks().then(setSharedBanks);
-  }
-
-  useEffect(refresh, []);
 
   async function handleCreate() {
     if (!name.trim()) return;
@@ -77,7 +72,7 @@ export default function ItemBanksPage() {
       setCreateOpen(false);
       setName('');
       setDescription('');
-      refresh();
+      invalidateData('item-banks');
     } finally {
       setCreating(false);
     }

@@ -1,6 +1,7 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { getStudents } from '@/lib/data';
+import { useServerData } from '@/hooks/useServerData';
 import type { StudentRosterEntry } from '@/lib/data/students';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -10,12 +11,9 @@ import { Search, Mail } from 'lucide-react';
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function StudentsPage() {
-  const [students, setStudents] = useState<StudentRosterEntry[]>([]);
   const [search,   setSearch]   = useState('');
-
-  useEffect(() => {
-    getStudents().then(setStudents);
-  }, []);
+  const { data } = useServerData(() => getStudents(), [], { scope: 'users' });
+  const students: StudentRosterEntry[] = data ?? [];
 
   const filtered = students.filter(s =>
     s.name.toLowerCase().includes(search.toLowerCase()) ||

@@ -1,8 +1,8 @@
 'use client';
 // Curriculum Analytics section — Phase 2: data from Prisma aggregate queries
 // Phase 2: CLO performance = AVG(answer.marksAwarded / question.marks) WHERE question.learningObjectiveId = clo.id
-import { useEffect, useState } from 'react';
-import { getAdminStats, getTeachersList } from '@/lib/data';
+import { getAdminAnalyticsData } from '@/lib/data';
+import { useServerData } from '@/hooks/useServerData';
 import type { StatValue } from '@/types';
 import { BarChart3, ShieldCheck, TrendingUp, Users, GraduationCap, FileText, BookOpen, Download } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
@@ -49,17 +49,9 @@ const BLOOMS_PERFORMANCE = [
 type Teacher = { id: string; name: string; department: string; exams: number; students: number; status: 'active' | 'invited' };
 
 export default function AdminAnalyticsPage() {
-  const [stats, setStats]       = useState<StatValue[]>([]);
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [loading, setLoading]   = useState(true);
-
-  useEffect(() => {
-    Promise.all([getAdminStats(), getTeachersList()]).then(([s, t]) => {
-      setStats(s);
-      setTeachers(t as Teacher[]);
-      setLoading(false);
-    });
-  }, []);
+  const { data, loading } = useServerData(() => getAdminAnalyticsData(), []);
+  const stats = (data?.stats ?? []) as StatValue[];
+  const teachers = (data?.teachers ?? []) as Teacher[];
 
   const maxExams = Math.max(...MONTHLY.map(m => m.exams));
 

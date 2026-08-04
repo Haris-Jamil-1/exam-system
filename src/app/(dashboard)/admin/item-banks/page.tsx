@@ -1,6 +1,8 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { getInstitutionBanks, createItemBank } from '@/lib/data';
+import { useServerData } from '@/hooks/useServerData';
+import { invalidateData } from '@/lib/data-refresh';
 import type { ItemBank } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,18 +14,13 @@ import { PageHeader } from '@/components/shared/PageHeader';
 import { ManageAccessDialog } from '@/components/shared/ManageAccessDialog';
 
 export default function AdminItemBanksPage() {
-  const [banks, setBanks] = useState<ItemBank[]>([]);
+  const { data: banksData } = useServerData(() => getInstitutionBanks(), [], { scope: 'item-banks' });
+  const banks: ItemBank[] = banksData ?? [];
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [creating, setCreating] = useState(false);
   const [accessBank, setAccessBank] = useState<ItemBank | null>(null);
-
-  function refresh() {
-    getInstitutionBanks().then(setBanks);
-  }
-
-  useEffect(refresh, []);
 
   async function handleCreate() {
     if (!name.trim()) return;
@@ -33,7 +30,7 @@ export default function AdminItemBanksPage() {
       setCreateOpen(false);
       setName('');
       setDescription('');
-      refresh();
+      invalidateData('item-banks');
     } finally {
       setCreating(false);
     }

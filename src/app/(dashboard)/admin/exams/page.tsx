@@ -1,6 +1,8 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { getPendingExams, getApprovedExams } from '@/lib/data';
+import { useState } from 'react';
+import { getAdminExamsPageData } from '@/lib/data';
+import { useServerData } from '@/hooks/useServerData';
+import { invalidateData } from '@/lib/data-refresh';
 import {
   FileText, CheckCircle2, XCircle, Clock,
   ClipboardCheck, Users, Timer,
@@ -26,19 +28,12 @@ type Tab = 'pending' | 'approved';
 
 export default function AdminExamsPage() {
   const [tab, setTab] = useState<Tab>('pending');
-  const [pending, setPending]   = useState<PendingExam[]>([]);
-  const [approved, setApproved] = useState<ApprovedExam[]>([]);
-  const [loading, setLoading]   = useState(true);
   const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
   const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    Promise.all([getPendingExams(), getApprovedExams()]).then(([p, a]) => {
-      setPending(p as PendingExam[]);
-      setApproved(a as ApprovedExam[]);
-      setLoading(false);
-    });
-  }, []);
+  const { data, loading } = useServerData(() => getAdminExamsPageData(), [], { scope: 'exams' });
+  const pending = (data?.pendingExams ?? []) as PendingExam[];
+  const approved = (data?.approvedExams ?? []) as ApprovedExam[];
 
   async function approve(id: string) {
     await fetch(`/api/exams/${id}`, {
@@ -47,6 +42,9 @@ export default function AdminExamsPage() {
       body: JSON.stringify({ approvalStatus: 'approved', status: 'scheduled' }),
     });
     setApprovedIds(prev => new Set([...prev, id]));
+    // Re-reads the real lists (and refreshes the sidebar's pending badge, which
+    // lives in a different component entirely).
+    invalidateData();
   }
 
   async function reject(id: string) {
@@ -56,6 +54,7 @@ export default function AdminExamsPage() {
       body: JSON.stringify({ approvalStatus: 'rejected' }),
     });
     setRejectedIds(prev => new Set([...prev, id]));
+    invalidateData();
   }
 
   const visiblePending  = pending.filter(e => !approvedIds.has(e.id) && !rejectedIds.has(e.id));

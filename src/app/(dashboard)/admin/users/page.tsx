@@ -1,6 +1,8 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { getAllUsers, getMyInstitution, setUserSuspension } from '@/lib/data';
+import { useState } from 'react';
+import { getAdminUsersPageData, setUserSuspension } from '@/lib/data';
+import { useServerData } from '@/hooks/useServerData';
+import { invalidateData } from '@/lib/data-refresh';
 import type { CurrentUser, Role } from '@/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -13,19 +15,16 @@ import { Search } from 'lucide-react';
 type InstitutionData = { id: string; name: string };
 
 export default function UsersPage() {
-  const [users, setUsers] = useState<CurrentUser[]>([]);
-  const [institution, setInstitution] = useState<InstitutionData | null>(null);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [instFilter, setInstFilter] = useState('all');
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  useEffect(() => {
-    Promise.all([getAllUsers(), getMyInstitution()]).then(([u, inst]) => {
-      setUsers(u);
-      if (inst) setInstitution({ id: inst.id, name: inst.name });
-    });
-  }, []);
+  const { data, setData } = useServerData(() => getAdminUsersPageData(), [], { scope: 'users' });
+  const users: CurrentUser[] = data?.users ?? [];
+  const institution: InstitutionData | null = data?.institution
+    ? { id: data.institution.id, name: data.institution.name }
+    : null;
 
   async function handleToggleSuspend(user: CurrentUser) {
     const suspend = !user.suspendedAt;
@@ -33,7 +32,10 @@ export default function UsersPage() {
     setBusyId(user.id);
     try {
       const updated = await setUserSuspension(user.id, suspend);
-      if (updated) setUsers(prev => prev.map(u => u.id === user.id ? updated : u));
+      if (updated) {
+        setData(prev => prev && { ...prev, users: prev.users.map(u => u.id === user.id ? updated : u) });
+        invalidateData();
+      }
     } finally {
       setBusyId(null);
     }

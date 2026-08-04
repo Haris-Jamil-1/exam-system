@@ -1,6 +1,6 @@
 'use server';
 import { prisma } from '@/lib/prisma';
-import { createClient } from '@/lib/supabase/server';
+import { getSessionContext as getSessionContextShared } from '@/lib/session';
 import type { CurrentUser, MonitorStudent } from '@/types';
 
 function mapUser(u: {
@@ -15,19 +15,7 @@ function mapUser(u: {
   };
 }
 
-async function getSessionContext() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  const institutionId = (user?.user_metadata?.institutionId as string | undefined) ?? null;
-  const role = (user?.user_metadata?.role as string | undefined) ?? null;
-  const supabaseId = user?.id ?? null;
-  let prismaUserId: string | null = null;
-  if (supabaseId) {
-    const u = await prisma.user.findUnique({ where: { supabaseId }, select: { id: true } });
-    prismaUserId = u?.id ?? null;
-  }
-  return { institutionId, role, prismaUserId };
-}
+const getSessionContext = getSessionContextShared;
 
 export type StudentRosterEntry = CurrentUser & {
   // Every class (of this teacher's own classes) the student is enrolled in — a student can be
@@ -65,30 +53,34 @@ export async function getStudents(_institutionId?: string): Promise<StudentRoste
       }
     : { role: 'student' as const, institutionId };
 
-  const rows = await prisma.user.findMany({ where, orderBy: { name: 'asc' } });
-  if (rows.length === 0) return [];
-  const studentIds = rows.map(r => r.id);
-
-  const [classRows, trustAgg, violationCounts] = await Promise.all([
+  // The three aggregates used to wait on the roster query purely to reuse its
+  // `studentIds`, which made this two sequential waves of round trips. Filtering
+  // them on the same roster predicate via the `student` relation instead means
+  // all four run concurrently in one wave — worth ~350ms of pure network latency
+  // here, since EXPLAIN ANALYZE puts the roster query's actual execution at
+  // 0.19ms (it is round trips, not query cost).
+  const [rows, classRows, trustAgg, violationCounts] = await Promise.all([
+    prisma.user.findMany({ where, orderBy: { name: 'asc' } }),
     // Only this teacher's own classes — a student in another teacher's class shouldn't show
     // that class's name on this teacher's roster view.
     role === 'teacher' && prismaUserId
       ? prisma.classEnrollment.findMany({
-          where: { studentId: { in: studentIds }, class: { teacherId: prismaUserId } },
+          where: { student: where, class: { teacherId: prismaUserId } },
           include: { class: { select: { name: true } } },
         })
       : Promise.resolve([]),
     prisma.examAttempt.groupBy({
       by: ['studentId'],
-      where: { studentId: { in: studentIds }, status: { not: 'in_progress' } },
+      where: { student: where, status: { not: 'in_progress' } },
       _avg: { trustScore: true },
     }),
     prisma.violation.groupBy({
       by: ['studentId'],
-      where: { studentId: { in: studentIds } },
+      where: { student: where },
       _count: { _all: true },
     }),
   ]);
+  if (rows.length === 0) return [];
 
   const classNamesByStudent = new Map<string, string[]>();
   for (const ce of classRows) {

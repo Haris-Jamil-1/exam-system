@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { createItem } from '@/lib/data';
+import { invalidateData } from '@/lib/data-refresh';
 import { generateQuestions } from '@/lib/ai/question-generator';
 import { itemFormSchema, type ItemFormData } from '@/lib/item-form-schema';
 import type { QuestionType, Option } from '@/types';
@@ -208,6 +209,7 @@ export default function NewItemPage() {
         } : {}),
       });
       setSaved(true);
+      invalidateData('items');
       setTimeout(() => router.push(`/teacher/items/${bankId}`), 1000);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save item.');

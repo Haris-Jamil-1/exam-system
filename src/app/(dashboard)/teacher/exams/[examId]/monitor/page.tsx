@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
-import { getExamById, getMonitorStudents, getMonitorFeed } from '@/lib/data';
+import { getExamById, getMonitorPageData } from '@/lib/data';
 import { useMonitorRealtime } from '@/hooks/useMonitorRealtime';
 import type { Exam, MonitorStudent, Violation } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,8 +20,10 @@ export default function MonitorPage() {
   const [feed, setFeed] = useState<Violation[]>([]);
   const [viewing, setViewing] = useState<MonitorStudent | null>(null);
 
+  // One server action instead of two. These are polled every 10–60s, so the
+  // second serialized round trip was being paid continuously, not just on load.
   const refresh = useCallback(async () => {
-    const [s, f] = await Promise.all([getMonitorStudents(examId), getMonitorFeed(examId)]);
+    const { students: s, feed: f } = await getMonitorPageData(examId);
     setStudents(s);
     setFeed(f.slice(0, 30));
   }, [examId]);

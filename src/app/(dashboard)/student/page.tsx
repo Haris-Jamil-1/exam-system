@@ -1,7 +1,7 @@
 'use client';
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
+import { useServerData } from '@/hooks/useServerData';
 import {
   Calendar, CheckCircle2, BarChart2, ShieldCheck,
   Clock, Trophy, ChevronRight, Play,
@@ -34,15 +34,9 @@ export default function StudentDashboard() {
   const a = useTranslations('actions');
   const currentUser = useCurrentUser();
 
-  const [stats, setStats] = useState<StatValue[]>([]);
-  const [exams, setExams] = useState<StudentExam[]>([]);
-
-  useEffect(() => {
-    getStudentDashboardData().then(({ stats: s, exams: e }) => {
-      setStats(s);
-      setExams(e as StudentExam[]);
-    });
-  }, []);
+  const { data } = useServerData(() => getStudentDashboardData(), [], { scope: 'exams' });
+  const stats: StatValue[] = data?.stats ?? [];
+  const exams = (data?.exams ?? []) as StudentExam[];
 
   const firstName  = currentUser?.name?.split(' ')[0] ?? 'Student';
   const available  = exams.filter(e => e.status === 'available');

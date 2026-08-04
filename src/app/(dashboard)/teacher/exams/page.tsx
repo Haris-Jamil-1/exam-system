@@ -1,7 +1,9 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
 import Link from 'next/link';
 import { getExams } from '@/lib/data';
+import { useServerData } from '@/hooks/useServerData';
+import { invalidateData } from '@/lib/data-refresh';
 import type { Exam, ExamStatus } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -211,21 +213,19 @@ function ShareModal({ exam }: { exam: Exam }) {
 
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function ExamsPage() {
-  const [exams, setExams] = useState<Exam[]>([]);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sharingExam, setSharingExam] = useState<Exam | null>(null);
 
-  useEffect(() => {
-    getExams().then(data => { setExams(data); setLoading(false); });
-  }, []);
+  const { data, loading, setData } = useServerData(() => getExams(), [], { scope: 'exams' });
+  const exams: Exam[] = data ?? [];
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this exam? This action cannot be undone.')) return;
     const res = await fetch(`/api/exams/${id}`, { method: 'DELETE' });
     if (res.ok) {
-      setExams(prev => prev.filter(e => e.id !== id));
+      setData(prev => prev?.filter(e => e.id !== id));
+      invalidateData('exams');
     } else {
       alert('Failed to delete exam. Please try again.');
     }

@@ -1,7 +1,9 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { getMyClasses, createClass } from '@/lib/data';
+import { useServerData } from '@/hooks/useServerData';
+import { invalidateData } from '@/lib/data-refresh';
 import type { ClassSummary } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -45,17 +47,12 @@ function EmptyState({ text }: { text: string }) {
 }
 
 export default function TeacherClassesPage() {
-  const [classes, setClasses] = useState<ClassSummary[]>([]);
+  const { data: classesData } = useServerData(() => getMyClasses(), [], { scope: 'classes' });
+  const classes: ClassSummary[] = classesData ?? [];
   const [showArchived, setShowArchived] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
-
-  function refresh() {
-    getMyClasses().then(setClasses);
-  }
-
-  useEffect(refresh, []);
 
   async function handleCreate() {
     if (!name.trim()) return;
@@ -64,7 +61,7 @@ export default function TeacherClassesPage() {
       await createClass(name);
       setCreateOpen(false);
       setName('');
-      refresh();
+      invalidateData('classes');
     } finally {
       setCreating(false);
     }

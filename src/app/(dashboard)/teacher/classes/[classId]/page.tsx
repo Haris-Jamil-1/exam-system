@@ -3,9 +3,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
-  getClassById, updateClass, archiveClass, getEnrollments, removeEnrollment,
-  getClassInvites, createClassInvites,
+  getClassPageData, updateClass, archiveClass, removeEnrollment, createClassInvites,
 } from '@/lib/data';
+import { invalidateData } from '@/lib/data-refresh';
 import { parseBulkEmails } from '@/lib/class-permissions';
 import { parseEmailsFromBuffer } from '@/lib/bulk-email-file-parse';
 import type { ClassSummary, ClassEnrollmentSummary, ClassInviteSummary } from '@/types';
@@ -51,10 +51,14 @@ export default function TeacherClassDetailPage() {
   const [fileName, setFileName] = useState('');
   const [fileError, setFileError] = useState('');
 
+  // One server action instead of three sequential round trips.
   const refresh = useCallback(() => {
-    getClassById(classId).then(c => { setCls(c ?? null); if (c) setName(c.name); });
-    getEnrollments(classId).then(setEnrollments);
-    getClassInvites(classId).then(setInvites);
+    getClassPageData(classId).then(({ cls: c, enrollments: e, invites: i }) => {
+      setCls(c);
+      if (c) setName(c.name);
+      setEnrollments(e);
+      setInvites(i);
+    });
   }, [classId]);
 
   useEffect(refresh, [refresh]);
@@ -112,14 +116,22 @@ export default function TeacherClassDetailPage() {
   async function handleRename() {
     if (!name.trim()) return;
     const updated = await updateClass(classId, name);
-    if (updated) setCls(updated);
+    if (updated) {
+      setCls(updated);
+      invalidateData('classes');
+    }
     setRenameOpen(false);
   }
 
   async function handleToggleArchive() {
     if (!cls) return;
     const updated = await archiveClass(classId, !cls.archivedAt);
-    if (updated) setCls(updated);
+    if (updated) {
+      setCls(updated);
+      // The classes list (a different page/component) shows archived state and
+      // student counts — broadcast so it isn't left stale.
+      invalidateData('classes');
+    }
   }
 
   async function handleRemove(studentId: string, studentName: string) {
@@ -127,7 +139,10 @@ export default function TeacherClassDetailPage() {
     setRemovingId(studentId);
     try {
       const ok = await removeEnrollment(classId, studentId);
-      if (ok) setEnrollments(prev => prev.filter(e => e.studentId !== studentId));
+      if (ok) {
+        setEnrollments(prev => prev.filter(e => e.studentId !== studentId));
+        invalidateData('classes');
+      }
     } finally {
       setRemovingId(null);
     }
