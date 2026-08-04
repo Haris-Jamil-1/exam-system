@@ -38,6 +38,9 @@ export type SessionIdentity = {
   institutionId: string | null;
   role: string | null;
   teacherIds: string[] | null;
+  /** The JWT's own `session_id` claim — one per login, stable across token refreshes
+   *  within that login. Used by getAuthUser() for single-active-session enforcement. */
+  sessionId: string | null;
 };
 
 export type SessionContext = SessionIdentity & {
@@ -45,7 +48,7 @@ export type SessionContext = SessionIdentity & {
   prismaUserId: string | null;
 };
 
-const EMPTY: SessionIdentity = { supabaseId: null, institutionId: null, role: null, teacherIds: null };
+const EMPTY: SessionIdentity = { supabaseId: null, institutionId: null, role: null, teacherIds: null, sessionId: null };
 
 export const getSessionIdentity = cache(async (): Promise<SessionIdentity> => {
   const supabase = await createClient();
@@ -57,6 +60,7 @@ export const getSessionIdentity = cache(async (): Promise<SessionIdentity> => {
   };
   return {
     supabaseId: claims.sub,
+    sessionId: claims.session_id ?? null,
     institutionId: meta.institutionId ?? null,
     role: meta.role ?? null,
     teacherIds: meta.teacherIds ?? null,

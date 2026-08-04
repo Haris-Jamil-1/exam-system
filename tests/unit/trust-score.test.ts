@@ -34,11 +34,11 @@ describe('computeTrustScore', () => {
   });
 
   it('weights episodes by duration, capped at 3x', () => {
-    // 30s no_face episode: 8 × 1 × (1 + 30/30) = 16 → 84
+    // 90s no_face episode: 8 × 1 × (1 + 90/90) = 16 → 84
     expect(
-      computeTrustScore([v({ type: 'no_face', endedAt: '2026-07-11T10:00:30.000Z' })]),
+      computeTrustScore([v({ type: 'no_face', endedAt: '2026-07-11T10:01:30.000Z' })]),
     ).toBe(84);
-    // 10-minute episode would be 21x — capped at 3x: 8 × 3 = 24 → 76
+    // 10-minute episode would be ~7.7x — capped at 3x: 8 × 3 = 24 → 76
     expect(
       computeTrustScore([v({ type: 'no_face', endedAt: '2026-07-11T10:10:00.000Z' })]),
     ).toBe(76);

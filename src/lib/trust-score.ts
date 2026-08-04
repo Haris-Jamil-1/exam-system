@@ -57,9 +57,15 @@ export const SEVERITY_MULTIPLIER: Record<'low' | 'medium' | 'high', number> = {
   high: 1.5,
 };
 
-// Episodes get heavier with duration: +1x per 30s of sustained violation, capped
-// so a single very long episode maxes out at 3x its base deduction.
+// Episodes get heavier with duration: +1x per 90s of sustained violation, capped
+// so a single very long episode maxes out at 3x its base deduction. (Previously
+// +1x/30s hit the 3x cap by just 60s, which combined with severity.ts's own
+// duration-based escalation to 'high' around the same mark made a single
+// ~1-minute episode deduct close to the maximum possible multiplier — too
+// punishing for what's often a brief, innocuous lapse. Stretched 3x so the cap
+// isn't reached until a genuinely sustained 3-minute episode.)
 const DURATION_FACTOR_CAP = 3;
+const DURATION_FACTOR_RAMP_SECONDS = 90;
 
 function durationFactor(input: TrustScoreInput): number {
   if (!input.endedAt) return 1;
@@ -67,7 +73,7 @@ function durationFactor(input: TrustScoreInput): number {
   const end = new Date(input.endedAt).getTime();
   const seconds = (end - start) / 1000;
   if (!Number.isFinite(seconds) || seconds <= 0) return 1;
-  return Math.min(1 + seconds / 30, DURATION_FACTOR_CAP);
+  return Math.min(1 + seconds / DURATION_FACTOR_RAMP_SECONDS, DURATION_FACTOR_CAP);
 }
 
 export function computeTrustScore(violations: TrustScoreInput[]): number {

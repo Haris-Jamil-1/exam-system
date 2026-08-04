@@ -15,6 +15,15 @@ export type ViewerState = 'idle' | 'connecting' | 'connected' | 'failed' | 'unav
 // If the student doesn't answer within this window, they're offline, the tab is closed, or the
 // camera never loaded — surface a clear message instead of an indefinitely blank video.
 const REQUEST_TIMEOUT_MS = 10_000;
+// A private channel's very first join attempt routinely comes back CHANNEL_ERROR
+// ("Unauthorized") for a brief moment right after sign-in/navigation, before the
+// realtime socket has finished attaching the just-refreshed auth token — the
+// client's own realtime-js library retries automatically and reaches SUBSCRIBED a
+// moment later. Failing hard on that first error (as this used to) meant "Go Live"
+// was broken on almost every fresh session, while the snapshot directive never hit
+// this because it doesn't gate anything on subscribe status. Give the client's own
+// retry a real window before treating it as a genuine failure.
+const JOIN_TIMEOUT_MS = 12_000;
 
 export function useWebRTCViewer(attemptId: string | null) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -25,11 +34,16 @@ export function useWebRTCViewer(attemptId: string | null) {
   const channelRef = useRef<RealtimeChannel | null>(null);
   const viewerIdRef = useRef<string | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const joinTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stop = useCallback(() => {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
+    }
+    if (joinTimeoutRef.current) {
+      clearTimeout(joinTimeoutRef.current);
+      joinTimeoutRef.current = null;
     }
     if (channelRef.current && viewerIdRef.current) {
       void channelRef.current.send({
@@ -114,6 +128,16 @@ export function useWebRTCViewer(attemptId: string | null) {
       }
     }
 
+    // Overall budget to actually reach SUBSCRIBED — covers the client's own automatic
+    // rejoin-after-CHANNEL_ERROR retries. Only fires if subscribing genuinely never
+    // succeeds; cleared the moment SUBSCRIBED arrives.
+    joinTimeoutRef.current = setTimeout(() => {
+      if (viewerIdRef.current === viewerId) {
+        setState('failed');
+        setErrorMessage('Could not open the signaling connection.');
+      }
+    }, JOIN_TIMEOUT_MS);
+
     channel
       .on('broadcast', { event: WEBRTC_SIGNAL_EVENT }, ({ payload }: { payload: SignalMessage }) => {
         if (viewerIdRef.current !== viewerId) return;
@@ -129,6 +153,7 @@ export function useWebRTCViewer(attemptId: string | null) {
       })
       .subscribe((status) => {
         if (status === 'SUBSCRIBED' && viewerIdRef.current === viewerId) {
+          if (joinTimeoutRef.current) { clearTimeout(joinTimeoutRef.current); joinTimeoutRef.current = null; }
           send({ type: 'request', viewerId });
           timeoutRef.current = setTimeout(() => {
             if (viewerIdRef.current === viewerId) {
@@ -136,12 +161,11 @@ export function useWebRTCViewer(attemptId: string | null) {
               setErrorMessage('Student did not respond — they may be offline or the exam tab is closed.');
             }
           }, REQUEST_TIMEOUT_MS);
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          if (viewerIdRef.current === viewerId) {
-            setState('failed');
-            setErrorMessage('Could not open the signaling connection.');
-          }
         }
+        // CHANNEL_ERROR / TIMED_OUT are not treated as terminal here — a private
+        // channel's first join attempt commonly errors before the auth token has
+        // finished propagating, and realtime-js retries on its own. joinTimeoutRef
+        // above is the actual "genuinely never connected" backstop.
       });
   }, [stop]);
 

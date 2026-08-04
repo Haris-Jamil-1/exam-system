@@ -425,6 +425,8 @@ export async function getPendingExams(): Promise<PendingExam[]> {
     duration: e.duration,
     students: e._count.enrollments,
     submittedAt: e.createdAt.toISOString(),
+    startTime: e.startTime.toISOString(),
+    endTime: e.endTime.toISOString(),
     proctoringLevel: ((e.settings as { proctoringLevel?: string })?.proctoringLevel ?? 'standard') as PendingExam['proctoringLevel'],
   }));
 }
@@ -447,6 +449,7 @@ export async function getApprovedExams() {
     teacher: e.teacher.name,
     status: computeEffectiveExamStatus(e.status as 'draft' | 'scheduled' | 'live' | 'completed', e.startTime, new Date(), e.endTime),
     date: e.startTime.toISOString(),
+    endTime: e.endTime.toISOString(),
     students: e._count.enrollments,
   }));
 }
@@ -634,6 +637,8 @@ export async function getAdminDashboardData() {
     duration: e.duration,
     students: e._count.enrollments,
     submittedAt: e.createdAt.toISOString(),
+    startTime: e.startTime.toISOString(),
+    endTime: e.endTime.toISOString(),
     proctoringLevel: ((e.settings as { proctoringLevel?: string })?.proctoringLevel ?? 'standard') as PendingExam['proctoringLevel'],
   }));
 
@@ -644,6 +649,7 @@ export async function getAdminDashboardData() {
     teacher: e.teacher.name,
     status: computeEffectiveExamStatus(e.status as 'draft' | 'scheduled' | 'live' | 'completed', e.startTime, new Date(), e.endTime),
     date: e.startTime.toISOString(),
+    endTime: e.endTime.toISOString(),
     students: e._count.enrollments,
   }));
 

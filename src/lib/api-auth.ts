@@ -8,7 +8,7 @@ export async function getAuthUser() {
   // HTTPS round trip to the Auth API. Only `sub` was ever used here, so this is a
   // like-for-like substitution — every authorization decision below still reads the
   // live Prisma row, including the suspension checks.
-  const { supabaseId } = await getSessionIdentity();
+  const { supabaseId, sessionId } = await getSessionIdentity();
   if (!supabaseId) return null;
   const prismaUser = await prisma.user.findUnique({
     where: { supabaseId },
@@ -20,6 +20,19 @@ export async function getAuthUser() {
   // exempt from their host institution's suspension (never from their own).
   if (prismaUser.suspendedAt) return null;
   if (prismaUser.institution.suspendedAt && !prismaUser.isSuperAdmin) return null;
+  // Single active session per student: a new-device login claims the slot via
+  // POST /api/auth/claim-session (see src/lib/session.ts). Once claimed, any
+  // request carrying a different session_id — i.e. the previous device — is
+  // treated as unauthenticated, which is what actually forces its next action
+  // (or the DashboardShell's notification poll) to bounce back to /login.
+  if (
+    prismaUser.role === 'student' &&
+    prismaUser.activeSessionId &&
+    sessionId &&
+    prismaUser.activeSessionId !== sessionId
+  ) {
+    return null;
+  }
   return prismaUser;
 }
 

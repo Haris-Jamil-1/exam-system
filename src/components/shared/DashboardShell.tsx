@@ -57,11 +57,25 @@ function mapRaw(n: RawNotif): NotificationItem {
 
 function useNotifications() {
   const [items, setItems] = useState<NotificationItem[]>([]);
+  const router = useRouter();
 
   useEffect(() => {
     async function load() {
       try {
         const res = await fetch('/api/notifications');
+        if (res.status === 401) {
+          // The session was rejected server-side — most commonly a student's
+          // previous device being auto-logged-out after a newer login claimed
+          // the single-active-session slot (see /api/auth/claim-session), but
+          // also covers a real suspension. Sitting on a dashboard that can no
+          // longer fetch anything is worse than bouncing to login.
+          const supabase = createClient();
+          await supabase.auth.signOut();
+          localStorage.removeItem('exam_user');
+          document.cookie = 'exam_role=; path=/; max-age=0';
+          router.push('/login?reason=session_replaced');
+          return;
+        }
         if (!res.ok) return;
         const data: RawNotif[] = await res.json();
         setItems(data.map(mapRaw));
@@ -70,7 +84,7 @@ function useNotifications() {
     load();
     const id = setInterval(load, 30000);
     return () => clearInterval(id);
-  }, []);
+  }, [router]);
 
   return items;
 }

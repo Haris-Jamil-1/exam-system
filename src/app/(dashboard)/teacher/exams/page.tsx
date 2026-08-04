@@ -313,7 +313,9 @@ export default function ExamsPage() {
                         <div>
                           <p className="font-medium">{exam.title}</p>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {new Date(exam.startTime).toLocaleDateString()}
+                            {new Date(exam.startTime).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            {' – '}
+                            {new Date(exam.endTime).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           </p>
                         </div>
                       </td>

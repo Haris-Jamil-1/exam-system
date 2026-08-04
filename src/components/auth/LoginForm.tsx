@@ -53,6 +53,11 @@ export function LoginForm() {
       return;
     }
 
+    // Single-active-session enforcement (students only, no-op for other roles):
+    // claim this login as the active session before anything else, so any
+    // previous device's session starts getting rejected from this point on.
+    await fetch('/api/auth/claim-session', { method: 'POST' });
+
     // Fetch Prisma User record to populate localStorage
     const res = await fetch('/api/users/me');
     if (!res.ok) {

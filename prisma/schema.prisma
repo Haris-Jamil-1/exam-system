@@ -158,6 +158,12 @@ model User {
   // manually via SQL. suspendedAt = soft suspension (blocks access, no delete).
   isSuperAdmin  Boolean   @default(false)
   suspendedAt   DateTime?
+  // Single-active-session enforcement (students only, checked in getAuthUser): the
+  // Supabase JWT's own `session_id` claim of whichever login most recently claimed
+  // this slot via POST /api/auth/claim-session. A request carrying a different
+  // session_id is treated as unauthenticated, so a new-device login auto-logs-out
+  // the previous one on its next request. Null = never claimed (no enforcement yet).
+  activeSessionId String?
 
   institution         Institution      @relation(fields: [institutionId], references: [id])
   exams               Exam[]           @relation("ExamTeacher")

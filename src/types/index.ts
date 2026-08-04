@@ -59,6 +59,8 @@ export type PendingExam = {
   duration: number;
   students: number;
   submittedAt: string;
+  startTime: string;
+  endTime: string;
   proctoringLevel: 'basic' | 'standard' | 'strict';
 };
 

@@ -6,9 +6,9 @@ export const metadata = { title: 'Sign In — Evalix' };
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ reset?: string }>;
+  searchParams: Promise<{ reset?: string; reason?: string }>;
 }) {
-  const { reset } = await searchParams;
+  const { reset, reason } = await searchParams;
 
   return (
     <div>
@@ -24,6 +24,11 @@ export default async function LoginPage({
       {reset === 'success' && (
         <div className="mb-4 rounded-md bg-green-50 border border-green-200 p-3 text-sm text-green-700">
           Your password has been updated. Sign in with your new password.
+        </div>
+      )}
+      {reason === 'session_replaced' && (
+        <div className="mb-4 rounded-md bg-amber-50 border border-amber-200 p-3 text-sm text-amber-700">
+          You were signed out because your account was signed in on another device.
         </div>
       )}
       <LoginForm />

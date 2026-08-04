@@ -10,6 +10,7 @@ import { useProctoringStore } from '@/store/proctoringStore';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useExamTimer } from '@/hooks/useExamTimer';
 import { ProctoringOverlay } from '@/components/proctoring/ProctoringOverlay';
+import { DirectiveListener } from '@/components/proctoring/DirectiveListener';
 import { BiometricOnboarding } from '@/components/proctoring/BiometricOnboarding';
 import { MediaCheckGate } from '@/components/proctoring/MediaCheckGate';
 import { useMediaReadiness } from '@/hooks/useMediaReadiness';
@@ -93,6 +94,11 @@ export default function ExamPage() {
     media: false,
     mediaFailures: [],
   });
+  // Teacher monitor actions (warning/force_submit) must reach the student regardless of
+  // whether AI proctoring is enabled for this exam — ProctoringOverlay's own DirectiveListener
+  // only exists when proctoring is on, so a non-proctored exam never mounted anything to
+  // receive them. No camera exists here, so a snapshot directive correctly resolves 'failed'.
+  const noProctorCaptureRef = useRef<(() => Promise<string | null>) | null>(null);
   // Device gate — the student chose to proceed with a camera/microphone that isn't working.
   const [mediaSkipped, setMediaSkipped] = useState(false);
   // Pre-exam instructions gate — the duration timer only starts once this is dismissed
@@ -788,8 +794,14 @@ export default function ExamPage() {
   return (
     <DesktopGuard>
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {exam.isProctoringEnabled && (
+      {exam.isProctoringEnabled ? (
         <ProctoringOverlay examId={examId} attemptId={attemptId || 'attempt-loading'} onForceSubmit={handleTimeUp} />
+      ) : (
+        <DirectiveListener
+          attemptId={attemptId || 'attempt-loading'}
+          captureRef={noProctorCaptureRef}
+          onForceSubmit={handleTimeUp}
+        />
       )}
 
       {/* ── Pause overlay ── */}

@@ -10,7 +10,12 @@ import {
 import { PageHeader } from '@/components/shared/PageHeader';
 import type { PendingExam } from '@/types';
 
-type ApprovedExam = { id: string; title: string; subject: string; teacher: string; status: 'live' | 'scheduled' | 'completed'; date: string; students: number };
+type ApprovedExam = { id: string; title: string; subject: string; teacher: string; status: 'live' | 'scheduled' | 'completed'; date: string; endTime: string; students: number };
+
+function formatSchedule(startIso: string, endIso: string) {
+  const fmt = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return `${fmt(startIso)} – ${fmt(endIso)}`;
+}
 
 const PROCTORING_CHIP: Record<string, string> = {
   strict:   'bg-red-50 text-red-600 border-red-100',
@@ -142,7 +147,11 @@ export default function AdminExamsPage() {
                         <span className="flex items-center gap-1"><Users className="h-3.5 w-3.5" /> {exam.students} enrolled</span>
                         <span className="flex items-center gap-1">
                           <Clock className="h-3.5 w-3.5" />
-                          {new Date(exam.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          Submitted {new Date(exam.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3.5 w-3.5" />
+                          Scheduled {formatSchedule(exam.startTime, exam.endTime)}
                         </span>
                       </div>
                     </div>
@@ -191,7 +200,9 @@ export default function AdminExamsPage() {
                     <p className="text-[11px] text-[#9CA3AF] ps-3.5">{exam.subject}</p>
                   </td>
                   <td className="px-5 py-3.5 text-[13px] text-[#6B7280]">{exam.teacher}</td>
-                  <td className="px-5 py-3.5 text-[13px] text-[#6B7280]">—</td>
+                  <td className="px-5 py-3.5 text-[13px] text-[#6B7280]">
+                    {exam.startTime && exam.endTime ? formatSchedule(exam.startTime, exam.endTime) : '—'}
+                  </td>
                   <td className="px-5 py-3.5 text-[13px] text-[#6B7280]">{exam.students}</td>
                   <td className="px-5 py-3.5">
                     <span className="inline-flex items-center gap-1 rounded-full border bg-emerald-50 border-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
@@ -210,9 +221,7 @@ export default function AdminExamsPage() {
                     </td>
                     <td className="px-5 py-3.5 text-[13px] text-[#6B7280]">{exam.teacher}</td>
                     <td className="px-5 py-3.5 text-[13px] text-[#6B7280]">
-                      {new Date(exam.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      <br />
-                      <span className="text-[11px] text-[#9CA3AF]">{new Date(exam.date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+                      {formatSchedule(exam.date, exam.endTime)}
                     </td>
                     <td className="px-5 py-3.5 text-[13px] text-[#6B7280]">{exam.students}</td>
                     <td className="px-5 py-3.5">

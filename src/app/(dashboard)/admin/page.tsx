@@ -28,8 +28,13 @@ const PROCTORING_CHIP: Record<string, string> = {
   basic:    'bg-slate-100 text-slate-500 border-slate-200',
 };
 
-type ApprovedExam = { id: string; title: string; subject: string; teacher: string; status: 'live' | 'scheduled' | 'completed'; date: string; students: number };
+type ApprovedExam = { id: string; title: string; subject: string; teacher: string; status: 'live' | 'scheduled' | 'completed'; date: string; endTime: string; students: number };
 type Teacher = { id: string; name: string; department: string; exams: number; students: number; status: 'active' | 'invited' };
+
+function formatSchedule(startIso: string, endIso: string) {
+  const fmt = (iso: string) => new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return `${fmt(startIso)} – ${fmt(endIso)}`;
+}
 
 const DEPT_COLOR: Record<string, string> = {
   'Computer Science': '#1E88E5', Mathematics: '#7C3AED', Physics: '#16A34A', Chemistry: '#D97706', History: '#E53935',
@@ -174,6 +179,7 @@ export default function AdminDashboard() {
                         </p>
                         <p className="text-[11px] text-[#C4C9D4] mt-0.5">
                           Submitted {new Date(exam.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          {' · '}Scheduled {formatSchedule(exam.startTime, exam.endTime)}
                         </p>
                       </div>
                       <div className="flex flex-shrink-0 gap-2 mt-0.5">
@@ -224,7 +230,7 @@ export default function AdminDashboard() {
                           <span className="capitalize">{exam.status}</span>
                         </span>
                       </div>
-                      <p className="text-[12px] text-[#9CA3AF]">{exam.teacher} · {exam.students} students</p>
+                      <p className="text-[12px] text-[#9CA3AF]">{exam.teacher} · {exam.students} students · {formatSchedule(exam.date, exam.endTime)}</p>
                     </div>
                   </li>
                 );
