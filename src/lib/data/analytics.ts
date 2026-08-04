@@ -3,6 +3,7 @@ import { cache } from 'react';
 import { prisma } from '@/lib/prisma';
 import { createClient } from '@/lib/supabase/server';
 import { computeEffectiveExamStatus } from '@/lib/exam-status';
+import { studentVisibleExamWhere } from '@/lib/exam-eligibility';
 import type { StatValue, PendingExam } from '@/types';
 
 const getSession = cache(async () => {
@@ -285,10 +286,58 @@ export async function getRecentAlerts() {
   }));
 }
 
-export async function getStudentExams() {
-  const { supabaseId } = await getSession();
-  if (!supabaseId) return [];
+// Shared by getStudentExams (/student/exams) and getStudentDashboardData (/student) — both
+// render the same StudentExam card shape and previously duplicated this mapping verbatim.
+type StudentExamRow = {
+  id: string;
+  title: string;
+  subject: string;
+  status: string;
+  startTime: Date;
+  duration: number;
+  settings: unknown;
+  resultsPublishedAt: Date | null;
+  _count: { questions: number };
+};
+type StudentAttemptRow = {
+  examId: string;
+  trustScore: number | null;
+  status: string;
+  scorePercentage: number | null;
+};
 
+function mapStudentExamCard(exam: StudentExamRow, attempt: StudentAttemptRow | undefined, now: Date) {
+  const submitted = attempt && (attempt.status === 'submitted' || attempt.status === 'auto_submitted');
+
+  let status: 'available' | 'upcoming' | 'completed' = 'upcoming';
+  if (submitted || exam.status === 'completed') {
+    status = 'completed';
+  } else if (exam.status === 'live' || exam.startTime <= now) {
+    status = 'available';
+  }
+
+  const settings = exam.settings as { resultsVisibility?: string } | null;
+  const resultsHeld = settings?.resultsVisibility === 'held' && !exam.resultsPublishedAt;
+  const scoreValue = submitted && !resultsHeld && attempt?.scorePercentage != null
+    ? Math.round(attempt.scorePercentage) : undefined;
+
+  return {
+    id: exam.id,
+    title: exam.title,
+    course: exam.subject,
+    status,
+    schedule: exam.startTime.toISOString(),
+    durationMins: exam.duration,
+    questions: exam._count.questions,
+    score: scoreValue,
+    trust: submitted ? attempt?.trustScore : undefined,
+  };
+}
+
+// Resolves the caller's own student row plus BOTH roster relations the visibility rule needs.
+// classEnrollments is not optional here: a student invited through the per-class flow has only
+// a ClassEnrollment row, never a TeacherStudent one.
+async function getStudentVisibilityContext(supabaseId: string) {
   const student = await prisma.user.findUnique({
     where: { supabaseId },
     include: {
@@ -296,68 +345,39 @@ export async function getStudentExams() {
       classEnrollments: { select: { classId: true } },
     },
   });
-  if (!student) return [];
+  if (!student) return null;
+  return {
+    student,
+    where: studentVisibleExamWhere({
+      institutionId: student.institutionId,
+      teacherIds: student.studentTeachers.map(r => r.teacherId),
+      enrolledClassIds: student.classEnrollments.map(r => r.classId),
+    }),
+  };
+}
 
-  const teacherIds = student.studentTeachers.map(r => r.teacherId);
-  const enrolledClassIds = student.classEnrollments.map(r => r.classId);
-  // Strict: if no teachers assigned, student sees no exams (Prisma returns [] for { in: [] })
+export async function getStudentExams() {
+  const { supabaseId } = await getSession();
+  if (!supabaseId) return [];
+
+  const ctx = await getStudentVisibilityContext(supabaseId);
+  if (!ctx) return [];
   const now = new Date();
 
   const [exams, attempts] = await Promise.all([
     prisma.exam.findMany({
-      where: {
-        institutionId: student.institutionId,
-        approvalStatus: 'approved',
-        status: { in: ['scheduled', 'live', 'completed'] },
-        // A class-scoped exam (classId set) is visible only to that class's own enrolled
-        // students — not to every student of the teacher who created it. An unscoped exam
-        // (classId null) keeps the pre-existing "any of my teachers" behavior, since making
-        // class scoping mandatory would silently hide every pre-existing exam and every exam
-        // from a teacher who hasn't adopted Classes yet.
-        OR: [
-          { classId: null, teacherId: { in: teacherIds } },
-          { classId: { in: enrolledClassIds } },
-        ],
-      },
+      where: ctx.where,
       include: { _count: { select: { questions: true } } },
       orderBy: { startTime: 'asc' },
     }),
     prisma.examAttempt.findMany({
-      where: { studentId: student.id },
+      where: { studentId: ctx.student.id },
       select: { examId: true, score: true, trustScore: true, status: true, scorePercentage: true },
     }),
   ]);
 
   const attemptMap = new Map(attempts.map(a => [a.examId, a]));
-
-  return exams.map(exam => {
-    const attempt = attemptMap.get(exam.id);
-    const submitted = attempt && (attempt.status === 'submitted' || attempt.status === 'auto_submitted');
-
-    let status: 'available' | 'upcoming' | 'completed' = 'upcoming';
-    if (submitted || exam.status === 'completed') {
-      status = 'completed';
-    } else if (exam.status === 'live' || exam.startTime <= now) {
-      status = 'available';
-    }
-
-    const settings = exam.settings as { resultsVisibility?: string } | null;
-    const resultsHeld = settings?.resultsVisibility === 'held' && !exam.resultsPublishedAt;
-    const scoreValue = submitted && !resultsHeld && attempt?.scorePercentage != null
-      ? Math.round(attempt.scorePercentage) : undefined;
-
-    return {
-      id: exam.id,
-      title: exam.title,
-      course: exam.subject,
-      status,
-      schedule: exam.startTime.toISOString(),
-      durationMins: exam.duration,
-      questions: exam._count.questions,
-      score: scoreValue,
-      trust: submitted ? attempt?.trustScore : undefined,
-    };
-  });
+  return exams.map(exam => mapStudentExamCard(exam, attemptMap.get(exam.id), now));
 }
 
 export async function getTeachersList() {
@@ -496,20 +516,16 @@ export async function getStudentDashboardData() {
   const { supabaseId } = await getSession();
   if (!supabaseId) return { stats: [] as StatValue[], exams: [] };
 
-  // Include TeacherStudent rows to scope exam visibility to this student's teachers
-  const student = await prisma.user.findUnique({
-    where: { supabaseId },
-    include: { studentTeachers: { select: { teacherId: true } } },
-  });
-  if (!student) return { stats: [] as StatValue[], exams: [] };
+  // Exam visibility uses the SAME rule as getStudentExams (studentVisibleExamWhere) — this
+  // function used to read studentTeachers only and filter on `teacherId in teacherIds`, which
+  // returned nothing at all for a student whose roster membership is class-based.
+  const ctx = await getStudentVisibilityContext(supabaseId);
+  if (!ctx) return { stats: [] as StatValue[], exams: [] };
+  const { student } = ctx;
 
-  const teacherIds = student.studentTeachers.map(r => r.teacherId);
   const now = new Date();
 
-  const [upcoming, completed, trustAgg, lastAttempt, examRows, attempts] = await Promise.all([
-    prisma.examEnrollment.count({
-      where: { studentId: student.id, exam: { startTime: { gt: now } } },
-    }),
+  const [completed, trustAgg, lastAttempt, examRows, attempts] = await Promise.all([
     prisma.examAttempt.count({
       where: { studentId: student.id, status: { not: 'in_progress' } },
     }),
@@ -523,12 +539,7 @@ export async function getStudentDashboardData() {
       select: { trustScore: true },
     }),
     prisma.exam.findMany({
-      where: {
-        institutionId: student.institutionId,
-        approvalStatus: 'approved',
-        status: { in: ['scheduled', 'live', 'completed'] },
-        teacherId: { in: teacherIds },
-      },
+      where: ctx.where,
       include: { _count: { select: { questions: true } } },
       orderBy: { startTime: 'asc' },
     }),
@@ -538,39 +549,24 @@ export async function getStudentDashboardData() {
     }),
   ]);
 
+  const attemptMap = new Map(attempts.map(a => [a.examId, a]));
+  const exams = examRows.map(exam => mapStudentExamCard(exam, attemptMap.get(exam.id), now));
+
+  // Derived from the very exams the page lists, so the "Upcoming Exams" stat card and the
+  // "Upcoming Exams" panel below it can never disagree. This previously counted ExamEnrollment
+  // rows with a future startTime — but an ExamEnrollment row is only ever created by
+  // POST /api/attempts, i.e. the moment a student STARTS an exam, and that same route rejects
+  // starting before startTime ('not_started'). So the count was structurally always 0 for
+  // every student: an exam still upcoming has no enrollment row, and an exam with an
+  // enrollment row is no longer upcoming.
+  const upcoming = exams.filter(e => e.status === 'upcoming').length;
+
   const stats: StatValue[] = [
     { key: 'upcoming',  label: 'Upcoming Exams',  value: upcoming },
     { key: 'completed', label: 'Completed',        value: completed },
     { key: 'avgScore',  label: 'Average Score',    value: trustAgg._avg.scorePercentage ? `${trustAgg._avg.scorePercentage.toFixed(0)}%` : '—' },
     { key: 'trust',     label: 'Trust Score',      value: lastAttempt?.trustScore ?? 100 },
   ];
-
-  const attemptMap = new Map(attempts.map(a => [a.examId, a]));
-  const exams = examRows.map(exam => {
-    const attempt = attemptMap.get(exam.id);
-    const submitted = attempt && (attempt.status === 'submitted' || attempt.status === 'auto_submitted');
-    let status: 'available' | 'upcoming' | 'completed' = 'upcoming';
-    if (submitted || exam.status === 'completed') {
-      status = 'completed';
-    } else if (exam.status === 'live' || exam.startTime <= now) {
-      status = 'available';
-    }
-    const settings = exam.settings as { resultsVisibility?: string } | null;
-    const resultsHeld = settings?.resultsVisibility === 'held' && !exam.resultsPublishedAt;
-    const scoreValue = submitted && !resultsHeld && attempt?.scorePercentage != null
-      ? Math.round(attempt.scorePercentage) : undefined;
-    return {
-      id: exam.id,
-      title: exam.title,
-      course: exam.subject,
-      status,
-      schedule: exam.startTime.toISOString(),
-      durationMins: exam.duration,
-      questions: exam._count.questions,
-      score: scoreValue,
-      trust: submitted ? attempt?.trustScore : undefined,
-    };
-  });
 
   return { stats, exams };
 }
