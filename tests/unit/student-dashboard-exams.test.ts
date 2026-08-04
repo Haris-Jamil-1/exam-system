@@ -31,7 +31,11 @@ vi.mock('@/lib/prisma', () => ({
 }));
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: { id: 'supabase-student', user_metadata: {} } } }) },
+    auth: {
+      getUser: async () => ({ data: { user: { id: 'supabase-student', user_metadata: {} } } }),
+      // Identity now resolves via getClaims() (local ES256 JWT verification, see lib/session.ts).
+      getClaims: async () => ({ data: { claims: { sub: 'supabase-student', user_metadata: {} } }, error: null }),
+    },
   }),
 }));
 
