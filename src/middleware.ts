@@ -5,7 +5,12 @@ import { NextResponse, type NextRequest } from 'next/server';
 // public/models — static files, not a protected route. Without it, the role-path check below
 // redirected every in-exam model fetch to /student (HTML), so both vision models silently
 // failed to load and face/multi-face/gaze/object detection never ran at all.
-const PUBLIC_PREFIXES = ['/', '/login', '/register', '/invite', '/classes/join', '/api', '/_next', '/favicon', '/auth', '/models'];
+//
+// '/super' hosts its own dedicated login form (unlike every institution dashboard, which
+// redirects to the shared /login) — it has to be reachable while logged out. The actual
+// access decision (User.isSuperAdmin, not this middleware) happens server-side in
+// src/app/super/page.tsx on every render, same as getSuperAdmin() gates /api/super/*.
+const PUBLIC_PREFIXES = ['/', '/login', '/register', '/invite', '/classes/join', '/api', '/_next', '/favicon', '/auth', '/models', '/super'];
 
 // Any other file served straight out of /public (images, fonts, etc.) — same class of bug as
 // '/models' above: a literal-prefix allowlist silently 307s every new static asset that isn't
@@ -64,13 +69,6 @@ export async function middleware(request: NextRequest) {
 
   const role = (claims.user_metadata as { role?: string } | undefined)?.role;
   const allowed = ROLE_PATHS[role ?? ''] ?? [];
-
-  // /super (platform Super Admin panel) is authenticated-only here; the real
-  // gate is the User.isSuperAdmin DB flag checked by every /api/super route —
-  // non-supers reaching the page just see a 403 message.
-  if (pathname.startsWith('/super')) {
-    return response;
-  }
 
   if (!allowed.some(prefix => pathname.startsWith(prefix))) {
     const url = request.nextUrl.clone();
