@@ -9,6 +9,115 @@
 
 ## Session Log
 
+### 2026-08-10 (cont'd) — Dedicated `/super` login page; role cleanup for the platform owner's account ✅
+
+- **`/super` is now a real dedicated login page**, not just an authenticated-only view of the
+  Master Admin Panel. Previously an unauthenticated visit 307'd to the shared `/login` (middleware
+  had no exception for it); now `/super` is in `middleware.ts`'s `PUBLIC_PREFIXES`, and
+  `src/app/super/page.tsx` (converted from a client page to an async Server Component) decides
+  everything itself: no session → `SuperLoginForm` (new, `src/components/auth/SuperLoginForm.tsx`,
+  visually distinct from the institution-scoped `LoginForm`); session but `!isSuperAdmin` → a plain
+  denial message; `isSuperAdmin` → the panel (moved unchanged into new `SuperAdminPanel.tsx`, whose
+  own client-side 403 handling is kept as defense-in-depth, not the primary gate anymore).
+  **Explicitly role-based, never email-based** — the gate is the same `getAuthUser()` →
+  `User.isSuperAdmin` DB flag every `/api/super/*` route already used, so any account with that
+  flag works, not one hardcoded address.
+- **Account cleanup**: `harisjamil1616@gmail.com` had `role: 'teacher'` + `isSuperAdmin: true` —
+  per Haris's decision (offered the alternative of a real `super_admin` Role enum value + updating
+  every role-branch to match; he picked the lower-risk option), `role` is now `'admin'`, keeping
+  `isSuperAdmin: true`. **Found and fixed a real, separate staleness bug while doing this**:
+  Supabase Auth's own `user_metadata.role` (what `middleware.ts` actually reads for route gating,
+  independent of the Prisma `User.role` column) still said `"teacher"` — updated via
+  `adminSupabase.auth.admin.updateUserById`, merging so `name`/`institutionId`/`inviteTokenId` in
+  that metadata were left untouched. Flagged to Haris: his current session's JWT still carries the
+  old claim until he re-logs-in or it naturally refreshes, and the account still owns 1 exam + 1
+  class as teacher (untouched, just no longer reachable via `/teacher/*` under this login).
+- **Verification**: `tsc` clean · `lint` unchanged 3-error baseline · `vitest` 404/404 · `build`
+  clean, 88 routes. Pushed (`e0f0ee4`) and confirmed live: build logs show `/super` in the route
+  table, deployment `READY` and aliased to `exam-system-sigma.vercel.app` with no alias error, and
+  a logged-out `curl` to `/super` returns `200` (not a redirect to `/login`).
+
+### 2026-08-10 — Real WYSIWYG editor (Quill) replaces the lightweight markup toolbar; RTL fixed app-wide; hierarchical rubric editor ✅
+
+Two passes in one day: a 5-ticket batch (RTL on the Item Bank page, a lightweight markup-toolbar
+RTE, `dir="auto"` for exam content, a Matching-question dropdown overlap, a hierarchical rubric
+editor), then an explicit follow-up reversing the RTE decision — Haris asked for a **real** WYSIWYG
+editor instead, with the scoring/prompt/dedup fixes that choice requires. Documented together since
+the follow-up's live QA pass ended up re-verifying (and fixing) both.
+
+- **Real Quill editor** (`src/components/rich/QuillEditor.tsx`, lazy-loaded — see `quill-loader.ts`)
+  replaces `MathTextarea`/`MathInput` for Question Stem and every answer-option-shaped field
+  (MCQ/MRQ/TF/Matching/Ordering). Explanation and fill_blank/short_answer's correct-answer field
+  deliberately stay on the old plain-markup editor (flagged: the latter is compared byte-for-byte
+  against a student's plain-typed answer — upgrading it to HTML would only add risk, no value).
+- **No schema change, no data migration** — `RichText.tsx` gained one new, narrow signal
+  (`looksLikeRichHtml`: does the content *start* with a real Quill block tag like `<p>`/`<ol>`?)
+  that distinguishes genuinely-Quill-authored content from literally everything written before
+  Quill existed (plain prose, last session's `**bold**`-style markup, AI-generated text, CSV
+  imports) — none of which can structurally produce that shape. Non-matching content renders via
+  the exact unmodified prior pipeline; matching content is sanitized (DOMPurify, lazy-loaded) and
+  rendered via `dangerouslySetInnerHTML` — the first use of that API in this codebase, previously
+  documented as never used anywhere (see `MathSegment.tsx`'s own comment, now historical).
+- **Math/Chemistry reuse the existing `MathInputDialog`** unchanged via a custom Formula blot
+  (`quill-loader.ts`) that deliberately does NOT use Quill's own stock formula module — that module
+  requires a global `window.katex` and calls `katex.render()` with no `trust`/`strict` options at
+  all, a real unpatched XSS surface in Quill's default (`\href{javascript:...}` would execute
+  in-editor). The custom blot only ever stores raw LaTeX + display-mode as data attributes and
+  shows an inert label in-editor; every render re-extracts them and re-renders through the
+  already-hardened `MathSegment`/`katex-loader.ts` (`trust: false`) instead.
+- **`img src` restricted to this app's own upload bucket** (`sanitize-html-loader.ts`) — the
+  DOMPurify tag/attribute allowlist alone doesn't restrict what a `src` value points at; a stray
+  external URL would have sanitized cleanly and silently loaded (tracking-pixel/beaconing risk,
+  not XSS). Added after Haris asked to confirm this specifically; a `uponSanitizeAttribute` hook
+  now requires the URL's origin + path to match the public `item-assets` bucket under this app's
+  own Supabase project, with 6 new tests (lookalike-host and non-http(s)-scheme cases included).
+- **Scoring/prompts/dedup made HTML-aware**: `stripHtml()` (new, `lib/rich-text.ts`) applied to
+  `scoring.ts`'s `ordering`/`matching` comparisons (both previously exact-`===`), both Claude
+  prompts in `ai/grading.ts`, the pg_trgm dedup query in `ai/generation-job.ts` (wrapped in
+  `regexp_replace` — flagged: drops GIN-index usage for that comparison, acceptable at current
+  scale), and `item-form-schema.ts`'s min-length check (`<p></p>` no longer trivially passes).
+  CSV import (`BulkImportModal.tsx`) now defensively `escapeHtml()`s imported stems. Checked for a
+  "SVG export" feature per Haris's ask — none exists anywhere in this codebase, nothing to fix.
+- **Found and fixed a real, high-impact bug during live QA, unrelated to either RTE decision**:
+  Radix UI's `Tabs`/`Select` default their own internal `dir` to `"ltr"` regardless of `html[dir]`
+  (`@radix-ui/react-direction`'s `useDirection()`) — this broke RTL app-wide, not just on the Item
+  Bank page the ticket named. Fixed with `DirectionProvider` in `layout.tsx`, plus an `npm
+  overrides` pin (`@radix-ui/react-direction: 1.1.2`) — several Radix packages hard-pin that exact
+  version rather than a caret range, so without the override npm installed a second, disconnected
+  copy and the fix was silently a no-op until diagnosed via `find node_modules -path
+  '*react-direction*'`. Verified live: breadcrumb chevrons, tab order/icons, table column order all
+  correct in Arabic after the fix.
+- **Also found and fixed live**: `QuillEditor`'s format-sync handler crashed calling
+  `quill.getFormat()` with no active selection (e.g. focus moved to the Math dialog); the Matching
+  dropdown's closed state clipped long text with no ellipsis (`text-overflow: clip`, not
+  `ellipsis`) — both are the kind of bug only live browser QA catches, not `tsc`/`lint`/tests.
+- **Hierarchical rubric editor** (`src/lib/rubric.ts` + `src/components/items/RubricEditor.tsx`)
+  for essay items — found the existing rubric UI was a fully static, disconnected table (inputs had
+  no state at all), and separately that `createItem()` never even wrote `rubric` to Prisma
+  regardless of what any caller sent (AI generation included) — fixed both. New editor supports
+  custom dimensions/columns, one level of sub-dimension nesting, real-time weight validation
+  (top-level sums to 100%, a parent's sub-dimensions sum to its own weight), and an "Enable AI
+  Auto-Grading" toggle; compiles down to the existing flat `RubricCriterion[]` shape at save time
+  so the AI grading pipeline itself needed zero changes. **Not live-verified** in a browser this
+  session — only `tsc`/`lint`/`vitest`/`build` — flagged as a gap given how much the live pass
+  turned up elsewhere.
+- Trust score formula/color-coding unified across every view (Live Monitor, per-exam monitor,
+  Students tab, results table, complete page, monitor modal) — was previously two different
+  formulas depending on whether an exam had sections, plus four different inline color-threshold
+  schemes. Per-attempt evidence (snapshots/audio) now auto-purges on exam finalization instead of
+  only via the pre-existing 30-day cron.
+- **Live QA** used this repo's own disposable-fixture pattern (`tests/fixtures/seed-tenants.ts` +
+  `teardown-tenants.ts`, gated by `guard-non-prod.ts`'s `QA_ALLOW_PROD_OVERRIDE` since no non-prod
+  Supabase project exists) against the one available (production) project, fully torn down after —
+  confirmed zero leftover rows from this session (a pre-existing, unrelated 2026-07-03 orphaned
+  fixture was noticed and flagged, not touched).
+- **Verification**: `tsc` clean · `lint` unchanged 3-error baseline · `vitest` 404/404 · `build`
+  clean, 88 routes. Pushed (`e7cbc08`) and confirmed live: Vercel auto-deploy `READY`, aliased to
+  `exam-system-sigma.vercel.app`, build logs show all 88 routes.
+- **Known residual, disclosed not fixed**: one low-severity, currently-unpatched-upstream Quill
+  advisory (its own HTML-export feature) — mitigated by DOMPurify sitting downstream of everything
+  Quill produces, but not eliminated at the source.
+
 ### 2026-08-05 — Parallel batch: upload UI, upcoming-exams fix, proctoring device gate, performance/staleness ✅
 
 Four independent workstreams run as isolated git worktrees and integrated together. Each landed as
@@ -953,6 +1062,9 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Current Status
+- **Dedicated `/super` login page** ✅ **COMPLETE** (2026-08-10) — reachable while logged out, own purpose-built login form, server-side `isSuperAdmin`-flag gate (never email-based). See the Session Log.
+- **Real WYSIWYG editor (Quill) for stem/answer options** ✅ **COMPLETE** (2026-08-10) — replaces the prior lightweight markup toolbar; no schema change/data migration; scoring/AI-prompt/dedup made HTML-aware; `img src` restricted to this app's own upload bucket. Also fixed a real, app-wide RTL bug (Radix `Tabs`/`Select` defaulting to `ltr` internally) found via live QA. See the Session Log.
+- **Hierarchical rubric editor for essay items** ✅ **COMPLETE** (2026-08-10) — the prior rubric UI was fully static/disconnected, and `createItem()` never persisted `rubric` at all; both fixed. Not yet live-browser-verified (only `tsc`/`lint`/`vitest`/`build`). See the Session Log.
 - **Proctoring system fixed end-to-end** ✅ **COMPLETE** (2026-07-18) — all 7 detection types (face, multi-face, tab-switch, fullscreen exit, background noise, abnormal gaze, prohibited object) now reliably produce correctly-typed, correctly-severitied, non-duplicated violations, verified per-detector against a fresh production build with real DB rows; fullscreen is now enforced (blocking overlay + re-enter button), the biometric gate shows the real camera feed with captured-frame display, evidence snapshot uploads work (were 100% failing on storage RLS), exam resume from a fresh browser works (was a 500), and the dev-mode StrictMode event-loss false negative is fixed at the root. Root cause of all dead vision detection: the auth middleware was redirecting `/models/*` asset fetches to HTML. See `PROCTORING_FIX_PROGRESS.md` and the Session Log.
 - **Exam auto-completes on the teacher side when closing time is reached** ✅ **COMPLETE** (2026-07-17) — `computeEffectiveExamStatus` now derives `completed` once `endTime` has passed (symmetric with the existing `scheduled→live` rule), fixing exams list/dashboard/cross-exam Live Monitor all showing a stale "Live" badge forever past the actual close time; also fixed the matching "Active Exams" stat aggregate, which had the identical gap. See the Session Log.
 - **Cross-exam Live Monitor page (`/teacher/monitor`) now has the eye button/live video too** ✅ **COMPLETE** (2026-07-17) — the "Go Live"/snapshot/actions panel only ever existed on the per-exam monitor page; extracted it to a shared `StudentActionsModal` component and wired it into both. See the Session Log.
@@ -981,7 +1093,9 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 - `npm run build` → **PASSES** (0 errors, 88 routes)
 - `npm run lint` → 3 pre-existing baseline errors (`useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff), 0 warnings
 - `npx tsc --noEmit` → clean
-- `npx vitest run` → 351/351 passing (+ `pytest` 10/10 in `psychometrics/`)
+- `npx vitest run` → 404/404 passing (+ `pytest` 10/10 in `psychometrics/`)
+- Last verified: 2026-08-10 (dedicated `/super` login page + account role cleanup; pushed `e0f0ee4`, confirmed live)
+- Last verified: 2026-08-10 (real Quill WYSIWYG editor, app-wide RTL fix, rubric editor, img-src allowlist hardening; pushed `e7cbc08`, confirmed live)
 - Last verified: 2026-08-05 (parallel batch — upload UI, upcoming-exams fix, proctoring device gate, performance/staleness; see the Session Log for the accepted real-hardware gap on the gate)
 - Last verified: 2026-08-04 (math/chem follow-ups — AI LaTeX guidance, matching dropdowns, shortcuts, print CSS, mobile overflow; 15/15 live checks)
 - Last verified: 2026-08-04 (math & chemistry in question content — KaTeX/mhchem/MathLive, 30/30 live checks against a fresh production build)
