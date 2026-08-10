@@ -5,6 +5,7 @@ import { AI_MODEL } from './claude-generator';
 import { consumeAiQuota, consumeJudgeQuota, AiQuotaExceededError } from './quota';
 import { runTestCases } from './judge0';
 import { computeSectionScores, type PerQuestion } from '@/lib/scoring';
+import { stripHtml } from '@/lib/rich-text';
 import type { Question, ExamSection } from '@/types';
 
 // AI-assisted grading engine (Phase 3, doc 03). Runs as Vercel background work
@@ -102,7 +103,9 @@ function parseRubric(raw: unknown): RubricCriterion[] | null {
 function essaySystem(stem: string, rubric: RubricCriterion[], maxMarks: number): string {
   return [
     'You are a strict, fair exam grader. Grade the student answer strictly against the rubric — no criteria of your own.',
-    `Question: ${stem}`,
+    // Stem may be Quill-authored HTML now (src/lib/rich-text.ts) — strip it so Claude sees clean
+    // semantic text, not markup noise, exactly as it always has for a plain stem.
+    `Question: ${stripHtml(stem)}`,
     `Rubric (total question marks: ${maxMarks}):`,
     ...rubric.map(c => `- "${c.name}" (max ${c.maxPoints} points): ${c.description ?? ''}`),
     'For each criterion, award points (0 to its max) and quote the specific student text supporting your score as evidence.',
@@ -251,7 +254,7 @@ async function gradeCodingAnswer(args: {
       max_tokens: 4096,
       system: [
         'You are a code reviewer grading a student\'s exam submission for quality (readability, approach, edge-case handling) — correctness is already measured by the test results provided.',
-        `Problem: ${args.stem}`,
+        `Problem: ${stripHtml(args.stem)}`,
         args.rubric
           ? `Quality rubric:\n${args.rubric.map(c => `- "${c.name}" (max ${c.maxPoints}): ${c.description ?? ''}`).join('\n')}`
           : 'No rubric provided: assess readability, approach, and edge-case handling.',

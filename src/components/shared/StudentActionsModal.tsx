@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Camera, Send, StopCircle, Video, VideoOff } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useWebRTCViewer } from '@/hooks/useWebRTCViewer';
+import { trustScoreTextClass } from '@/lib/trust-score';
 import type { MonitorStudent, Violation } from '@/types';
 
 export const STATUS_CONFIG: Record<MonitorStudent['status'], { label: string; class: 'success' | 'warning' | 'danger' | 'secondary' | 'outline' }> = {
@@ -44,6 +45,14 @@ export function StudentActionsModal({ student, violations, onActionDone }: {
   const [confirmingForce, setConfirmingForce] = useState(false);
   const pollAbort = useRef(false);
 
+  // Evidence auto-captured on a violation (snapshot or audio clip) — selected by clicking
+  // a row in the timeline below. Kept separate from the on-demand `snapshotUrl` state so
+  // the two sources never clobber each other.
+  const [viewingViolationId, setViewingViolationId] = useState<string | null>(null);
+  const [violationMediaUrl, setViolationMediaUrl] = useState<string | null>(null);
+  const [violationMediaState, setViolationMediaState] = useState<'idle' | 'loading' | 'failed'>('idle');
+  const violationMediaKind = violationMediaUrl?.match(/\.(webm|mp3|wav|m4a|ogg)(\?|$)/i) ? 'audio' : 'image';
+
   useEffect(() => {
     pollAbort.current = false;
     return () => { pollAbort.current = true; };
@@ -56,6 +65,7 @@ export function StudentActionsModal({ student, violations, onActionDone }: {
 
   async function requestSnapshot() {
     if (!attemptId) return;
+    setViewingViolationId(null);
     setSnapshotState('waiting');
     setSnapshotUrl(null);
     try {
@@ -91,6 +101,23 @@ export function StudentActionsModal({ student, violations, onActionDone }: {
       if (!pollAbort.current) setSnapshotState('failed');
     } catch {
       if (!pollAbort.current) setSnapshotState('failed');
+    }
+  }
+
+  async function viewViolationEvidence(v: Violation) {
+    if (!v.screenshotUrl) return;
+    if (isLive) stopLive();
+    setViewingViolationId(v.id);
+    setViolationMediaUrl(null);
+    setViolationMediaState('loading');
+    try {
+      const res = await fetch(`/api/evidence?violationId=${v.id}`);
+      if (!res.ok) throw new Error();
+      const { url } = (await res.json()) as { url: string };
+      setViolationMediaUrl(url);
+      setViolationMediaState('idle');
+    } catch {
+      setViolationMediaState('failed');
     }
   }
 
@@ -158,6 +185,28 @@ export function StudentActionsModal({ student, violations, onActionDone }: {
               </div>
             )}
           </>
+        ) : viewingViolationId ? (
+          <>
+            {violationMediaState === 'loading' ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-white gap-2">
+                <Camera className="h-10 w-10 opacity-30 animate-pulse" />
+                <p className="text-sm opacity-60">Loading evidence…</p>
+              </div>
+            ) : violationMediaState === 'failed' || !violationMediaUrl ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-white gap-2">
+                <Camera className="h-10 w-10 opacity-30" />
+                <p className="text-sm opacity-60">Evidence unavailable</p>
+              </div>
+            ) : violationMediaKind === 'audio' ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-4">
+                <p className="text-sm text-white/60">Audio evidence</p>
+                <audio src={violationMediaUrl} controls className="w-full max-w-xs" />
+              </div>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL, next/image can't optimize it
+              <img src={violationMediaUrl} alt="Violation evidence" className="w-full h-full object-cover" />
+            )}
+          </>
         ) : snapshotUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL, next/image can't optimize it
           <img src={snapshotUrl} alt={`Snapshot of ${student.name}`} className="w-full h-full object-cover" />
@@ -183,7 +232,7 @@ export function StudentActionsModal({ student, violations, onActionDone }: {
                   <Camera className="h-3.5 w-3.5 me-1.5" />
                   {snapshotState === 'waiting' ? 'Waiting…' : 'Request snapshot'}
                 </Button>
-                <Button size="sm" variant="secondary" onClick={() => attemptId && startLive(attemptId)}>
+                <Button size="sm" variant="secondary" onClick={() => { setViewingViolationId(null); if (attemptId) startLive(attemptId); }}>
                   <Video className="h-3.5 w-3.5 me-1.5" /> Go live
                 </Button>
               </>
@@ -200,7 +249,7 @@ export function StudentActionsModal({ student, violations, onActionDone }: {
         </div>
         <div className="rounded-xl bg-[#F4F7FC] p-3 text-center">
           <p className="text-[11px] text-[#9CA3AF]">Trust</p>
-          <p className={`text-[18px] font-extrabold mt-0.5 ${student.trustScore < 60 ? 'text-red-600' : 'text-green-600'}`}>
+          <p className={`text-[18px] font-extrabold mt-0.5 ${trustScoreTextClass(student.trustScore)}`}>
             {student.trustScore}%
           </p>
         </div>
@@ -256,8 +305,17 @@ export function StudentActionsModal({ student, violations, onActionDone }: {
           <p className="text-xs text-[#9CA3AF] py-2 text-center">No violations recorded</p>
         ) : (
           <div className="max-h-[200px] overflow-y-auto space-y-1.5 pr-1">
-            {violations.map(v => (
-              <div key={v.id} className={`flex items-center justify-between rounded-lg border px-3 py-2 ${
+            {violations.map(v => {
+              const hasEvidence = Boolean(v.screenshotUrl);
+              return (
+              <div
+                key={v.id}
+                role={hasEvidence ? 'button' : undefined}
+                tabIndex={hasEvidence ? 0 : undefined}
+                onClick={hasEvidence ? () => void viewViolationEvidence(v) : undefined}
+                className={`flex items-center justify-between rounded-lg border px-3 py-2 ${hasEvidence ? 'cursor-pointer hover:brightness-95' : ''} ${
+                v.id === viewingViolationId ? 'ring-2 ring-blue-400' : ''
+              } ${
                 v.severity === 'high'   ? 'border-red-200 bg-red-50' :
                 v.severity === 'medium' ? 'border-yellow-200 bg-yellow-50' :
                 'border-blue-100 bg-blue-50'
@@ -270,12 +328,14 @@ export function StudentActionsModal({ student, violations, onActionDone }: {
                     {v.severity}
                   </Badge>
                   <span className="text-xs truncate">{VIOLATION_LABELS[v.type] ?? v.type}</span>
+                  {hasEvidence && <Camera className="h-3 w-3 text-[#9CA3AF] shrink-0" />}
                 </div>
                 <span className="text-[10px] text-[#9CA3AF] shrink-0 ml-2">
                   {formatDistanceToNow(new Date(v.timestamp), { addSuffix: true })}
                 </span>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

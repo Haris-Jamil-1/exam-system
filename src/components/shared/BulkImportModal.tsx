@@ -4,6 +4,7 @@
 // CSV format: stem, type, difficulty, marks, correctAnswer, tags, cloCode
 import { useState, useRef } from 'react';
 import { createItem } from '@/lib/data';
+import { escapeHtml } from '@/lib/rich-text';
 import type { QuestionType } from '@/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -82,7 +83,10 @@ export function BulkImportModal({ bankId, open, onClose, onImported }: Props) {
       for (const row of valid) {
         await createItem({
           type: row.type,
-          stem: row.stem,
+          // Escaped defensively: stem is rendered as HTML now (RichText.tsx), and this is the one
+          // write path where content comes from an uploaded file rather than typed/generated text
+          // — guarantees a literal `<`/`&`/`>` in a CSV cell can never be misread as markup.
+          stem: escapeHtml(row.stem),
           correctAnswer: row.correctAnswer || undefined,
           marks: row.marks,
           difficulty: row.difficulty,

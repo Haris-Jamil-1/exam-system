@@ -7,6 +7,7 @@ import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } fro
 import { scoreAnswers } from '@/lib/scoring';
 import { computeTrustScore, type TrustScoreInput } from '@/lib/trust-score';
 import { computeSubmissionDeadline, isPastDeadline } from '@/lib/exam-deadline';
+import { purgeAttemptEvidence } from '@/lib/proctoring/evidence-purge';
 import type { Question, ExamSettings } from '@/types';
 
 const submitSchema = z.object({
@@ -149,6 +150,7 @@ export const POST = withErrorHandling(async (
   if (needsGrading.size > 0) {
     after(() => runGradingForAttempt(attemptId));
   }
+  after(() => purgeAttemptEvidence(attemptId));
 
   return NextResponse.json({
     id: attemptId,

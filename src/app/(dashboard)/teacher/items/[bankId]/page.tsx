@@ -345,7 +345,7 @@ export default function ItemBankDetailPage() {
     <div className="space-y-6">
       <div className="flex items-center gap-1.5 text-[13px] text-[#6B7280]">
         <Link href="/teacher/items" className="hover:text-[#1A1D23] transition-colors">Item Banks</Link>
-        <ChevronRight className="h-3.5 w-3.5" />
+        <ChevronRight className="h-3.5 w-3.5 rtl:rotate-180" />
         <span className="font-medium text-[#1A1D23]">{bank.name}</span>
       </div>
 

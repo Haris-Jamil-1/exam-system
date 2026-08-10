@@ -3,13 +3,19 @@ import { getAuthUser, unauthorized, withErrorHandling } from '@/lib/api-auth';
 import { adminSupabase } from '@/lib/supabase/admin';
 
 const BUCKET = 'exam-uploads';
+// Separate, genuinely-public bucket for content teachers embed *into* authored questions (the
+// rich-text toolbar's image button) — unlike proctoring evidence/submissions, an image inside a
+// question stem needs to keep rendering for the life of the item, so a signed URL (max practical
+// TTL, still expires) doesn't work. A public bucket with a stable URL is the correct fit; it never
+// shares a bucket with the private evidence path, so nothing evidence-related becomes public.
+const PUBLIC_BUCKET = 'item-assets';
 
-async function ensureBucket() {
+async function ensureBucket(bucket: string, isPublic: boolean) {
   const { data: buckets } = await adminSupabase.storage.listBuckets();
-  const exists = buckets?.some(b => b.name === BUCKET);
+  const exists = buckets?.some(b => b.name === bucket);
   if (!exists) {
-    await adminSupabase.storage.createBucket(BUCKET, {
-      public: false,
+    await adminSupabase.storage.createBucket(bucket, {
+      public: isPublic,
       fileSizeLimit: 50 * 1024 * 1024, // 50 MB
     });
   }
@@ -22,12 +28,14 @@ export const POST = withErrorHandling(async (request: Request) => {
   const formData = await request.formData();
   const file = formData.get('file') as File | null;
   const folder = (formData.get('folder') as string | null) ?? 'misc';
+  const isPublicAsset = (formData.get('public') as string | null) === 'true';
 
   if (!file) {
     return NextResponse.json({ error: 'No file provided' }, { status: 400 });
   }
 
-  await ensureBucket();
+  const bucket = isPublicAsset ? PUBLIC_BUCKET : BUCKET;
+  await ensureBucket(bucket, isPublicAsset);
 
   const ext = file.name.split('.').pop() ?? 'bin';
   const path = `${folder}/${user.id}/${Date.now()}.${ext}`;
@@ -40,11 +48,16 @@ export const POST = withErrorHandling(async (request: Request) => {
   // read side (/api/evidence) was already using the admin client the same way.
   const arrayBuffer = await file.arrayBuffer();
   const { error } = await adminSupabase.storage
-    .from(BUCKET)
+    .from(bucket)
     .upload(path, arrayBuffer, { contentType: file.type, upsert: false });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (isPublicAsset) {
+    const { data: pub } = adminSupabase.storage.from(bucket).getPublicUrl(path);
+    return NextResponse.json({ path, url: pub.publicUrl }, { status: 201 });
   }
 
   // Generate a signed URL valid for 1 hour (files are private)

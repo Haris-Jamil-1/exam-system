@@ -9,9 +9,14 @@
 // `register('duration', { valueAsNumber: true })`) — this schema only needs to validate the
 // already-coerced number, not perform the coercion itself.
 import { z } from 'zod';
+import { stripHtml } from '@/lib/rich-text';
 
+// Stem is now authored through the Quill editor, so it may be genuine HTML (e.g. `<p></p>`) —
+// checking raw string length would let visually-empty content trivially pass (`<p></p>` is 7
+// characters). `stripHtml` is a no-op on plain text, so this is unaffected for anything not
+// authored via Quill.
 export const itemFormSchema = z.object({
-  stem: z.string().min(5, 'Question stem is required'),
+  stem: z.string().refine(v => stripHtml(v).length >= 5, 'Question stem is required'),
   marks: z.number().min(1, 'Marks must be at least 1'),
   tags: z.string().optional(),
 });

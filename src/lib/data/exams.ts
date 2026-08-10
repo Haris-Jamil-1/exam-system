@@ -2,7 +2,6 @@
 import { prisma } from '@/lib/prisma';
 import { getSessionContext } from '@/lib/session';
 import { computeEffectiveExamStatus } from '@/lib/exam-status';
-import { computeExamDurationMinutes } from '@/lib/exam-duration';
 import type { Exam, ExamSettings, StatValue } from '@/types';
 
 type PrismaExam = {
@@ -89,9 +88,11 @@ export async function createExam(data: Omit<Exam, 'id' | 'createdAt'>): Promise<
       data: {
         title: data.title,
         subject: data.subject,
-        // Duration is derived from the availability window, never trusted from the client —
-        // the wizard no longer even has a duration input.
-        duration: computeExamDurationMinutes(data.startTime, data.endTime) ?? data.duration,
+        // Duration is independent of the availability window (Start/End Time) — it drives
+        // only the student's own countdown once they click Start; the window controls when
+        // that's even possible. A late start is still force-submitted at endTime regardless
+        // of this value (see computeSubmissionDeadline in lib/exam-deadline.ts).
+        duration: data.duration,
         totalMarks: data.totalMarks,
         passingMarks: data.passingMarks,
         status: data.status,

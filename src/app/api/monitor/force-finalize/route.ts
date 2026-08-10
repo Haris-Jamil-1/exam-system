@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getAuthUser, unauthorized, forbidden, notFound, withErrorHandling } from '@/lib/api-auth';
 import { computeTrustScore, type TrustScoreInput } from '@/lib/trust-score';
+import { purgeAttemptEvidence } from '@/lib/proctoring/evidence-purge';
 
 // Server-side finalization of a dead attempt (Phase 3, doc 04). The normal
 // force-submit path is a MonitorDirective that makes the live client submit
@@ -62,6 +64,8 @@ export const POST = withErrorHandling(async (request: Request) => {
       violationCount: violations.length,
     },
   });
+
+  after(() => purgeAttemptEvidence(attempt.id));
 
   return NextResponse.json({ id: updated.id, status: updated.status });
 });

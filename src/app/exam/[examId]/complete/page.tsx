@@ -11,6 +11,7 @@ import { Progress } from '@/components/ui/progress';
 import { useProctoringStore } from '@/store/proctoringStore';
 import { DesktopGuard } from '@/components/shared/DesktopGuard';
 import { RichText } from '@/components/rich/RichText';
+import { trustScoreTextClass, trustScoreProgressClass } from '@/lib/trust-score';
 
 type PerQuestionResult = {
   questionId: string;
@@ -220,17 +221,15 @@ export default function ExamCompletePage() {
                   <Shield className="h-5 w-5 text-blue-500" />
                   <span className="text-sm font-medium">Integrity Score</span>
                 </div>
-                <span className={`font-bold text-lg ${
-                  trustScore >= 80 ? 'text-green-600' : trustScore >= 60 ? 'text-yellow-600' : 'text-red-600'
-                }`}>
+                <span className={`font-bold text-lg ${trustScoreTextClass(trustScore)}`}>
                   {trustScore}%
                 </span>
               </div>
-              <Progress value={trustScore} className="h-2" />
+              <Progress value={trustScore} className={`h-2 ${trustScoreProgressClass(trustScore)}`} />
               <p className="text-xs text-muted-foreground mt-1">
                 {trustScore >= 80
                   ? 'Excellent integrity score'
-                  : trustScore >= 60
+                  : trustScore >= 50
                   ? 'Good — some violations detected'
                   : 'Low trust score — multiple violations recorded'}
               </p>

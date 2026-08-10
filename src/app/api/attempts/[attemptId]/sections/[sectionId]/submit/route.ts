@@ -5,6 +5,8 @@ import { prisma } from '@/lib/prisma';
 import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } from '@/lib/api-auth';
 import { runGradingForAttempt } from '@/lib/ai/grading';
 import { scoreAnswers, computeSectionScores, type PerQuestion } from '@/lib/scoring';
+import { computeTrustScore, type TrustScoreInput } from '@/lib/trust-score';
+import { purgeAttemptEvidence } from '@/lib/proctoring/evidence-purge';
 import type { Question, ExamSection, ExamSettings } from '@/types';
 
 const submitSchema = z.object({
@@ -146,8 +148,9 @@ export const POST = withErrorHandling(async (
     const rawScoreSum = hierarchical.sections.reduce((s, sec) => s + sec.rawScore, 0);
     const rawTotalSum = hierarchical.sections.reduce((s, sec) => s + sec.totalMarks, 0);
 
-    const violationCount = await prisma.violation.count({ where: { attemptId } });
-    const trustScore = Math.max(0, 100 - violationCount * 15);
+    const violationRows = await prisma.violation.findMany({ where: { attemptId }, select: { severity: true } });
+    const violationCount = violationRows.length;
+    const trustScore = computeTrustScore(violationRows as TrustScoreInput[]);
 
     // Availability window vs. duration, same "whichever is sooner" rule as the overall exam
     // (item 2) — recomputed independently here too, matching the flat submit route's logic.
@@ -180,6 +183,7 @@ export const POST = withErrorHandling(async (
   // would race with sections still being written.
   if (isLastSection) {
     after(() => runGradingForAttempt(attemptId));
+    after(() => purgeAttemptEvidence(attemptId));
   }
 
   const nextSection = allSections.find(s => s.orderIndex > section.orderIndex);

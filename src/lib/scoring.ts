@@ -1,4 +1,5 @@
 import type { Question, ExamSection } from '@/types';
+import { stripHtml } from '@/lib/rich-text';
 
 export type PerQuestion = {
   questionId: string;
@@ -60,12 +61,21 @@ export function scoreAnswers(questions: Question[], answers: Record<string, stri
           q.options &&
           Array.isArray(q.correctAnswer)
         ) {
-          // New format: { leftOptionId: selectedRightText } — partial credit per pair
+          // New format: { leftOptionId: selectedRightText } — partial credit per pair.
+          // Compared via stripHtml() since matching's right-side labels (like every answer
+          // option now) may be Quill-authored HTML — the student's selected value and the
+          // stored label should already be the identical string in practice (both drawn from
+          // the same `matchingChoices` set), but normalizing here means a value that round-trips
+          // through any HTML-equivalent-but-not-byte-identical form still matches correctly.
           const matchMap = answer as Record<string, string>;
           const rightLabels = q.correctAnswer as string[];
           let correctPairs = 0;
           q.options.forEach((opt, i) => {
-            if (matchMap[opt.id] === rightLabels[i]) correctPairs++;
+            const expected = rightLabels[i];
+            const selected = matchMap[opt.id];
+            if (selected === expected || (selected !== undefined && expected !== undefined && stripHtml(selected) === stripHtml(expected))) {
+              correctPairs++;
+            }
           });
           correct = correctPairs === q.options.length;
           marksAwarded = q.options.length > 0
@@ -83,13 +93,16 @@ export function scoreAnswers(questions: Question[], answers: Record<string, stri
         break;
       }
       case 'ordering': {
-        // Partial credit: 1 point per correctly-positioned item
+        // Partial credit: 1 point per correctly-positioned item. Compared via stripHtml() since
+        // option text may now be Quill-authored HTML — an exact `===` would spuriously fail if
+        // the option's live text and the stored expected-order snapshot ever differ only in
+        // formatting/markup, not visible content.
         if (Array.isArray(answer) && Array.isArray(q.correctAnswer) && q.options) {
           const studentTexts = (answer as string[]).map(id => q.options?.find(o => o.id === id)?.text ?? '');
           const expected = q.correctAnswer as string[];
           let correctPositions = 0;
           studentTexts.forEach((text, i) => {
-            if (text === expected[i]) correctPositions++;
+            if (text === expected[i] || stripHtml(text) === stripHtml(expected[i] ?? '')) correctPositions++;
           });
           correct = correctPositions === expected.length;
           marksAwarded = expected.length > 0

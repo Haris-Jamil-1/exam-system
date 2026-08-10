@@ -155,6 +155,10 @@ export async function createItem(data: Omit<Item, 'id' | 'createdAt' | 'usageCou
         allowedFileTypes: rest.allowedFileTypes ?? [],
         maxFileSizeMB: rest.maxFileSizeMB ?? null,
         timeLimitSeconds: rest.timeLimitSeconds ?? null,
+        // Was never written here at all — an essay item's rubric (AI grading's own required
+        // input, per Question.rubric's schema comment "no rubric = no AI grading") silently
+        // never persisted regardless of what the caller sent, manual builder or otherwise.
+        ...(rest.rubric !== undefined && { rubric: rest.rubric as object }),
         learningObjectiveId: rest.learningObjectiveId ?? null,
         previousVersionId: rest.previousVersionId ?? null,
         // institutionId is always the bank's own institution, never the (unverified) caller-supplied one

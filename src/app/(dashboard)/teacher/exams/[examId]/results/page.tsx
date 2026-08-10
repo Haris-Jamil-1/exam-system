@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, Clock } from 'lucide-react';
+import { trustScoreTextClass } from '@/lib/trust-score';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
@@ -182,7 +183,7 @@ export default function ResultsPage() {
                           : <span className="text-muted-foreground">—</span>}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={s.trustScore < 60 ? 'text-red-600' : 'text-green-600'}>
+                        <span className={trustScoreTextClass(s.trustScore)}>
                           {s.trustScore}%
                         </span>
                       </td>

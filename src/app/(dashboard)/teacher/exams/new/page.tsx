@@ -27,15 +27,18 @@ const step1Schema = z.object({
   passingMarks: z.number().min(1),
   startTime: z.string().min(1, 'Start time required'),
   endTime: z.string().min(1, 'End time required'),
+  // Independent of the availability window below — drives the student's own countdown.
+  // A late start still gets force-submitted at endTime even if this timer hasn't run out
+  // (server-side deadline math already handles "whichever comes first").
+  duration: z.number().min(MIN_EXAM_DURATION_MINUTES, `Duration must be at least ${MIN_EXAM_DURATION_MINUTES} minutes`),
   instructions: z.string().optional(),
 }).refine(
-  d => (computeExamDurationMinutes(d.startTime, d.endTime) ?? 0) >= MIN_EXAM_DURATION_MINUTES,
-  { message: `End time must be at least ${MIN_EXAM_DURATION_MINUTES} minutes after start time`, path: ['endTime'] },
+  d => (computeExamDurationMinutes(d.startTime, d.endTime) ?? 0) > 0,
+  { message: 'End time must be after start time', path: ['endTime'] },
 );
 
 type Step1FormValues = z.infer<typeof step1Schema>;
-// duration is no longer entered by the teacher — it's derived from the start/end window.
-type Step1Data = Step1FormValues & { duration: number };
+type Step1Data = Step1FormValues;
 
 const STEPS = ['Basic Info', 'Select Questions', 'Settings'];
 
@@ -252,6 +255,9 @@ export default function NewExamPage() {
 
   // Item bank selections
   const [selectedBankItems, setSelectedBankItems] = useState<Map<string, Item>>(new Map());
+  // Per-exam points override — keyed by item id. Applies only to this exam's payload; the
+  // Item Bank's own `marks` value is never written back to.
+  const [marksOverride, setMarksOverride] = useState<Map<string, number>>(new Map());
 
   // Settings — proctoring + shuffle
   const [isProctoringEnabled, setIsProctoringEnabled] = useState(true);
@@ -282,17 +288,8 @@ export default function NewExamPage() {
     mode: 'onChange',
   });
 
-  // Mirrors of the hidden startTime/endTime form fields so the auto-calculated duration
-  // can render live as the teacher picks times (watch() is off-limits per the repo's
-  // react-compiler lint rules).
-  const [startISO, setStartISO] = useState('');
-  const [endISO, setEndISO] = useState('');
-  const autoDuration = startISO && endISO ? computeExamDurationMinutes(startISO, endISO) : null;
-
   function onStep1(data: Step1FormValues) {
-    const duration = computeExamDurationMinutes(data.startTime, data.endTime);
-    if (duration === null) return; // schema refine already blocks this; belt and suspenders
-    setStep1Data({ ...data, duration });
+    setStep1Data(data);
     setStep(1);
   }
 
@@ -306,7 +303,27 @@ export default function NewExamPage() {
       }
       return next;
     });
+    setMarksOverride(prev => {
+      if (!prev.has(item.id)) return prev;
+      const next = new Map(prev);
+      next.delete(item.id);
+      return next;
+    });
   }
+
+  function effectiveMarks(item: Item): number {
+    return marksOverride.get(item.id) ?? item.marks;
+  }
+
+  function setItemMarks(itemId: string, marks: number) {
+    setMarksOverride(prev => {
+      const next = new Map(prev);
+      next.set(itemId, marks);
+      return next;
+    });
+  }
+
+  const totalPoints = Array.from(selectedBankItems.values()).reduce((sum, item) => sum + effectiveMarks(item), 0);
 
   async function handleFinish() {
     if (!step1Data) return;
@@ -349,7 +366,7 @@ export default function NewExamPage() {
           stem: item.stem,
           options: item.options,
           correctAnswer: item.correctAnswer,
-          marks: item.marks,
+          marks: effectiveMarks(item),
           difficulty: item.difficulty,
           order: order++,
           explanation: item.explanation,
@@ -444,30 +461,32 @@ export default function NewExamPage() {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Start Time</Label>
+                  <Label>Start Time <span className="text-muted-foreground font-normal">(availability opens)</span></Label>
                   <input type="hidden" {...register('startTime')} />
                   <DateTimeField
-                    onChange={v => { setValue('startTime', v, { shouldValidate: true }); setStartISO(v); }}
+                    onChange={v => setValue('startTime', v, { shouldValidate: true })}
                   />
                   {errors.startTime && <p className="text-sm text-red-500">{errors.startTime.message}</p>}
                 </div>
                 <div className="space-y-2">
-                  <Label>End Time</Label>
+                  <Label>End Time <span className="text-muted-foreground font-normal">(availability closes)</span></Label>
                   <input type="hidden" {...register('endTime')} />
                   <DateTimeField
-                    onChange={v => { setValue('endTime', v, { shouldValidate: true }); setEndISO(v); }}
+                    onChange={v => setValue('endTime', v, { shouldValidate: true })}
                   />
                   {errors.endTime && <p className="text-sm text-red-500">{errors.endTime.message}</p>}
                 </div>
               </div>
-              {/* Duration is derived from the window above — no manual entry */}
-              <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
-                <Clock className="h-4 w-4 shrink-0" />
-                {autoDuration !== null ? (
-                  <span><span className="font-semibold">{autoDuration} minutes</span> — duration is calculated automatically from the start and end time.</span>
-                ) : (
-                  <span>Exam duration will be calculated automatically once you set the start and end time.</span>
-                )}
+              <div className="space-y-2">
+                <Label>Exam Duration (Minutes) <span className="text-muted-foreground font-normal">(the student&apos;s own countdown once they start)</span></Label>
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <Input type="number" min={MIN_EXAM_DURATION_MINUTES} placeholder="e.g. 90" {...register('duration', { valueAsNumber: true })} />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Independent of the availability window above — a student who starts late is still force-submitted at End Time even if this timer hasn&apos;t run out.
+                </p>
+                {errors.duration && <p className="text-sm text-red-500">{errors.duration.message}</p>}
               </div>
               <div className="space-y-2">
                 <Label>Instructions <span className="text-muted-foreground font-normal">(shown to students before they start)</span></Label>
@@ -492,9 +511,14 @@ export default function NewExamPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>Select Questions</CardTitle>
-                <Badge variant={totalAdded > 0 ? 'success' : 'outline'} className="text-sm">
-                  {totalAdded} question{totalAdded !== 1 ? 's' : ''} added
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant={totalAdded > 0 ? 'success' : 'outline'} className="text-sm">
+                    {totalAdded} question{totalAdded !== 1 ? 's' : ''} added
+                  </Badge>
+                  <Badge variant="outline" className="text-sm">
+                    Total Points: {totalPoints}
+                  </Badge>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -514,10 +538,22 @@ export default function NewExamPage() {
                       <span className="text-sm font-semibold text-green-600 w-6 shrink-0 mt-0.5">{i + 1}</span>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium leading-snug"><RichText content={item.stem} /></p>
-                        <div className="flex gap-1.5 mt-1">
+                        <div className="flex items-center gap-1.5 mt-1">
                           <Badge variant="info" className="text-xs">{TYPE_LABELS[item.type]}</Badge>
                           <Badge variant={DIFF_VARIANT[item.difficulty] as 'success' | 'warning' | 'danger'} className="text-xs capitalize">{item.difficulty}</Badge>
-                          <Badge variant="outline" className="text-xs">{item.marks} pts</Badge>
+                          <div className="flex items-center gap-1">
+                            <Input
+                              type="number"
+                              min={1}
+                              value={effectiveMarks(item)}
+                              onChange={e => {
+                                const n = e.target.valueAsNumber;
+                                if (Number.isFinite(n) && n >= 1) setItemMarks(item.id, n);
+                              }}
+                              className="h-6 w-16 px-1.5 text-xs"
+                            />
+                            <span className="text-xs text-muted-foreground">pts</span>
+                          </div>
                         </div>
                       </div>
                       <button

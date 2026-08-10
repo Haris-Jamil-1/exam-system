@@ -1,13 +1,17 @@
 'use client';
 
-import { useCallback, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
-import { Sigma, FlaskConical } from 'lucide-react';
+import { useCallback, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { Sigma, FlaskConical, Bold, Italic, Underline, List, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { containsMath, insertLatexAt } from '@/lib/rich-text';
+import {
+  containsMath, insertLatexAt, wrapSelectionAt, insertListLineAt, insertSnippetAt,
+  containsFormatting, containsListMarkup,
+} from '@/lib/rich-text';
 import { RichText } from './RichText';
 import { MathInputDialog, type MathDialogMode } from './MathInputDialog';
+import { uploadItemImage } from '@/lib/upload-item-image';
 
 interface MathFieldBaseProps {
   value: string;
@@ -35,12 +39,15 @@ function useMathToolbar(
 ) {
   const [dialogMode, setDialogMode] = useState<MathDialogMode | null>(null);
 
-  const insert = useCallback(
-    (latex: string, display: boolean) => {
+  // Shared by every caret-acting button: run `apply` against the current selection, write the
+  // result back, then restore focus/caret so a teacher can keep typing without reaching for the
+  // mouse.
+  const withCaret = useCallback(
+    (apply: (start: number, end: number) => { value: string; cursor: number }) => {
       const element = elementRef.current;
       const start = element?.selectionStart ?? value.length;
       const end = element?.selectionEnd ?? start;
-      const result = insertLatexAt(value, start, end, latex, display);
+      const result = apply(start, end);
       onValueChange(result.value);
       requestAnimationFrame(() => {
         element?.focus();
@@ -48,6 +55,23 @@ function useMathToolbar(
       });
     },
     [elementRef, value, onValueChange],
+  );
+
+  const insert = useCallback(
+    (latex: string, display: boolean) => withCaret((start, end) => insertLatexAt(value, start, end, latex, display)),
+    [value, withCaret],
+  );
+
+  const toggleBold = useCallback(() => withCaret((start, end) => wrapSelectionAt(value, start, end, '**')), [value, withCaret]);
+  const toggleItalic = useCallback(() => withCaret((start, end) => wrapSelectionAt(value, start, end, '*')), [value, withCaret]);
+  const toggleUnderline = useCallback(() => withCaret((start, end) => wrapSelectionAt(value, start, end, '__')), [value, withCaret]);
+  const insertList = useCallback(
+    (ordered: boolean) => withCaret((start, end) => insertListLineAt(value, start, end, ordered)),
+    [value, withCaret],
+  );
+  const insertImage = useCallback(
+    (url: string, alt: string) => withCaret((start, end) => insertSnippetAt(value, start, end, `![${alt}](${url})`)),
+    [value, withCaret],
   );
 
   // Ctrl/Cmd+M opens the equation dialog, Ctrl/Cmd+Shift+M the chemistry one — a teacher writing
@@ -64,8 +88,9 @@ function useMathToolbar(
     [],
   );
 
-  return { dialogMode, setDialogMode, insert, handleKeyDown };
+  return { dialogMode, setDialogMode, insert, toggleBold, toggleItalic, toggleUnderline, insertList, insertImage, handleKeyDown };
 }
+
 
 // Shown in the toolbar tooltips. Deliberately not platform-detected: reading `navigator` during
 // render would both break the React Compiler's purity rule and hydrate differently than it
@@ -73,19 +98,99 @@ function useMathToolbar(
 const MATH_SHORTCUT = 'Ctrl/Cmd+M';
 const CHEM_SHORTCUT = 'Ctrl/Cmd+Shift+M';
 
+interface MathToolbarProps {
+  compact?: boolean;
+  toolbarExtra?: ReactNode;
+  disabled?: boolean;
+  onOpen: (mode: MathDialogMode) => void;
+  onToggleBold: () => void;
+  onToggleItalic: () => void;
+  onToggleUnderline: () => void;
+  onInsertImage: (url: string, alt: string) => void;
+  /** Omitted for single-line fields (answer options) — a list line needs a real newline, which
+   *  a native `<input>` can't hold or display. */
+  onInsertList?: (ordered: boolean) => void;
+}
+
 function MathToolbar({
   compact,
   toolbarExtra,
   disabled,
   onOpen,
-}: {
-  compact?: boolean;
-  toolbarExtra?: ReactNode;
-  disabled?: boolean;
-  onOpen: (mode: MathDialogMode) => void;
-}) {
+  onToggleBold,
+  onToggleItalic,
+  onToggleUnderline,
+  onInsertImage,
+  onInsertList,
+}: MathToolbarProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = ''; // allow re-selecting the same file next time
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await uploadItemImage(file);
+      if (url) onInsertImage(url, file.name.replace(/\.[^.]+$/, ''));
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-1">
+      <ToolbarButton
+        disabled={disabled}
+        onClick={onToggleBold}
+        icon={<Bold className="h-3.5 w-3.5" />}
+        label="Bold"
+        compact
+        title="Bold"
+      />
+      <ToolbarButton
+        disabled={disabled}
+        onClick={onToggleItalic}
+        icon={<Italic className="h-3.5 w-3.5" />}
+        label="Italic"
+        compact
+        title="Italic"
+      />
+      <ToolbarButton
+        disabled={disabled}
+        onClick={onToggleUnderline}
+        icon={<Underline className="h-3.5 w-3.5" />}
+        label="Underline"
+        compact
+        title="Underline"
+      />
+      {onInsertList && (
+        <ToolbarButton
+          disabled={disabled}
+          onClick={() => onInsertList(false)}
+          icon={<List className="h-3.5 w-3.5" />}
+          label="List"
+          compact
+          title="Bulleted list"
+        />
+      )}
+      <ToolbarButton
+        disabled={disabled || uploading}
+        onClick={() => fileInputRef.current?.click()}
+        icon={uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImageIcon className="h-3.5 w-3.5" />}
+        label="Image"
+        compact
+        title="Insert an image"
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={event => void handleFileChange(event)}
+      />
+      <span className="h-4 w-px bg-border mx-0.5" aria-hidden="true" />
       <ToolbarButton
         disabled={disabled}
         onClick={() => onOpen('math')}
@@ -143,7 +248,7 @@ function ToolbarButton({
 }
 
 function MathPreview({ value, className }: { value: string; className?: string }) {
-  if (!containsMath(value)) return null;
+  if (!containsMath(value) && !containsFormatting(value) && !containsListMarkup(value)) return null;
   return (
     <div className={cn('rounded-md border border-dashed bg-muted/30 px-3 py-2', className)}>
       <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Preview</p>
@@ -166,12 +271,21 @@ export function MathTextarea({
   onBlur,
 }: MathFieldBaseProps & { rows?: number; onBlur?: () => void }) {
   const elementRef = useRef<HTMLTextAreaElement>(null);
-  const { dialogMode, setDialogMode, insert, handleKeyDown } =
+  const { dialogMode, setDialogMode, insert, toggleBold, toggleItalic, toggleUnderline, insertList, insertImage, handleKeyDown } =
     useMathToolbar(elementRef, value, onValueChange);
 
   return (
     <div className="space-y-2">
-      <MathToolbar disabled={disabled} toolbarExtra={toolbarExtra} onOpen={setDialogMode} />
+      <MathToolbar
+        disabled={disabled}
+        toolbarExtra={toolbarExtra}
+        onOpen={setDialogMode}
+        onToggleBold={toggleBold}
+        onToggleItalic={toggleItalic}
+        onToggleUnderline={toggleUnderline}
+        onInsertList={insertList}
+        onInsertImage={insertImage}
+      />
       <Textarea
         ref={elementRef}
         rows={rows}
@@ -204,7 +318,7 @@ export function MathInput({
   compact = true,
 }: MathFieldBaseProps) {
   const elementRef = useRef<HTMLInputElement>(null);
-  const { dialogMode, setDialogMode, insert, handleKeyDown } =
+  const { dialogMode, setDialogMode, insert, toggleBold, toggleItalic, toggleUnderline, insertImage, handleKeyDown } =
     useMathToolbar(elementRef, value, onValueChange);
 
   return (
@@ -219,7 +333,17 @@ export function MathInput({
           onKeyDown={handleKeyDown}
           onChange={event => onValueChange(event.target.value)}
         />
-        <MathToolbar compact={compact} disabled={disabled} onOpen={setDialogMode} />
+        {/* No list button here — a bulleted/numbered line needs a real newline, which a
+            single-line <input> can neither hold nor display. */}
+        <MathToolbar
+          compact={compact}
+          disabled={disabled}
+          onOpen={setDialogMode}
+          onToggleBold={toggleBold}
+          onToggleItalic={toggleItalic}
+          onToggleUnderline={toggleUnderline}
+          onInsertImage={insertImage}
+        />
       </div>
       <MathPreview value={value} className="py-1" />
       <MathInputDialog

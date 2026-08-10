@@ -19,8 +19,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, Sparkles, Check, Code2, FileUp, Eye, EyeOff } from 'lucide-react';
+import { Plus, Trash2, Sparkles, Check, Code2, FileUp, Eye, EyeOff, ChevronRight } from 'lucide-react';
 import { MathTextarea, MathInput } from '@/components/rich/MathTextField';
+import { QuillEditor } from '@/components/rich/QuillEditor';
+import { RubricEditor } from '@/components/items/RubricEditor';
+import {
+  type RubricRow, type RubricLevelColumn,
+  DEFAULT_RUBRIC_LEVELS, defaultRubricRows, compileRubric, isRubricValid,
+} from '@/lib/rubric';
 
 type FormData = ItemFormData;
 
@@ -91,6 +97,12 @@ export default function NewItemPage() {
   // File upload type state
   const [allowedExts, setAllowedExts] = useState<string[]>(['.pdf', '.doc', '.docx', '.md', '.txt']);
   const [maxFileSizeMB, setMaxFileSizeMB] = useState(10);
+
+  // Essay rubric state — hierarchical editor; only the compiled flat criteria list is ever
+  // persisted (see lib/rubric.ts's compileRubric), in the shape the AI grading pipeline expects.
+  const [rubricEnabled, setRubricEnabled] = useState(true);
+  const [rubricLevels, setRubricLevels] = useState<RubricLevelColumn[]>(DEFAULT_RUBRIC_LEVELS);
+  const [rubricRows, setRubricRows] = useState<RubricRow[]>(defaultRubricRows());
 
   const {
     register,
@@ -164,6 +176,12 @@ export default function NewItemPage() {
   async function onSubmit(data: FormData) {
     if (!bankId) return;
     setSaveError('');
+
+    if (qType === 'essay' && rubricEnabled && !isRubricValid(rubricRows)) {
+      setSaveError('Rubric weights must sum to 100% (and each dimension\'s sub-dimensions must sum to its own weight) before saving.');
+      return;
+    }
+
     const tags = data.tags ? data.tags.split(',').map(t => t.trim()).filter(Boolean) : [];
     const showOptions = ['mcq', 'mrq', 'true_false', 'matching', 'ordering'].includes(qType);
     const filledOptions = options.filter(o => o.text.trim());
@@ -207,6 +225,12 @@ export default function NewItemPage() {
           allowedFileTypes: allowedExts,
           maxFileSizeMB,
         } : {}),
+        // AI Auto-Grading off (or no dimensions entered) => no rubric saved at all, which is
+        // already this app's existing "no rubric = manual grading only" rule — no new gating
+        // needed in the AI grading pipeline itself.
+        ...(qType === 'essay' && rubricEnabled && rubricRows.length > 0
+          ? { rubric: compileRubric(rubricRows, rubricLevels, data.marks) }
+          : {}),
       });
       setSaved(true);
       invalidateData('items');
@@ -231,12 +255,14 @@ export default function NewItemPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      {/* Breadcrumb */}
+      {/* Breadcrumb — ChevronRight (not a raw "›" character) so it can flip for RTL below;
+          a literal ">" glyph doesn't rotate and points the wrong way once the trail reads
+          right-to-left. */}
       <div className="flex items-center gap-1.5 text-[13px] text-[#6B7280]">
         <Link href="/teacher/items" className="hover:text-[#1A1D23] transition-colors">Item Banks</Link>
-        <span className="select-none">›</span>
+        <ChevronRight className="h-3.5 w-3.5 rtl:rotate-180" />
         <Link href={`/teacher/items/${bankId}`} className="hover:text-[#1A1D23] transition-colors">Bank</Link>
-        <span className="select-none">›</span>
+        <ChevronRight className="h-3.5 w-3.5 rtl:rotate-180" />
         <span className="font-medium text-[#1A1D23]">Create Item</span>
       </div>
 
@@ -293,9 +319,8 @@ export default function NewItemPage() {
                 </Button>
               </CardHeader>
               <CardContent className="space-y-3">
-                <MathTextarea
+                <QuillEditor
                   placeholder="Enter your question here..."
-                  rows={4}
                   value={stemValue}
                   onValueChange={handleStemChange}
                 />
@@ -320,7 +345,7 @@ export default function NewItemPage() {
                 </CardHeader>
                 <CardContent className="space-y-2">
                   {qType === 'matching' && (
-                    <div className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 mb-1 px-1">
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] gap-2 mb-1 px-1">
                       <span className="text-xs font-medium text-muted-foreground">Term (left column)</span>
                       <span />
                       <span className="text-xs font-medium text-muted-foreground">Match (right column)</span>
@@ -328,7 +353,7 @@ export default function NewItemPage() {
                     </div>
                   )}
                   {options.map((opt, i) => (
-                    <div key={opt.id} className={`flex items-center gap-2 ${qType === 'matching' ? 'grid grid-cols-[1fr_auto_1fr_auto] gap-2' : ''}`}>
+                    <div key={opt.id} className={`flex items-center gap-2 ${qType === 'matching' ? 'grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] gap-2' : ''}`}>
                       {qType !== 'matching' && (
                         <button
                           type="button"
@@ -343,7 +368,9 @@ export default function NewItemPage() {
                       {qType !== 'matching' && (
                         <span className="text-xs font-medium text-gray-400 w-4">{String.fromCharCode(65 + i)}</span>
                       )}
-                      <MathInput
+                      <QuillEditor
+                        compact
+                        className="flex-1 min-w-0"
                         placeholder={qType === 'matching' ? `Term ${i + 1}` : `Option ${String.fromCharCode(65 + i)}`}
                         value={opt.text}
                         onValueChange={value => updateOption(opt.id, value)}
@@ -351,7 +378,9 @@ export default function NewItemPage() {
                       {qType === 'matching' && (
                         <>
                           <span className="text-gray-400 text-xs">→</span>
-                          <MathInput
+                          <QuillEditor
+                            compact
+                            className="flex-1 min-w-0"
                             placeholder={`Match ${i + 1}`}
                             value={opt.matchText ?? ''}
                             onValueChange={value => updateMatchText(opt.id, value)}
@@ -411,32 +440,14 @@ export default function NewItemPage() {
               <Card>
                 <CardHeader><CardTitle>Scoring Rubric</CardTitle></CardHeader>
                 <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm border rounded-lg overflow-hidden">
-                      <thead className="bg-muted/50">
-                        <tr>
-                          <th className="text-start px-3 py-2 font-medium">Dimension</th>
-                          <th className="px-3 py-2 font-medium text-center">Excellent (4)</th>
-                          <th className="px-3 py-2 font-medium text-center">Good (3)</th>
-                          <th className="px-3 py-2 font-medium text-center">Fair (2)</th>
-                          <th className="px-3 py-2 font-medium text-center">Poor (1)</th>
-                          <th className="px-3 py-2 font-medium text-center">Weight %</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {['Content Accuracy', 'Critical Thinking', 'Structure & Clarity', 'Evidence & Examples'].map((dim) => (
-                          <tr key={dim} className="hover:bg-muted/20">
-                            <td className="px-3 py-2 font-medium">{dim}</td>
-                            <td className="px-3 py-2"><Input placeholder="Describe..." className="text-xs h-7" /></td>
-                            <td className="px-3 py-2"><Input placeholder="Describe..." className="text-xs h-7" /></td>
-                            <td className="px-3 py-2"><Input placeholder="Describe..." className="text-xs h-7" /></td>
-                            <td className="px-3 py-2"><Input placeholder="Describe..." className="text-xs h-7" /></td>
-                            <td className="px-3 py-2"><Input type="number" defaultValue={25} className="text-xs h-7 w-16" /></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <RubricEditor
+                    enabled={rubricEnabled}
+                    onEnabledChange={setRubricEnabled}
+                    levels={rubricLevels}
+                    onLevelsChange={setRubricLevels}
+                    rows={rubricRows}
+                    onRowsChange={setRubricRows}
+                  />
                 </CardContent>
               </Card>
             )}

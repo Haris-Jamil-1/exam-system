@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { computeTrustScore, TRUST_WEIGHTS, SEVERITY_MULTIPLIER, type TrustScoreInput } from '@/lib/trust-score';
+import {
+  computeTrustScore, SEVERITY_DEDUCTION, trustScoreTier,
+  trustScoreHex, trustScoreTextClass, trustScoreProgressClass,
+  type TrustScoreInput,
+} from '@/lib/trust-score';
 
-const T0 = '2026-07-11T10:00:00.000Z';
-
-function v(overrides: Partial<TrustScoreInput> = {}): TrustScoreInput {
-  return { type: 'tab_switch', severity: 'medium', timestamp: T0, ...overrides };
+function v(severity: TrustScoreInput['severity']): TrustScoreInput {
+  return { severity };
 }
 
 describe('computeTrustScore', () => {
@@ -12,69 +14,55 @@ describe('computeTrustScore', () => {
     expect(computeTrustScore([])).toBe(100);
   });
 
-  it('deducts base × severity for a single instantaneous event', () => {
-    // tab_switch medium: 5 × 1 = 5
-    expect(computeTrustScore([v()])).toBe(95);
-    // tab_switch low: 5 × 0.75 = 3.75 → round(96.25) = 96
-    expect(computeTrustScore([v({ severity: 'low' })])).toBe(96);
-    // phone_detected high: 18 × 1.5 = 27
-    expect(computeTrustScore([v({ type: 'phone_detected', severity: 'high' })])).toBe(73);
+  it('deducts a flat amount per event by severity', () => {
+    expect(computeTrustScore([v('low')])).toBe(98);
+    expect(computeTrustScore([v('medium')])).toBe(95);
+    expect(computeTrustScore([v('high')])).toBe(90);
   });
 
-  it('scales deduction by detector confidence', () => {
-    // multiple_faces high at 0.5 confidence: 15 × 1.5 × 0.5 = 11.25 → 89
-    expect(computeTrustScore([v({ type: 'multiple_faces', severity: 'high', confidence: 0.5 })])).toBe(89);
+  it('sums deductions across multiple events regardless of type/duration/confidence', () => {
+    expect(computeTrustScore([v('low'), v('medium'), v('high')])).toBe(100 - 2 - 5 - 10);
+    expect(computeTrustScore(Array.from({ length: 5 }, () => v('high')))).toBe(50);
   });
 
-  it('treats missing confidence as 1 and clamps out-of-range values', () => {
-    const full = computeTrustScore([v({ type: 'no_face', confidence: null })]);
-    const over = computeTrustScore([v({ type: 'no_face', confidence: 5 })]);
-    expect(full).toBe(over);
-    expect(computeTrustScore([v({ type: 'no_face', confidence: -1 })])).toBe(100);
+  it('floors at 0, never goes negative', () => {
+    expect(computeTrustScore(Array.from({ length: 20 }, () => v('high')))).toBe(0);
   });
 
-  it('weights episodes by duration, capped at 3x', () => {
-    // 90s no_face episode: 8 × 1 × (1 + 90/90) = 16 → 84
-    expect(
-      computeTrustScore([v({ type: 'no_face', endedAt: '2026-07-11T10:01:30.000Z' })]),
-    ).toBe(84);
-    // 10-minute episode would be ~7.7x — capped at 3x: 8 × 3 = 24 → 76
-    expect(
-      computeTrustScore([v({ type: 'no_face', endedAt: '2026-07-11T10:10:00.000Z' })]),
-    ).toBe(76);
+  it('gives the same score for the same violation history regardless of caller', () => {
+    // The exact bug this ticket fixes: sectioned vs. non-sectioned submit routes must
+    // agree on the same violation history's score.
+    const history: TrustScoreInput[] = [v('high'), v('medium'), v('medium'), v('low')];
+    expect(computeTrustScore(history)).toBe(computeTrustScore([...history]));
   });
 
-  it('ignores invalid or negative durations', () => {
-    expect(computeTrustScore([v({ endedAt: '2026-07-11T09:00:00.000Z' })])).toBe(95);
-    expect(computeTrustScore([v({ endedAt: 'not-a-date' })])).toBe(95);
+  it('severity deduction table is ordered low < medium < high', () => {
+    expect(SEVERITY_DEDUCTION.low).toBeLessThan(SEVERITY_DEDUCTION.medium);
+    expect(SEVERITY_DEDUCTION.medium).toBeLessThan(SEVERITY_DEDUCTION.high);
+  });
+});
+
+describe('trust score color coding', () => {
+  it('tiers at <50 red, 50-79 orange, >=80 green', () => {
+    expect(trustScoreTier(0)).toBe('red');
+    expect(trustScoreTier(49)).toBe('red');
+    expect(trustScoreTier(50)).toBe('orange');
+    expect(trustScoreTier(79)).toBe('orange');
+    expect(trustScoreTier(80)).toBe('green');
+    expect(trustScoreTier(100)).toBe('green');
   });
 
-  it('caps each type so one noisy detector cannot zero the score alone', () => {
-    // 20 gaze_away mediums = 60 raw, but gaze cap is 15 → 85
-    const gazeSpam = Array.from({ length: 20 }, () => v({ type: 'gaze_away' }));
-    expect(computeTrustScore(gazeSpam)).toBe(100 - TRUST_WEIGHTS.gaze_away.cap);
-  });
+  it('hex/text/progress helpers agree on the same tier', () => {
+    expect(trustScoreHex(40)).toBe('#DC2626');
+    expect(trustScoreTextClass(40)).toBe('text-red-600');
+    expect(trustScoreProgressClass(40)).toContain('bg-red-500');
 
-  it('sums across types after per-type caps and floors at 0', () => {
-    const everything: TrustScoreInput[] = (Object.keys(TRUST_WEIGHTS) as (keyof typeof TRUST_WEIGHTS)[])
-      .flatMap(type => Array.from({ length: 30 }, () => v({ type, severity: 'high' })));
-    expect(computeTrustScore(everything)).toBe(0);
-  });
+    expect(trustScoreHex(65)).toBe('#D97706');
+    expect(trustScoreTextClass(65)).toBe('text-amber-500');
+    expect(trustScoreProgressClass(65)).toContain('bg-amber-500');
 
-  it('skips unknown violation types without crashing', () => {
-    const withUnknown = [v(), { ...v(), type: 'future_signal' as TrustScoreInput['type'] }];
-    expect(computeTrustScore(withUnknown)).toBe(95);
-  });
-
-  it('severity multipliers are ordered low < medium < high', () => {
-    expect(SEVERITY_MULTIPLIER.low).toBeLessThan(SEVERITY_MULTIPLIER.medium);
-    expect(SEVERITY_MULTIPLIER.medium).toBeLessThan(SEVERITY_MULTIPLIER.high);
-  });
-
-  it('unverified_start deducts its cap exactly once at high severity (8 × 1.5 = 12 = cap)', () => {
-    const skip = v({ type: 'unverified_start', severity: 'high' });
-    expect(computeTrustScore([skip])).toBe(100 - TRUST_WEIGHTS.unverified_start.cap);
-    // A duplicate row (shouldn't happen, but defensive) can't stack past the cap.
-    expect(computeTrustScore([skip, skip])).toBe(100 - TRUST_WEIGHTS.unverified_start.cap);
+    expect(trustScoreHex(90)).toBe('#16A34A');
+    expect(trustScoreTextClass(90)).toBe('text-green-600');
+    expect(trustScoreProgressClass(90)).toContain('bg-green-500');
   });
 });

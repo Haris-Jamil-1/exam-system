@@ -2,8 +2,12 @@
 // Sustained-audio detection (Phase 3, doc 01): energy-based VAD sampled every
 // 200ms. Brief sounds (a cough, a chair) never flag; only activity sustained
 // past SUSTAIN_MS opens an episode, which closes after QUIET_MS of silence and
-// is emitted as one audio_detected event with its full duration. No raw audio
-// ever leaves the device (decision 1: events-only).
+// is emitted as one audio_detected event with its full duration. A short clip of
+// the actual episode is also captured as evidence (mirrors FaceDetector's
+// snapshot-on-violation pattern) — this is a deliberate reversal of the original
+// "events-only" no-raw-audio decision, per explicit product ask; the clip is
+// deleted once the exam ends (see evidence-purge.ts), same retention posture as
+// video snapshots.
 import { useEffect } from 'react';
 import { useProctoringStore } from '@/store/proctoringStore';
 import type { ProctoringEventBuffer } from '@/lib/proctoring/event-buffer';
@@ -22,6 +26,10 @@ const QUIET_MS = 2_000;   // this much silence closes an episode
 // FaceDetector's MAX_EPISODE_MS. 61s (not 60) so a chunk's own duration already lands in
 // deriveSeverity's `d > 60 → high` tier server-side.
 const MAX_EPISODE_MS = 61_000;
+// Evidence clip length — a short recording taken right as an episode opens, not the whole
+// episode (mirrors FaceDetector's single-frame snapshot: a sample of the moment, not a
+// full recording).
+const CLIP_MS = 6_000;
 
 // Was 0.05 — a fixed, uncalibrated floor that easily missed quieter or more distant talking
 // (laptop mic gain/placement varies widely). Lowered so real sustained talking registers more
@@ -46,6 +54,33 @@ export function AudioMonitor({ buffer, threshold = 0.035 }: AudioMonitorProps) {
     let episodeOpen = false;
     let levelSum = 0;
     let levelCount = 0;
+    let episodeClipPath: string | null = null;
+
+    async function captureClip(recordingStream: MediaStream): Promise<string | null> {
+      const mimeType = ['audio/webm', 'audio/mp4', 'audio/ogg'].find(t => MediaRecorder.isTypeSupported(t));
+      if (typeof MediaRecorder === 'undefined' || !mimeType) return null;
+      try {
+        const recorder = new MediaRecorder(recordingStream, { mimeType });
+        const chunks: Blob[] = [];
+        recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+        const stopped = new Promise<void>(resolve => { recorder.onstop = () => resolve(); });
+        recorder.start();
+        setTimeout(() => { if (recorder.state !== 'inactive') recorder.stop(); }, CLIP_MS);
+        await stopped;
+        if (chunks.length === 0) return null;
+        const blob = new Blob(chunks, { type: mimeType });
+        const ext = mimeType.split('/')[1];
+        const form = new FormData();
+        form.append('file', new File([blob], `evidence.${ext}`, { type: mimeType }));
+        form.append('folder', 'evidence');
+        const res = await fetch('/api/upload', { method: 'POST', body: form });
+        if (!res.ok) return null;
+        const data = (await res.json()) as { path?: string };
+        return data.path ?? null;
+      } catch {
+        return null;
+      }
+    }
 
     async function init() {
       try {
@@ -79,6 +114,7 @@ export function AudioMonitor({ buffer, threshold = 0.035 }: AudioMonitorProps) {
               timestamp: startIso,
               endedAt: new Date(lastActiveAt).toISOString(),
               description: 'Sustained audio above threshold',
+              screenshotUrl: episodeClipPath ?? undefined,
               metadata: { meanLevel: Number(meanLevel.toFixed(4)), threshold },
             });
           }
@@ -87,6 +123,7 @@ export function AudioMonitor({ buffer, threshold = 0.035 }: AudioMonitorProps) {
           episodeOpen = false;
           levelSum = 0;
           levelCount = 0;
+          episodeClipPath = null;
         }
         flushOpenEpisode = closeEpisode;
 
@@ -103,6 +140,7 @@ export function AudioMonitor({ buffer, threshold = 0.035 }: AudioMonitorProps) {
             levelCount += 1;
             if (!episodeOpen && now - activeSince >= SUSTAIN_MS) {
               episodeOpen = true;
+              if (stream) void captureClip(stream).then(path => { episodeClipPath = path; });
             }
             // Continuous noise never reaches QUIET_MS — chunk it so it surfaces live. The
             // reset in closeEpisode starts the next chunk accumulating immediately.

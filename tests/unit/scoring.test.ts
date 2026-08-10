@@ -161,6 +161,18 @@ describe('SCR-03 — Matching, new format (partial credit per pair)', () => {
     expect(score).toBe(2); // 8/4 * 1 correct pair
   });
 
+  it('matches Quill-authored HTML that differs in markup but not visible text (stripHtml normalization)', () => {
+    const q: Question = {
+      id: 'q3html', examId: 'e', type: 'matching', stem: 'x', marks: 4, difficulty: 'medium', order: 1,
+      options: [{ id: 'L1', text: '<p>Stack</p>' }] as Question['options'],
+      // Expected label has no bold; the student's selected value (drawn from matchingChoices,
+      // which itself mirrors correctAnswer's authored HTML) happens to differ only in markup.
+      correctAnswer: ['<p>LIFO</p>'],
+    };
+    const { score } = scoreAnswers([q], { q3html: { L1: '<p><strong>LIFO</strong></p>' } });
+    expect(score).toBe(4);
+  });
+
   it('legacy array format (pre-partial-credit data) is scored all-or-nothing, not partial', () => {
     const q: Question = {
       id: 'q3legacy', examId: 'e', type: 'matching', stem: 'Legacy matching', marks: 8, difficulty: 'medium', order: 1,
@@ -215,6 +227,22 @@ describe('SCR-04 — Ordering (partial credit per correctly-positioned item)', (
     const q = orderingQuestion(9);
     const { perQuestion } = scoreAnswers([q], { q4: ['o2', 'o1', 'o3'] });
     expect(perQuestion[0].response).toEqual(['o2', 'o1', 'o3']); // raw ids preserved in response
+  });
+
+  it('matches Quill-authored HTML option text that differs in markup but not visible text', () => {
+    const q: Question = {
+      id: 'q4html', examId: 'e', type: 'ordering', stem: 'x', marks: 9, difficulty: 'medium', order: 1,
+      options: [
+        { id: 'o1', text: '<p><strong>Analyze</strong></p>' },
+        { id: 'o2', text: '<p>Design</p>' },
+        { id: 'o3', text: '<p>Build</p>' },
+      ] as Question['options'],
+      // Plain-equivalent expected text, captured without the bold markup the option itself has.
+      correctAnswer: ['<p>Analyze</p>', '<p>Design</p>', '<p>Build</p>'],
+    };
+    const { score, perQuestion } = scoreAnswers([q], { q4html: ['o1', 'o2', 'o3'] });
+    expect(score).toBe(9);
+    expect(perQuestion[0].isCorrect).toBe(true);
   });
 });
 

@@ -83,10 +83,16 @@ export async function runGenerationJob(jobId: string): Promise<void> {
         // Post-generation dedup layer: trigram similarity against the bank's
         // existing stems. Flagged via tag, never silently dropped — the
         // teacher decides in review (doc 02).
+        // `q.stem` here is always plain (AI generation never authors HTML), but an existing
+        // bank item may now be Quill-authored HTML — stripping tags off the stored column
+        // before comparing keeps formatting noise from diluting the trigram match. Flagged:
+        // this drops GIN-trigram-index usage for this specific comparison (the regexp_replace
+        // wrapper isn't index-covered); acceptable at current scale, worth a generated/stored
+        // stripped-text column if a bank ever grows very large.
         const similar = await prisma.$queryRaw<{ id: string }[]>`
           SELECT id FROM "Item"
           WHERE "bankId" = ${job.itemBankId}
-            AND similarity(stem, ${q.stem}) > ${DUPLICATE_SIMILARITY}
+            AND similarity(regexp_replace(stem, '<[^>]*>', '', 'g'), ${q.stem}) > ${DUPLICATE_SIMILARITY}
           LIMIT 1
         `;
         return prisma.item.create({

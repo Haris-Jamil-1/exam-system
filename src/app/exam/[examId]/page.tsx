@@ -936,7 +936,7 @@ export default function ExamPage() {
                     />
                   )}
                 </div>
-                <p className="text-base font-medium text-gray-900">
+                <p className="text-base font-medium text-gray-900 text-start" dir="auto">
                   Q{currentQuestionIndex + 1}. <RichText content={q.stem} />
                 </p>
               </div>
@@ -1043,21 +1043,27 @@ export default function ExamPage() {
             {/* Matching — new format: left column + shuffled right dropdown */}
             {q.type === 'matching' && q.options && q.matchingChoices && (
               <div className="space-y-3">
-                <div className="grid grid-cols-[1fr_auto_1fr] gap-x-3 items-center text-xs font-medium text-muted-foreground mb-1 px-1">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-x-3 items-center text-xs font-medium text-muted-foreground mb-1 px-1">
                   <span>Term</span><span /><span>Match</span>
                 </div>
                 {q.options.map(opt => {
                   const matchMap = (answers[q.id] as unknown as Record<string, string> | undefined) ?? {};
                   const selected = matchMap[opt.id] ?? '';
                   return (
-                    <div key={opt.id} className="grid grid-cols-[1fr_auto_1fr] gap-x-3 items-center">
-                      <div className="rounded-lg border bg-gray-50 px-4 py-3 text-sm font-medium truncate"><RichText content={opt.text} /></div>
+                    <div key={opt.id} className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-x-3 items-center">
+                      <div className="min-w-0 rounded-lg border bg-gray-50 px-4 py-3 text-sm font-medium truncate"><RichText content={opt.text} /></div>
                       <span className="text-gray-400 text-xs">→</span>
                       {/* A native <select> can only hold text, so a match choice containing math or
                           chemistry rendered as raw LaTeX. This uses the app's existing Radix Select
                           instead, whose items accept real markup — the choice renders identically in
                           the list and in the closed trigger. textValue keeps keyboard typeahead
-                          working off the underlying source string. */}
+                          working off the underlying source string.
+                          `minmax(0,1fr)` above + `min-w-0` here matter together: a grid track's
+                          default minimum is its content's natural (unwrapped) width, so a long
+                          match choice could force this column wider than its fair share and push
+                          into the Term column — `minmax(0,…)` lets the track actually shrink, and
+                          `min-w-0` lets this flex/grid item shrink with it instead of imposing its
+                          own content-based floor. */}
                       <Select
                         value={selected || undefined}
                         onValueChange={value => {
@@ -1067,15 +1073,22 @@ export default function ExamPage() {
                       >
                         <SelectTrigger
                           className={cn(
-                            'h-auto min-h-12 w-full rounded-lg px-3 py-3 text-sm bg-white',
+                            'h-auto min-h-12 w-full min-w-0 rounded-lg px-3 py-3 text-sm bg-white [&>span]:text-ellipsis',
                             selected ? 'border-blue-400' : 'border-gray-200 text-muted-foreground',
                           )}
                         >
                           <SelectValue placeholder="— select —" />
                         </SelectTrigger>
-                        <SelectContent>
+                        {/* Bounded width so an open dropdown wraps a long choice onto multiple
+                            lines instead of stretching the popover arbitrarily wide. */}
+                        <SelectContent className="max-w-[min(90vw,22rem)]">
                           {q.matchingChoices!.map(choice => (
-                            <SelectItem key={choice} value={choice} textValue={choice}>
+                            <SelectItem
+                              key={choice}
+                              value={choice}
+                              textValue={choice}
+                              className="whitespace-normal break-words"
+                            >
                               <RichText content={choice} />
                             </SelectItem>
                           ))}

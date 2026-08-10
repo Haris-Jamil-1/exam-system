@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { AlertTriangle, Users, CheckCircle, Clock, Eye, Camera, WifiOff } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { StudentActionsModal, STATUS_CONFIG, VIOLATION_LABELS } from '@/components/shared/StudentActionsModal';
+import { trustScoreTextClass, trustScoreProgressClass } from '@/lib/trust-score';
 
 export default function MonitorPage() {
   const { examId } = useParams<{ examId: string }>();
@@ -132,11 +133,11 @@ export default function MonitorPage() {
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs">
                           <span className="text-muted-foreground">Trust Score</span>
-                          <span className={s.trustScore < 60 ? 'text-red-600 font-medium' : 'text-green-600 font-medium'}>
+                          <span className={`font-medium ${trustScoreTextClass(s.trustScore)}`}>
                             {s.trustScore}%
                           </span>
                         </div>
-                        <Progress value={s.trustScore} className={`h-1.5 ${s.trustScore < 60 ? '[&>div]:bg-red-500' : '[&>div]:bg-green-500'}`} />
+                        <Progress value={s.trustScore} className={`h-1.5 ${trustScoreProgressClass(s.trustScore)}`} />
                       </div>
                       <button
                         onClick={() => setViewing(s)}

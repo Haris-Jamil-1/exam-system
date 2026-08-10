@@ -24,6 +24,7 @@ vi.mock('@/lib/api-auth', async () => {
 });
 vi.mock('@/lib/prisma', () => ({ prisma: mockPrisma }));
 vi.mock('@/lib/ai/grading', () => ({ runGradingForAttempt: vi.fn() }));
+vi.mock('@/lib/proctoring/evidence-purge', () => ({ purgeAttemptEvidence: vi.fn() }));
 vi.mock('next/server', async () => {
   const actual = await vi.importActual<typeof import('next/server')>('next/server');
   return { ...actual, after: (fn: () => void) => fn() };

@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/shared/PageHeader';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { StudentActionsModal } from '@/components/shared/StudentActionsModal';
+import { trustScoreHex as trustColor } from '@/lib/trust-score';
 
 const ALERT_ICONS: Record<string, React.ElementType> = {
   flagged: AlertTriangle,
@@ -17,9 +18,6 @@ const ALERT_ICONS: Record<string, React.ElementType> = {
   active:  Monitor,
   submitted: CameraOff,
 };
-
-const trustColor = (trust: number) =>
-  trust >= 85 ? '#16A34A' : trust >= 65 ? '#D97706' : '#E53935';
 
 const statusChip: Record<string, string> = {
   flagged:   'bg-red-50 text-red-600 border border-red-100',

@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { PageHeader } from '@/components/shared/PageHeader';
+import { trustScoreTextClass } from '@/lib/trust-score';
 import { Search, Mail } from 'lucide-react';
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -88,7 +89,7 @@ export default function StudentsPage() {
                     </td>
                     <td className="px-4 py-3.5">
                       {hasTrust ? (
-                        <span className={`text-[13px] font-semibold ${s.trustScore! >= 80 ? 'text-green-600' : s.trustScore! >= 60 ? 'text-amber-500' : 'text-red-500'}`}>
+                        <span className={`text-[13px] font-semibold ${trustScoreTextClass(s.trustScore!)}`}>
                           {Math.round(s.trustScore!)}%
                         </span>
                       ) : (

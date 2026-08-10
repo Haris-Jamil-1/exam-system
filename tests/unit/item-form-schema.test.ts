@@ -26,4 +26,19 @@ describe('itemFormSchema (Task 3 — manual item builder save)', () => {
     const result = itemFormSchema.safeParse({ stem: 'What is 2+2?', marks: 4 });
     expect(result.success).toBe(true);
   });
+
+  it('accepts Quill-authored HTML with enough visible text', () => {
+    const result = itemFormSchema.safeParse({ stem: '<p>What is 2+2?</p>', marks: 4 });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects visually-empty HTML even though the raw string is long enough', () => {
+    const result = itemFormSchema.safeParse({ stem: '<p><br></p>', marks: 4 });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects HTML whose visible text alone is too short', () => {
+    const result = itemFormSchema.safeParse({ stem: '<p><strong>Hi</strong></p>', marks: 4 });
+    expect(result.success).toBe(false);
+  });
 });
