@@ -37,6 +37,21 @@ export const PUT = withErrorHandling(async (request: Request, { params }: { para
 
   const body = await request.json();
 
+  // Editing the schedule (start/end/duration) is blocked once the exam is effectively live or
+  // completed — `exam` here already carries the read-time-derived status (computeEffectiveExamStatus,
+  // see mapExam in lib/data/exams.ts), not the raw DB column, so a `scheduled` exam whose
+  // startTime has already passed is correctly caught too. Deliberately scoped to ONLY these
+  // three fields: a plain `{ status: 'live' }` transition (Go Live Now) must still work on an
+  // exam that's about to become live, and mid-exam endTime changes go through the separate,
+  // dedicated PATCH /api/exams/[examId]/end-time endpoint instead (its own live-only guard).
+  const touchesSchedule = body.startTime !== undefined || body.endTime !== undefined || body.duration !== undefined;
+  if (touchesSchedule && (exam.status === 'live' || exam.status === 'completed')) {
+    return NextResponse.json(
+      { error: 'exam_in_progress', message: 'This exam\'s schedule can no longer be changed — it is already in progress or completed.' },
+      { status: 409 },
+    );
+  }
+
   // When approving or directly scheduling, run a conflict check inside a
   // SERIALIZABLE transaction so concurrent approvals can't both slip through.
   const isScheduling =

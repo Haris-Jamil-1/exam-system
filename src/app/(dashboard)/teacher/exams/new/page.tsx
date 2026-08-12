@@ -17,6 +17,7 @@ import { createExam, createQuestion, getItems, incrementItemUsage, getMyClasses 
 import { BlueprintPoolingPanel } from '@/components/exams/BlueprintPoolingPanel';
 import { RichText } from '@/components/rich/RichText';
 import { computeExamDurationMinutes, MIN_EXAM_DURATION_MINUTES } from '@/lib/exam-duration';
+import { DateTimeField } from '@/components/shared/DateTimeField';
 import type { QuestionType, Item, ClassSummary } from '@/types';
 import { Plus, Check, ChevronRight, ChevronLeft, Search, ChevronDown, ChevronUp, Clock } from 'lucide-react';
 
@@ -197,42 +198,6 @@ function ItemBankPicker({ selectedIds, onToggle }: {
           })}
         </div>
       )}
-    </div>
-  );
-}
-
-// Two-field date + time picker — avoids the clunky single datetime-local popup
-function DateTimeField({ onChange }: { onChange: (v: string) => void }) {
-  const [date, setDate] = useState('');
-  const [time, setTime] = useState('');
-
-  function handleDate(e: React.ChangeEvent<HTMLInputElement>) {
-    const d = e.target.value;
-    setDate(d);
-    // Convert to UTC ISO using browser timezone so server stores the correct UTC instant
-    onChange(d && time ? new Date(`${d}T${time}`).toISOString() : '');
-  }
-
-  function handleTime(e: React.ChangeEvent<HTMLInputElement>) {
-    const t = e.target.value;
-    setTime(t);
-    onChange(date && t ? new Date(`${date}T${t}`).toISOString() : '');
-  }
-
-  return (
-    <div className="flex gap-2">
-      <input
-        type="date"
-        value={date}
-        onChange={handleDate}
-        className="flex h-9 flex-1 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-      />
-      <input
-        type="time"
-        value={time}
-        onChange={handleTime}
-        className="flex h-9 w-28 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-      />
     </div>
   );
 }

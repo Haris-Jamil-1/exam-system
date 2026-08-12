@@ -14,9 +14,11 @@ interface ProctoringOverlayProps {
   attemptId: string;
   /** Invoked when the teacher force-submits this attempt from the monitor. */
   onForceSubmit?: () => void;
+  /** Invoked when the teacher changes Exam.endTime mid-exam (see DirectiveListener). */
+  onEndTimeChanged?: (newEndTimeIso: string) => void;
 }
 
-export function ProctoringOverlay({ examId, attemptId, onForceSubmit }: ProctoringOverlayProps) {
+export function ProctoringOverlay({ examId, attemptId, onForceSubmit, onEndTimeChanged }: ProctoringOverlayProps) {
   // One buffer per exam page life — all detectors emit through it, it batches
   // to POST /api/violations and carries the 30s heartbeat. Lazy state, not a
   // ref: this repo's React Compiler rules forbid ref access during render.
@@ -56,6 +58,7 @@ export function ProctoringOverlay({ examId, attemptId, onForceSubmit }: Proctori
         attemptId={attemptId}
         captureRef={captureRef}
         onForceSubmit={onForceSubmit ?? (() => {})}
+        onEndTimeChanged={onEndTimeChanged}
       />
       <ViolationAlert />
     </>

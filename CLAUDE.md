@@ -9,6 +9,73 @@
 
 ## Session Log
 
+### 2026-08-12 (cont'd) — Assign/duplicate exam to another section; edit-screen schedule fields; mid-exam end-time extension with real-time student sync + audit trail ✅
+
+Two features, same session as the proctoring work above (separate commit).
+
+- **"Assign to Another Section" = clone, not link** — deliberate architecture call, made and
+  flagged rather than guessed (the spec explicitly offered both and asked for a decision): every
+  subsystem here (results, live monitor, grading, status, eligibility) assumes one `Exam` ↔ one
+  `Class` ↔ one time window. Linking one exam to many classes would need class-scoping added to
+  attempts/monitor/results throughout; cloning needs none of that. New `duplicateExam()`
+  (`src/lib/data/exams.ts`) deep-copies the Exam row + `ExamSection`s + fixed `Question`s (never
+  per-attempt pooled ones, matching the established `attemptId: null` filter) + their `Option`s
+  inside one transaction, remaps section ids on the cloned questions, resets `status`/
+  `approvalStatus` to new-exam defaults (a copy isn't pre-approved), and requires its own fresh
+  start/end time. Attempts/answers/violations/enrollments/directives are never copied — a clone
+  starts exactly like a brand-new teacher-authored exam. Wired into the exam edit page as an
+  "Assign to Another Section" dialog (class picker excluding the current class, start/end time
+  fields), landing the teacher on the new copy's edit page on success.
+- **Edit-screen Start Time / End Time / Duration** — none of the three existed on the edit page
+  before (only read-only display). Added a "Schedule" card reusing the wizard's own field set
+  (Start/End via the two-field date+time picker, Duration as its own independent minutes input —
+  confirmed via the wizard's own code and copy that duration and the availability window are
+  genuinely separate concepts here, not one derived from the other). The picker itself
+  (`DateTimeField`) was pulled out of the wizard into `src/components/shared/` so both pages share
+  one implementation instead of two copies. **Restricted to upcoming exams** (draft/scheduled) —
+  enforced both client-side (fields hidden once live/completed, with an explanatory message
+  pointing at the live-monitor action or duplication instead) and, since the server had **no such
+  guard at all before this** (a real, previously-open gap: any owning teacher could `PUT` new
+  schedule fields onto a live or completed exam), server-side in `PUT /api/exams/[examId]` —
+  scoped narrowly to requests that actually touch `startTime`/`endTime`/`duration`, so the
+  existing "Go Live Now" / "End Exam" status-transition calls (which send `status` alone) are
+  completely unaffected.
+- **Mid-exam end-time change, real-time to students** — new "Extend / Change End Time" button on
+  the live monitor page (shown only while the exam is effectively live), backed by a new dedicated
+  route `PATCH /api/exams/[examId]/end-time` (deliberately separate from the general `PUT`, which
+  now blocks schedule edits on a live exam — this is the one narrow, audited exception, only
+  reachable while live, only ever touching `endTime`). Requires `newEndTime > now` (server-
+  enforced); a value earlier than the *current* end time is still allowed (per spec) but the
+  teacher-facing dialog requires an explicit second confirm click first, warning that active
+  students will lose time. On success: `Exam.endTime` updates, an `ExamTimeChange` audit row is
+  written (old/new end time, teacher, timestamp — new table, RLS SELECT-only for the exam's own
+  teacher/institution admins), and a new `time_extended` `MonitorDirective` is created for every
+  currently `in_progress` `ExamAttempt` — reusing the existing directive delivery pipeline
+  (Realtime INSERT + 20s poll fallback, `DirectiveListener`) rather than building a new transport.
+  The student's exam page resyncs `exam.endTime` and pushes a freshly recomputed `initialSeconds`
+  into `useExamTimer` (which resets to whatever it's given in either direction — verified by
+  reading the hook directly rather than trusting its own comment, which turned out to describe the
+  *reason* for a `>0` guard, not a one-directional restriction), so the visible countdown updates
+  immediately for both an extension and a reduction; a small blue banner tells the student what
+  changed and by how much. **Edge cases, both handled structurally, not by an added check**:
+  already-submitted/auto_submitted students never receive a directive at all (only `in_progress`
+  attempts are queried), and nothing anywhere in this codebase re-touches a finalized
+  `ExamAttempt` based on an `Exam` field changing (confirmed by reading the submit/force-finalize
+  routes, both gate on `status === 'in_progress'` before writing) — so a change mid-submission
+  can't corrupt anything, since the timer-resync state update never touches `answers` or the
+  submit flow. The monitor page also shows the most recent change inline ("End time changed by X,
+  9:47 → whenever, 2 minutes ago") via a small `GET` on the same route.
+- **Verification**: `tsc` clean · `lint` back to the exact pre-existing 3-error/0-warning baseline
+  (one ordering issue introduced and fixed along the way — an outer `useCallback` called directly
+  in an effect body instead of nested inside the effect's own local `load()` closure, matching the
+  pattern this file's own `refresh()` already established) · `vitest` 403/403 (no new pure-function
+  surface introduced — both features are DB/UI-driven throughout, consistent with how this
+  codebase has always verified that kind of change) · `build` clean, 89 routes (new
+  `/api/exams/[examId]/end-time`) · schema pushed live + RLS added and verified via `pg_policies`.
+  **Known gap, not done this session**: no live browser QA (real duplicate-and-reassign flow,
+  real two-browser teacher-extends/student-sees-it-live session) — flagged the same way as the
+  proctoring work above, for the same reason.
+
 ### 2026-08-12 — Proctoring module: ID verification removed, exam-start photo now reaches the teacher, trust-score/violation staleness fixed, gaze_away evidence, TURN-configurable WebRTC ✅
 
 Five-item punch list on the proctoring module.
@@ -1165,10 +1232,11 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Build Status
-- `npm run build` → **PASSES** (0 errors, 88 routes)
+- `npm run build` → **PASSES** (0 errors, 89 routes)
 - `npm run lint` → 3 pre-existing baseline errors (`useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff), 0 warnings
 - `npx tsc --noEmit` → clean
 - `npx vitest run` → 403/403 passing (+ `pytest` 10/10 in `psychometrics/`)
+- Last verified: 2026-08-12 (assign/duplicate exam to another section, edit-screen schedule fields, mid-exam end-time extension with real-time student sync + audit trail; no live browser QA this session — see Session Log)
 - Last verified: 2026-08-12 (proctoring module — ID verification removed, exam-start photo delivered to teacher, trust-score/violation staleness fixed, gaze_away evidence capture, TURN-configurable WebRTC; no live camera/network QA this session — see Session Log)
 - Last verified: 2026-08-10 (dedicated `/super` login page + account role cleanup; pushed `e0f0ee4`, confirmed live)
 - Last verified: 2026-08-10 (real Quill WYSIWYG editor, app-wide RTL fix, rubric editor, img-src allowlist hardening; pushed `e7cbc08`, confirmed live)
@@ -1275,8 +1343,9 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 | Route | Method | Description |
 |---|---|---|
 | `/api/exams` | GET, POST | List / create exams |
-| `/api/exams/[id]` | GET, PUT, DELETE | Single exam CRUD |
+| `/api/exams/[id]` | GET, PUT, DELETE | Single exam CRUD; PUT blocks startTime/endTime/duration edits once effectively live/completed |
 | `/api/exams/[id]/publish-results` | PATCH | Set `resultsPublishedAt` |
+| `/api/exams/[id]/end-time` | GET, PATCH | Mid-exam endTime change (live only) + its audit log; notifies active students via `MonitorDirective` |
 | `/api/questions` | GET, POST | List / create; students get sanitized via `getQuestionsForStudent()` |
 | `/api/attempts` | GET, POST | Start / resume attempt (students only for POST) |
 | `/api/attempts/[id]` | GET, PUT | Single attempt; PUT blocked for students |

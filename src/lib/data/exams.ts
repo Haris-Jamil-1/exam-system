@@ -2,6 +2,7 @@
 import { prisma } from '@/lib/prisma';
 import { getSessionContext } from '@/lib/session';
 import { computeEffectiveExamStatus } from '@/lib/exam-status';
+import { computeExamDurationMinutes, MIN_EXAM_DURATION_MINUTES } from '@/lib/exam-duration';
 import type { Exam, ExamSettings, StatValue } from '@/types';
 
 type PrismaExam = {
@@ -162,6 +163,135 @@ export async function deleteExam(id: string): Promise<boolean> {
     console.error('[deleteExam] error:', err);
     return false;
   }
+}
+
+/**
+ * "Assign to another section" — implemented as a full deep clone (Exam + ExamSections + fixed
+ * Questions + their Options), attached to a different Class, with its own schedule. Chosen over
+ * linking one Exam to multiple Classes: every subsystem in this app (results, live monitor,
+ * grading, status, eligibility) already assumes one Exam <-> one Class <-> one time window: a
+ * many-to-many relation would need class-scoping added to attempts/monitor/results everywhere,
+ * while a clone needs none of that — each section's copy is a completely ordinary, independent
+ * exam from every other subsystem's point of view. Deliberately NOT copied: attempts, answers,
+ * violations, enrollments, monitor directives — all attempt-scoped, so a clone starts with a
+ * clean slate exactly like a brand-new teacher-authored exam. Status/approvalStatus reset to
+ * their normal new-exam defaults for the same reason (a copy is not pre-approved).
+ */
+export async function duplicateExam(
+  examId: string,
+  targetClassId: string,
+  schedule: { startTime: string; endTime: string },
+): Promise<Exam> {
+  const { institutionId, prismaUserId } = await getSessionContext();
+  if (!institutionId || !prismaUserId) throw new Error('Not authenticated');
+
+  const source = await prisma.exam.findUnique({
+    where: { id: examId },
+    include: {
+      sections: { orderBy: { orderIndex: 'asc' } },
+      // Fixed questions only — a pooled/private per-attempt question (attemptId set) belongs
+      // to one student's one attempt and must never be copied into a fresh exam.
+      questions: {
+        where: { attemptId: null },
+        include: { options: { orderBy: { order: 'asc' } } },
+        orderBy: { order: 'asc' },
+      },
+    },
+  });
+  if (!source) throw new Error('Exam not found');
+  if (source.institutionId !== institutionId || source.teacherId !== prismaUserId) {
+    throw new Error('Forbidden');
+  }
+
+  const targetClass = await prisma.class.findUnique({
+    where: { id: targetClassId },
+    select: { teacherId: true, institutionId: true },
+  });
+  if (!targetClass || targetClass.teacherId !== prismaUserId || targetClass.institutionId !== institutionId) {
+    throw new Error('Target section not found or not yours');
+  }
+
+  const startTime = new Date(schedule.startTime);
+  const endTime = new Date(schedule.endTime);
+  const windowMinutes = computeExamDurationMinutes(startTime, endTime);
+  if (!windowMinutes || windowMinutes < MIN_EXAM_DURATION_MINUTES) {
+    throw new Error(`Schedule window must be at least ${MIN_EXAM_DURATION_MINUTES} minutes`);
+  }
+
+  const clonedId = await prisma.$transaction(async (tx) => {
+    const newExam = await tx.exam.create({
+      data: {
+        title: `${source.title} (Copy)`,
+        subject: source.subject,
+        duration: source.duration,
+        totalMarks: source.totalMarks,
+        passingMarks: source.passingMarks,
+        status: 'draft',
+        approvalStatus: 'not_submitted',
+        startTime,
+        endTime,
+        maxViolations: source.maxViolations,
+        settings: source.settings as object,
+        instructions: source.instructions,
+        isProctoringEnabled: source.isProctoringEnabled,
+        institutionId,
+        teacherId: prismaUserId,
+        classId: targetClassId,
+      },
+    });
+
+    const sectionIdMap = new Map<string, string>();
+    for (const s of source.sections) {
+      const newSection = await tx.examSection.create({
+        data: {
+          examId: newExam.id,
+          title: s.title,
+          instructions: s.instructions,
+          durationMinutes: s.durationMinutes,
+          orderIndex: s.orderIndex,
+          sectionWeight: s.sectionWeight,
+          passingThreshold: s.passingThreshold,
+        },
+      });
+      sectionIdMap.set(s.id, newSection.id);
+    }
+
+    for (const q of source.questions) {
+      await tx.question.create({
+        data: {
+          examId: newExam.id,
+          sectionId: q.sectionId ? sectionIdMap.get(q.sectionId) : null,
+          type: q.type,
+          stem: q.stem,
+          marks: q.marks,
+          difficulty: q.difficulty,
+          order: q.order,
+          required: q.required,
+          explanation: q.explanation,
+          correctAnswer: q.correctAnswer ?? undefined,
+          learningObjectiveId: q.learningObjectiveId,
+          codeLanguage: q.codeLanguage,
+          starterCode: q.starterCode,
+          testCases: q.testCases ?? undefined,
+          allowedFileTypes: q.allowedFileTypes,
+          maxFileSizeMB: q.maxFileSizeMB,
+          timeLimitSeconds: q.timeLimitSeconds,
+          rubric: q.rubric ?? undefined,
+          gradingWeights: q.gradingWeights ?? undefined,
+          sourceItemId: q.sourceItemId,
+          options: q.options.length
+            ? { create: q.options.map(o => ({ text: o.text, isCorrect: o.isCorrect, order: o.order })) }
+            : undefined,
+        },
+      });
+    }
+
+    return newExam.id;
+  });
+
+  const cloned = await getExamById(clonedId);
+  if (!cloned) throw new Error('Failed to load duplicated exam');
+  return cloned;
 }
 
 // ── Schedule conflict detection ───────────────────────────────────────────────

@@ -90,6 +90,11 @@ export default function ExamPage() {
   // unverifiedStartRef is: the gate runs before any attempt row exists, so nothing can be
   // persisted until POST /api/attempts succeeds below.
   const verificationPhotoRef = useRef<string | null>(null);
+  // Whichever startedAt currently governs the visible countdown — the overall attempt's for a
+  // non-sectioned exam, or the active section's own for a sectioned one. Needed to resync the
+  // timer if the teacher changes Exam.endTime mid-exam (see handleEndTimeChanged below); kept
+  // in a ref since it's a read-when-needed value, not something that should itself re-render.
+  const activeTimerStartedAtRef = useRef<string | null>(null);
   // Set when the student used one of the pre-exam gates' escape hatches — reported to the
   // teacher as a single unverified_start violation once the attempt exists (both gates run
   // before any attempt row is created, so nothing can be logged earlier). `media` covers the
@@ -203,6 +208,7 @@ export default function ExamPage() {
           // correctly (a bare examId fetch would return none for a pure-pooling exam).
           const q = await getQuestionsForStudent(examId, session.attemptId);
           setQuestions(q);
+          activeTimerStartedAtRef.current = session.startedAt;
           setInitialSeconds(remainingSeconds(session.startedAt, e, serverNow));
           return;
         }
@@ -223,6 +229,7 @@ export default function ExamPage() {
           const q = await getQuestionsForStudentSection(examId, targetSection.id, session.attemptId);
           setQuestions(q);
           setSectionInstructionsDone(true);
+          activeTimerStartedAtRef.current = existingSectionAttempt.startedAt;
           setInitialSeconds(sectionRemainingSeconds(existingSectionAttempt.startedAt, targetSection, e, serverNow));
         }
         return;
@@ -348,6 +355,7 @@ export default function ExamPage() {
       const freshQuestions = await getQuestionsForStudent(examId, attempt.id);
       setQuestions(freshQuestions);
       const serverNow = Date.now() + serverOffset;
+      activeTimerStartedAtRef.current = attempt.startedAt;
       setInitialSeconds(remainingSeconds(attempt.startedAt, exam, serverNow));
       setInstructionsDone(true);
     } finally {
@@ -375,6 +383,7 @@ export default function ExamPage() {
       const q = await getQuestionsForStudentSection(examId, currentSection.id, attemptId);
       setQuestions(q);
       const serverNow = Date.now() + serverOffset;
+      activeTimerStartedAtRef.current = sectionAttempt.startedAt;
       setInitialSeconds(sectionRemainingSeconds(sectionAttempt.startedAt, currentSection, exam, serverNow));
       setSectionInstructionsDone(true);
       // Fresh section — local UI state from the previous section shouldn't carry over.
@@ -528,6 +537,28 @@ export default function ExamPage() {
     else void doSubmit();
   }, [isSectioned, handleSectionSubmit, doSubmit]);
   const { timeRemaining, isLow } = useExamTimer(initialSeconds, handleTimeUp, paused);
+
+  // Teacher changed Exam.endTime mid-exam (delivered via a MonitorDirective — see
+  // DirectiveListener). Updates the local exam copy AND recomputes+pushes a fresh
+  // `initialSeconds` so useExamTimer's countdown reflects the new deadline immediately —
+  // useExamTimer resets to whatever it's given as long as it's positive, in either direction
+  // (see its own comment), so this correctly handles both an extension and a reduction. Only
+  // ever fires for an attempt still in_progress (the server only creates this directive for
+  // active attempts), so an already-submitted student can't be affected, and this never
+  // touches `answers` or the submit flow — a submission already in flight is a separate fetch
+  // call untouched by this state update.
+  const handleEndTimeChanged = useCallback((newEndTimeIso: string) => {
+    setExam(prev => (prev ? { ...prev, endTime: newEndTimeIso } : prev));
+    const startedAt = activeTimerStartedAtRef.current;
+    if (!startedAt || !exam) return;
+    const updatedExam = { ...exam, endTime: newEndTimeIso };
+    const serverNow = Date.now() + serverOffset;
+    if (isSectioned && currentSection) {
+      setInitialSeconds(sectionRemainingSeconds(startedAt, currentSection, updatedExam, serverNow));
+    } else if (!isSectioned) {
+      setInitialSeconds(remainingSeconds(startedAt, updatedExam, serverNow));
+    }
+  }, [exam, isSectioned, currentSection, serverOffset]);
 
   function handleSubmitConfirm() {
     setShowSubmitModal(false);
@@ -806,12 +837,13 @@ export default function ExamPage() {
     <DesktopGuard>
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {exam.isProctoringEnabled ? (
-        <ProctoringOverlay examId={examId} attemptId={attemptId || 'attempt-loading'} onForceSubmit={handleTimeUp} />
+        <ProctoringOverlay examId={examId} attemptId={attemptId || 'attempt-loading'} onForceSubmit={handleTimeUp} onEndTimeChanged={handleEndTimeChanged} />
       ) : (
         <DirectiveListener
           attemptId={attemptId || 'attempt-loading'}
           captureRef={noProctorCaptureRef}
           onForceSubmit={handleTimeUp}
+          onEndTimeChanged={handleEndTimeChanged}
         />
       )}
 

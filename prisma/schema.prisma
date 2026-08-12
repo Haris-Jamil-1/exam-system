@@ -177,6 +177,7 @@ model User {
   itemBankAccess      ItemBankAccess[] @relation("ItemBankAccessUser")
   itemBankAccessGrant ItemBankAccess[] @relation("ItemBankAccessAssignedBy")
   monitorDirectives   MonitorDirective[]
+  examTimeChanges     ExamTimeChange[]
   generationJobs      GenerationJob[]
   answerGradings      AnswerGrading[] @relation("AnswerGrader")
   classes             Class[]           @relation("ClassTeacher")
@@ -310,6 +311,7 @@ model Exam {
   enrollments ExamEnrollment[]
   violations  Violation[]
   sections    ExamSection[]
+  timeChanges ExamTimeChange[]
 
   @@index([institutionId])
   @@index([institutionId, teacherId])
@@ -755,6 +757,11 @@ enum DirectiveKind {
   snapshot
   warning
   force_submit
+  // Mid-exam Exam.endTime change (2026-08-12): one directive per currently
+  // in_progress attempt, `message` carries JSON {oldEndTime, newEndTime} so
+  // the student's timer can be resynced without a second round trip. Never
+  // created for a submitted/auto_submitted attempt — see ExamTimeChange.
+  time_extended
 }
 
 enum DirectiveStatus {
@@ -778,6 +785,24 @@ model MonitorDirective {
   requestedBy User        @relation(fields: [requestedById], references: [id])
 
   @@index([attemptId, status])
+}
+
+// Audit trail for mid-exam Exam.endTime changes (PATCH /api/exams/[examId]/end-time) —
+// append-only, one row per change. Separate from MonitorDirective (which is per-attempt
+// and only ever fires for in-progress attempts) because this needs to record the change
+// itself exactly once regardless of how many students were active at the time.
+model ExamTimeChange {
+  id          String   @id @default(cuid())
+  examId      String
+  changedById String
+  oldEndTime  DateTime
+  newEndTime  DateTime
+  createdAt   DateTime @default(now())
+
+  exam      Exam @relation(fields: [examId], references: [id], onDelete: Cascade)
+  changedBy User @relation(fields: [changedById], references: [id])
+
+  @@index([examId, createdAt])
 }
 
 // One upserted row per attempt (not an append log) — liveness signal for the

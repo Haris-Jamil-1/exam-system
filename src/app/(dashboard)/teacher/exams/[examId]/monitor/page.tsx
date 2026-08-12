@@ -6,13 +6,24 @@ import { useMonitorRealtime } from '@/hooks/useMonitorRealtime';
 import type { Exam, MonitorStudent, Violation } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Progress } from '@/components/ui/progress';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { AlertTriangle, Users, CheckCircle, Clock, Eye, Camera, WifiOff } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { AlertTriangle, Users, CheckCircle, Clock, Eye, Camera, WifiOff, History } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { StudentActionsModal, STATUS_CONFIG, VIOLATION_LABELS } from '@/components/shared/StudentActionsModal';
 import { trustScoreTextClass, trustScoreProgressClass } from '@/lib/trust-score';
+import { DateTimeField } from '@/components/shared/DateTimeField';
+
+interface EndTimeChange {
+  id: string;
+  oldEndTime: string;
+  newEndTime: string;
+  changedByName: string;
+  createdAt: string;
+}
 
 export default function MonitorPage() {
   const { examId } = useParams<{ examId: string }>();
@@ -26,6 +37,18 @@ export default function MonitorPage() {
   // makes staleness structurally impossible: there is only ever one copy of this data.
   const [viewingId, setViewingId] = useState<string | null>(null);
   const viewing = students.find(s => s.id === viewingId) ?? null;
+
+  // Extend/Change End Time (2026-08-12) — mid-exam, teacher-initiated, notifies every
+  // in-progress student in real time via PATCH /api/exams/[examId]/end-time.
+  const [extendOpen, setExtendOpen] = useState(false);
+  const [extendValue, setExtendValue] = useState('');
+  const [extendError, setExtendError] = useState('');
+  // A shrink (new end time earlier than the current one) requires an explicit second
+  // confirmation — students may lose time they were already counting on.
+  const [extendConfirmingShrink, setExtendConfirmingShrink] = useState(false);
+  const [extending, setExtending] = useState(false);
+  const [extendResult, setExtendResult] = useState<string | null>(null);
+  const [lastChange, setLastChange] = useState<EndTimeChange | null>(null);
 
   // One server action instead of two. These are polled every 10–60s, so the
   // second serialized round trip was being paid continuously, not just on load.
@@ -48,17 +71,69 @@ export default function MonitorPage() {
 
   const { live } = useMonitorRealtime({ examId, onRefresh: refresh, onHighSeverity: notifyHigh });
 
+  const loadLastChange = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/exams/${examId}/end-time?limit=1`);
+      if (!res.ok) return;
+      const list = (await res.json()) as EndTimeChange[];
+      setLastChange(list[0] ?? null);
+    } catch {
+      // Non-critical — the audit strip just stays empty.
+    }
+  }, [examId]);
+
   useEffect(() => {
     async function load() {
       const e = await getExamById(examId);
       setExam(e ?? null);
       await refresh();
+      await loadLastChange();
     }
     void load();
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
       void Notification.requestPermission();
     }
-  }, [examId, refresh]);
+  }, [examId, refresh, loadLastChange]);
+
+  async function submitExtend() {
+    if (!exam) return;
+    setExtendError('');
+    if (!extendValue) {
+      setExtendError('Choose a new end time.');
+      return;
+    }
+    const newEnd = new Date(extendValue);
+    if (Number.isNaN(newEnd.getTime()) || newEnd.getTime() <= Date.now()) {
+      setExtendError('New end time must be in the future.');
+      return;
+    }
+    const isShrink = newEnd.getTime() < new Date(exam.endTime).getTime();
+    if (isShrink && !extendConfirmingShrink) {
+      setExtendConfirmingShrink(true);
+      return;
+    }
+    setExtending(true);
+    try {
+      const res = await fetch(`/api/exams/${examId}/end-time`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newEndTime: newEnd.toISOString() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setExtendError(typeof data.message === 'string' ? data.message : 'Could not update the end time.');
+        return;
+      }
+      setExam(prev => (prev ? { ...prev, endTime: data.newEndTime } : prev));
+      setExtendResult(`End time updated — ${data.notifiedStudents} active student${data.notifiedStudents === 1 ? '' : 's'} notified.`);
+      setExtendOpen(false);
+      setExtendConfirmingShrink(false);
+      setExtendValue('');
+      void loadLastChange();
+    } finally {
+      setExtending(false);
+    }
+  }
 
   // Realtime is the fast path; polling stays as the safety net — 10s when the
   // websocket is down (feature parity with pre-Phase-3), 60s when live.
@@ -75,6 +150,36 @@ export default function MonitorPage() {
 
   return (
     <div className="space-y-4">
+      {/* Header + Extend/Change End Time */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold">{exam.title}</h2>
+          <p className="text-sm text-muted-foreground">Ends {new Date(exam.endTime).toLocaleString()}</p>
+          {lastChange && (
+            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+              <History className="h-3 w-3" />
+              End time changed by {lastChange.changedByName} {formatDistanceToNow(new Date(lastChange.createdAt), { addSuffix: true })}
+              {' '}({new Date(lastChange.oldEndTime).toLocaleTimeString()} → {new Date(lastChange.newEndTime).toLocaleTimeString()})
+            </p>
+          )}
+        </div>
+        {exam.status === 'live' && (
+          <Button
+            variant="outline"
+            className="gap-2 shrink-0"
+            onClick={() => {
+              setExtendError('');
+              setExtendConfirmingShrink(false);
+              setExtendValue('');
+              setExtendOpen(true);
+            }}
+          >
+            <Clock className="h-4 w-4" /> Extend / Change End Time
+          </Button>
+        )}
+      </div>
+      {extendResult && <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">{extendResult}</p>}
+
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
@@ -206,6 +311,42 @@ export default function MonitorPage() {
               onActionDone={() => void refresh()}
             />
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Extend/Change End Time */}
+      <Dialog open={extendOpen} onOpenChange={open => { setExtendOpen(open); if (!open) setExtendConfirmingShrink(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-blue-500" /> Extend / Change End Time
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Currently ends at <strong>{new Date(exam.endTime).toLocaleString()}</strong>. Every student still in
+              progress is notified immediately and their countdown updates on-screen — a student who already
+              submitted is unaffected.
+            </p>
+            <div className="space-y-2">
+              <Label>New End Time</Label>
+              <DateTimeField onChange={setExtendValue} />
+            </div>
+            {extendError && <p className="text-sm text-red-500">{extendError}</p>}
+            {extendConfirmingShrink && !extendError && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                This new end time is <strong>earlier</strong> than the current one — students currently taking the
+                exam will lose time they were already counting on. Click Confirm again to proceed.
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setExtendOpen(false)} disabled={extending}>Cancel</Button>
+            <Button onClick={() => void submitExtend()} disabled={extending} className="gap-2">
+              <Clock className="h-4 w-4" />
+              {extending ? 'Saving…' : extendConfirmingShrink ? 'Confirm Shorter Time' : 'Update End Time'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -2,8 +2,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getExamEditPageData, createQuestion, updateQuestion, deleteQuestion, updateExam } from '@/lib/data';
-import type { Exam, Question, QuestionType, ExamSection } from '@/types';
+import { useRouter } from 'next/navigation';
+import { getExamEditPageData, createQuestion, updateQuestion, deleteQuestion, updateExam, duplicateExam, getMyClasses } from '@/lib/data';
+import type { Exam, Question, QuestionType, ExamSection, ClassSummary } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,10 +12,13 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { SectionsManager } from '@/components/exams/SectionsManager';
 import { MathTextarea } from '@/components/rich/MathTextField';
 import { RichText } from '@/components/rich/RichText';
-import { Plus, Trash2, GripVertical, Save, Radio, CalendarCheck, CheckCircle2, ChevronRight } from 'lucide-react';
+import { DateTimeField } from '@/components/shared/DateTimeField';
+import { computeExamDurationMinutes, MIN_EXAM_DURATION_MINUTES } from '@/lib/exam-duration';
+import { Plus, Trash2, GripVertical, Save, Radio, CalendarCheck, CheckCircle2, ChevronRight, Copy, Clock } from 'lucide-react';
 
 const QUESTION_TYPES: { value: QuestionType; label: string }[] = [
   { value: 'mcq', label: 'Multiple Choice' },
@@ -29,6 +33,7 @@ const STEM_SAVE_DEBOUNCE_MS = 600;
 
 export default function EditExamPage() {
   const { examId } = useParams<{ examId: string }>();
+  const router = useRouter();
   const [exam, setExam] = useState<Exam | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [sections, setSections] = useState<ExamSection[]>([]);
@@ -45,6 +50,24 @@ export default function EditExamPage() {
   // Pending debounced stem saves, keyed by question id.
   const stemSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
+  // Schedule (start/end/duration) — a local draft with an explicit Save, not auto-saved on
+  // blur like Instructions: a chronology change is consequential enough to want a deliberate
+  // confirm, not a stray click-away commit. Only editable while the exam is upcoming (draft or
+  // scheduled) — the server enforces the same rule (PUT /api/exams/[examId]), this is just UX.
+  const [scheduleDraft, setScheduleDraft] = useState<{ startTime: string; endTime: string; duration: number } | null>(null);
+  const [scheduleError, setScheduleError] = useState('');
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+
+  // "Assign to another section" — clones this exam (see duplicateExam) and attaches it to a
+  // different Class with its own schedule.
+  const [classes, setClasses] = useState<ClassSummary[]>([]);
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const [duplicateClassId, setDuplicateClassId] = useState('');
+  const [duplicateStart, setDuplicateStart] = useState('');
+  const [duplicateEnd, setDuplicateEnd] = useState('');
+  const [duplicateError, setDuplicateError] = useState('');
+  const [duplicating, setDuplicating] = useState(false);
+
   useEffect(() => {
     // One server action instead of three serialized round trips.
     getExamEditPageData(examId).then(({ exam: e, questions: q, sections: s }) => {
@@ -52,8 +75,67 @@ export default function EditExamPage() {
       setInstructions(e?.instructions ?? '');
       setQuestions(q);
       setSections(s);
+      if (e) setScheduleDraft({ startTime: e.startTime, endTime: e.endTime, duration: e.duration });
     });
+    getMyClasses().then(setClasses);
   }, [examId]);
+
+  const scheduleLocked = exam?.status === 'live' || exam?.status === 'completed';
+
+  async function saveSchedule() {
+    if (!exam || !scheduleDraft) return;
+    setScheduleError('');
+    const windowMinutes = computeExamDurationMinutes(scheduleDraft.startTime, scheduleDraft.endTime);
+    if (!windowMinutes) {
+      setScheduleError('End time must be after start time.');
+      return;
+    }
+    if (!scheduleDraft.duration || scheduleDraft.duration < MIN_EXAM_DURATION_MINUTES) {
+      setScheduleError(`Duration must be at least ${MIN_EXAM_DURATION_MINUTES} minutes.`);
+      return;
+    }
+    setScheduleSaving(true);
+    try {
+      const res = await fetch(`/api/exams/${examId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          startTime: scheduleDraft.startTime,
+          endTime: scheduleDraft.endTime,
+          duration: scheduleDraft.duration,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setScheduleError(typeof data.message === 'string' ? data.message : 'Could not save the schedule.');
+        return;
+      }
+      setExam(data as Exam);
+      handleSave();
+    } finally {
+      setScheduleSaving(false);
+    }
+  }
+
+  async function handleDuplicate() {
+    setDuplicateError('');
+    if (!duplicateClassId) {
+      setDuplicateError('Choose a section to assign this exam to.');
+      return;
+    }
+    if (!computeExamDurationMinutes(duplicateStart, duplicateEnd)) {
+      setDuplicateError('Set a valid start and end time (end must be after start).');
+      return;
+    }
+    setDuplicating(true);
+    try {
+      const cloned = await duplicateExam(examId, duplicateClassId, { startTime: duplicateStart, endTime: duplicateEnd });
+      router.push(`/teacher/exams/${cloned.id}/edit`);
+    } catch (err) {
+      setDuplicateError(err instanceof Error ? err.message : 'Could not duplicate this exam.');
+      setDuplicating(false);
+    }
+  }
 
   async function addQuestion() {
     if (!newStem.trim()) return;
@@ -176,10 +258,16 @@ export default function EditExamPage() {
           <h2 className="text-xl font-semibold">{exam.title}</h2>
           <p className="text-sm text-muted-foreground">{exam.subject} · {exam.duration} min · {exam.totalMarks} marks</p>
         </div>
-        <Button onClick={handleSave} className="gap-2">
-          <Save className="h-4 w-4" />
-          {saved ? 'Saved!' : 'Save'}
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" onClick={() => { setDuplicateError(''); setDuplicateOpen(true); }} className="gap-2">
+            <Copy className="h-4 w-4" />
+            Assign to Another Section
+          </Button>
+          <Button onClick={handleSave} className="gap-2">
+            <Save className="h-4 w-4" />
+            {saved ? 'Saved!' : 'Save'}
+          </Button>
+        </div>
       </div>
 
       {/* ── Approval / Status panel ── */}
@@ -264,6 +352,54 @@ export default function EditExamPage() {
           </div>
         );
       })()}
+
+      {/* Schedule */}
+      <Card>
+        <CardHeader><CardTitle>Schedule</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          {scheduleLocked ? (
+            <p className="text-sm text-muted-foreground">
+              This exam is {exam.status} — its schedule can no longer be changed. Use{' '}
+              {exam.status === 'live' ? 'Extend/Change End Time on the live monitor screen' : 'a duplicate'} instead.
+            </p>
+          ) : scheduleDraft && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Start Time <span className="text-muted-foreground font-normal">(availability opens)</span></Label>
+                  <DateTimeField
+                    initialValue={scheduleDraft.startTime}
+                    onChange={v => v && setScheduleDraft(prev => prev && { ...prev, startTime: v })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>End Time <span className="text-muted-foreground font-normal">(availability closes)</span></Label>
+                  <DateTimeField
+                    initialValue={scheduleDraft.endTime}
+                    onChange={v => v && setScheduleDraft(prev => prev && { ...prev, endTime: v })}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Exam Duration (Minutes) <span className="text-muted-foreground font-normal">(the student&apos;s own countdown once they start)</span></Label>
+                <div className="flex items-center gap-2 max-w-xs">
+                  <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <Input
+                    type="number"
+                    min={MIN_EXAM_DURATION_MINUTES}
+                    value={scheduleDraft.duration}
+                    onChange={e => setScheduleDraft(prev => prev && { ...prev, duration: Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+              {scheduleError && <p className="text-sm text-red-500">{scheduleError}</p>}
+              <Button onClick={saveSchedule} disabled={scheduleSaving} variant="outline" size="sm">
+                {scheduleSaving ? 'Saving…' : 'Save Schedule'}
+              </Button>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Instructions + Proctoring */}
       <Card>
@@ -485,6 +621,56 @@ export default function EditExamPage() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* Assign to Another Section — clones this exam (questions + sections) and attaches the
+          copy to a different Class with its own schedule; see duplicateExam. */}
+      <Dialog open={duplicateOpen} onOpenChange={setDuplicateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Copy className="h-4 w-4 text-blue-500" /> Assign to Another Section
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Creates an independent copy of this exam — same questions and settings — attached to a
+              different section, with its own schedule. Editing one copy never affects the other.
+            </p>
+            <div className="space-y-2">
+              <Label>Section</Label>
+              <Select value={duplicateClassId} onValueChange={setDuplicateClassId}>
+                <SelectTrigger><SelectValue placeholder="Choose a section…" /></SelectTrigger>
+                <SelectContent>
+                  {classes.filter(c => !c.archivedAt && c.id !== exam.classId).map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {classes.length === 0 && (
+                <p className="text-xs text-muted-foreground">You don&apos;t have any other sections yet — create a Class first.</p>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Start Time</Label>
+                <DateTimeField onChange={setDuplicateStart} />
+              </div>
+              <div className="space-y-2">
+                <Label>End Time</Label>
+                <DateTimeField onChange={setDuplicateEnd} />
+              </div>
+            </div>
+            {duplicateError && <p className="text-sm text-red-500">{duplicateError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDuplicateOpen(false)} disabled={duplicating}>Cancel</Button>
+            <Button onClick={handleDuplicate} disabled={duplicating} className="gap-2">
+              <Copy className="h-4 w-4" />
+              {duplicating ? 'Duplicating…' : 'Duplicate & Assign'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
