@@ -182,6 +182,7 @@ export default function StudentSubmissionPage() {
                         maxMarks={a.marks}
                         gradingStatus={a.gradingStatus}
                         suggestion={a.suggestion}
+                        questionType={a.type}
                         onChanged={() => void getStudentSubmissionDetail(examId, studentId).then(d => setDetail(d ?? null))}
                       />
                     )}

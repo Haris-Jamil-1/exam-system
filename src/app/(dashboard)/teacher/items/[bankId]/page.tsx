@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getItemBankPageData, updateItem } from '@/lib/data';
+import { getItemBankPageData, updateItem, deleteItem } from '@/lib/data';
 import { invalidateData } from '@/lib/data-refresh';
 import type { Item, ItemBank, ItemStatus, QuestionType } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Search, ChevronDown, ChevronUp, Check, Clock, Hourglass, Archive, ArchiveRestore, AlertTriangle, Upload, Users2, Sparkles, ChevronRight, Building2, Lock } from 'lucide-react';
+import { Plus, Search, ChevronDown, ChevronUp, Check, Clock, Hourglass, Archive, ArchiveRestore, AlertTriangle, Upload, Users2, Sparkles, ChevronRight, Building2, Lock, Trash2 } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { RichText } from '@/components/rich/RichText';
 import { BulkImportModal } from '@/components/shared/BulkImportModal';
@@ -44,11 +44,13 @@ function psychometricFlag(item: Item): { label: string; title: string } | null {
   return null;
 }
 
-function ItemRow({ item, onSubmit, onArchive, onUnarchive }: { item: Item; onSubmit: (id: string) => void; onArchive: (id: string) => void; onUnarchive: (id: string) => void }) {
+function ItemRow({ item, onSubmit, onArchive, onUnarchive, onDelete, onUpdateMarks }: { item: Item; onSubmit: (id: string) => void; onArchive: (id: string) => void; onUnarchive: (id: string) => void; onDelete: (id: string) => void; onUpdateMarks: (id: string, marks: number) => void }) {
   const [expanded, setExpanded] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [unarchiving, setUnarchiving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [marksValue, setMarksValue] = useState(String(item.marks));
   const hasOptions = item.options && item.options.length > 0;
   const hasExpandable = hasOptions || !!item.correctAnswer;
   const flag = psychometricFlag(item);
@@ -69,6 +71,24 @@ function ItemRow({ item, onSubmit, onArchive, onUnarchive }: { item: Item; onSub
     setUnarchiving(true);
     await onUnarchive(item.id);
     setUnarchiving(false);
+  }
+
+  async function handleDelete() {
+    if (!window.confirm('Permanently delete this item? This cannot be undone.')) return;
+    setDeleting(true);
+    await onDelete(item.id);
+    setDeleting(false);
+  }
+
+  function handleMarksBlur() {
+    const parsed = Number(marksValue);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      setMarksValue(String(item.marks));
+      return;
+    }
+    const rounded = Math.round(parsed);
+    setMarksValue(String(rounded));
+    if (rounded !== item.marks) onUpdateMarks(item.id, rounded);
   }
 
   return (
@@ -126,13 +146,24 @@ function ItemRow({ item, onSubmit, onArchive, onUnarchive }: { item: Item; onSub
             </div>
           </div>
         </td>
-        <td className="px-4 py-3 hidden md:table-cell">
+        <td className="px-4 py-3 hidden md:table-cell text-center">
           <Badge variant="info" className="text-xs">{TYPE_LABELS[item.type]}</Badge>
         </td>
-        <td className="px-4 py-3 hidden sm:table-cell">
+        <td className="px-4 py-3 hidden md:table-cell text-center">
+          <input
+            type="number"
+            min={1}
+            value={marksValue}
+            onChange={e => setMarksValue(e.target.value)}
+            onBlur={handleMarksBlur}
+            title="Marks — editable"
+            className="w-14 rounded border px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-400"
+          />
+        </td>
+        <td className="px-4 py-3 hidden sm:table-cell text-center">
           <Badge variant={DIFF_STYLES[item.difficulty]} className="text-xs capitalize">{item.difficulty}</Badge>
         </td>
-        <td className="px-4 py-3 hidden lg:table-cell text-sm text-muted-foreground">{item.usageCount}×</td>
+        <td className="px-4 py-3 hidden lg:table-cell text-sm text-muted-foreground text-center">{item.usageCount}×</td>
         <td className="px-4 py-3 hidden xl:table-cell text-sm text-center">
           {item.facilityIndex !== undefined
             ? <span className={`font-mono text-xs ${item.facilityIndex < 0.2 || item.facilityIndex > 0.9 ? 'text-amber-600 font-semibold' : 'text-muted-foreground'}`}>
@@ -149,11 +180,11 @@ function ItemRow({ item, onSubmit, onArchive, onUnarchive }: { item: Item; onSub
             : <span className="text-xs text-muted-foreground/50">—</span>
           }
         </td>
-        <td className="px-4 py-3">
+        <td className="px-4 py-3 text-center">
           <Badge variant={STATUS_STYLES[item.status]} className="text-xs capitalize">{item.status}</Badge>
         </td>
         <td className="px-4 py-3">
-          <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex items-center justify-center gap-1.5 flex-wrap">
             {item.status === 'draft' && (
               <Button size="sm" variant="outline" onClick={handleSubmit} disabled={submitting} className="gap-1 h-7 text-xs text-blue-600 border-blue-300 hover:bg-blue-50">
                 <Clock className="h-3 w-3" />
@@ -163,22 +194,22 @@ function ItemRow({ item, onSubmit, onArchive, onUnarchive }: { item: Item; onSub
             {item.status === 'review' && (
               <span className="text-xs text-orange-600 flex items-center gap-1"><Hourglass className="h-3 w-3" /> Awaiting approval</span>
             )}
-            {item.status === 'approved' && (
-              <span className="text-xs text-green-600 flex items-center gap-1"><Check className="h-3 w-3" /> Approved</span>
-            )}
             {item.status === 'archived' && (
-              <>
-                <span className="text-xs text-muted-foreground flex items-center gap-1"><Archive className="h-3 w-3" /> Archived</span>
-                <Button size="sm" variant="ghost" onClick={handleUnarchive} disabled={unarchiving} className="gap-1 h-7 text-xs text-muted-foreground hover:text-green-600" title="Restore item to the active bank">
-                  <ArchiveRestore className="h-3 w-3" />
-                  {unarchiving ? '…' : 'Restore'}
-                </Button>
-              </>
+              <Button size="sm" variant="ghost" onClick={handleUnarchive} disabled={unarchiving} className="gap-1 h-7 text-xs text-muted-foreground hover:text-green-600" title="Restore item to the active bank">
+                <ArchiveRestore className="h-3 w-3" />
+                {unarchiving ? '…' : 'Restore'}
+              </Button>
             )}
             {item.status !== 'archived' && (
               <Button size="sm" variant="ghost" onClick={handleArchive} disabled={archiving} className="gap-1 h-7 text-xs text-muted-foreground hover:text-red-600" title="Archive item">
                 <Archive className="h-3 w-3" />
                 {archiving ? '…' : 'Archive'}
+              </Button>
+            )}
+            {item.status === 'archived' && (
+              <Button size="sm" variant="ghost" onClick={handleDelete} disabled={deleting} className="gap-1 h-7 text-xs text-muted-foreground hover:text-red-600" title="Permanently delete this item">
+                <Trash2 className="h-3 w-3" />
+                {deleting ? '…' : 'Delete'}
               </Button>
             )}
           </div>
@@ -187,7 +218,7 @@ function ItemRow({ item, onSubmit, onArchive, onUnarchive }: { item: Item; onSub
 
       {expanded && !hasOptions && item.correctAnswer && (
         <tr className="bg-muted/20">
-          <td colSpan={8} className="px-4 pb-3 pt-0">
+          <td colSpan={9} className="px-4 pb-3 pt-0">
             <div className="ms-6 flex items-center gap-2 rounded-lg border bg-green-50 px-3 py-2">
               <Check className="h-3.5 w-3.5 text-green-600 shrink-0" />
               <span className="text-xs font-medium text-green-800">Correct answer:</span>
@@ -200,7 +231,7 @@ function ItemRow({ item, onSubmit, onArchive, onUnarchive }: { item: Item; onSub
 
       {expanded && hasOptions && (
         <tr className="bg-muted/20">
-          <td colSpan={8} className="px-4 pb-3 pt-0">
+          <td colSpan={9} className="px-4 pb-3 pt-0">
             <div className="ms-6 border rounded-lg overflow-hidden">
               <table className="w-full text-xs">
                 <thead className="bg-muted/40">
@@ -280,6 +311,21 @@ export default function ItemBankDetailPage() {
     }
   }
 
+  async function handleDelete(id: string) {
+    const ok = await deleteItem(id);
+    if (ok) {
+      setItems(prev => prev.filter(i => i.id !== id));
+      invalidateData('items');
+    }
+  }
+
+  async function handleUpdateMarks(id: string, marks: number) {
+    const updated = await updateItem(id, { marks });
+    if (updated) {
+      setItems(prev => prev.map(i => i.id === id ? { ...i, marks } : i));
+    }
+  }
+
   function filterItems(status: string) {
     return items.filter(item => {
       if (status !== 'all' && item.status !== status) return false;
@@ -298,20 +344,21 @@ export default function ItemBankDetailPage() {
           <thead className="bg-muted/50 border-b">
             <tr>
               <th className="text-start px-4 py-3 font-medium text-muted-foreground">Question</th>
-              <th className="text-start px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">Type</th>
-              <th className="text-start px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Difficulty</th>
-              <th className="text-start px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">Usage</th>
+              <th className="text-center px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">Type</th>
+              <th className="text-center px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">Marks</th>
+              <th className="text-center px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Difficulty</th>
+              <th className="text-center px-4 py-3 font-medium text-muted-foreground hidden lg:table-cell">Usage</th>
               <th className="text-center px-4 py-3 font-medium text-muted-foreground hidden xl:table-cell" title="Facility Index">FI %</th>
               <th className="text-center px-4 py-3 font-medium text-muted-foreground hidden xl:table-cell" title="Discrimination Index">DI</th>
-              <th className="text-start px-4 py-3 font-medium text-muted-foreground">Status</th>
-              <th className="text-start px-4 py-3 font-medium text-muted-foreground">Action</th>
+              <th className="text-center px-4 py-3 font-medium text-muted-foreground">Status</th>
+              <th className="text-center px-4 py-3 font-medium text-muted-foreground">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y">
             {tableItems.length === 0 ? (
-              <tr><td colSpan={8} className="text-center py-8 text-muted-foreground">No items found</td></tr>
+              <tr><td colSpan={9} className="text-center py-8 text-muted-foreground">No items found</td></tr>
             ) : tableItems.map(item => (
-              <ItemRow key={item.id} item={item} onSubmit={handleSubmitForReview} onArchive={handleArchive} onUnarchive={handleUnarchive} />
+              <ItemRow key={item.id} item={item} onSubmit={handleSubmitForReview} onArchive={handleArchive} onUnarchive={handleUnarchive} onDelete={handleDelete} onUpdateMarks={handleUpdateMarks} />
             ))}
           </tbody>
         </table>

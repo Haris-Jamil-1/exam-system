@@ -104,11 +104,14 @@ export const POST = withErrorHandling(async (
   }
 
   // Two-stage completion (Phase 3, doc 03): deterministic types are scored
-  // exactly as before; essay/coding answers enter the grading state machine as
-  // pending_ai and the AI grading pass runs as background work after this
-  // response. Their marks stay 0 until a teacher confirms/overrides (decision 4).
+  // exactly as before; essay/coding/file_upload answers enter the grading state
+  // machine as pending_ai. The AI grading pass only actually runs for essay/coding
+  // (runGradingForAttempt has no automated path for file content) — file_upload
+  // answers stay pending_ai until a teacher manually overrides, same as a coding
+  // question with no test cases. Their marks stay 0 until a teacher
+  // confirms/overrides (decision 4).
   const needsGrading = new Set(
-    questions.filter(q => q.type === 'essay' || q.type === 'coding').map(q => q.id),
+    questions.filter(q => q.type === 'essay' || q.type === 'coding' || q.type === 'file_upload').map(q => q.id),
   );
 
   await prisma.$transaction([

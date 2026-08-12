@@ -217,6 +217,25 @@ export async function updateItem(id: string, data: Partial<Item>): Promise<Item 
 }
 
 /**
+ * Permanently deletes an item. Only permitted once it's already archived — a straight delete
+ * of a live draft/review/approved item would drop it with no recovery path and no trace of why
+ * it existed (e.g. still referenced by `Question.sourceItemId` for psychometrics on past exams,
+ * which is a stamp not a FK, so deletion is otherwise unconstrained at the DB level).
+ */
+export async function deleteItem(id: string): Promise<boolean> {
+  const existing = await prisma.item.findUnique({ where: { id }, select: { bankId: true, status: true } });
+  if (!existing) return false;
+  if (!existing.bankId) throw new Error('Forbidden');
+  const permission = await getCallerAndBankPermission(existing.bankId);
+  if (!permission) return false;
+  if (!bankCanEdit(permission.role)) throw new Error('Forbidden');
+  if (existing.status !== 'archived') throw new Error('Only archived items can be permanently deleted');
+
+  await prisma.item.delete({ where: { id } });
+  return true;
+}
+
+/**
  * Bumps an item's usage counter when it's pulled into an exam. Deliberately requires only
  * READ access (viewer+), not edit — per spec, VIEWERs on a shared bank "can only pull items
  * for their exams," which is exactly this action, not a content edit.

@@ -90,10 +90,10 @@ export const POST = withErrorHandling(async (
     ? true
     : sectionScorePct >= section.passingThreshold;
 
-  // Essay/coding answers enter the grading state machine (doc 03) — same
-  // two-stage flow as the non-sectioned submit route.
+  // Essay/coding/file_upload answers enter the grading state machine (doc 03) —
+  // same two-stage flow as the non-sectioned submit route.
   const needsGrading = new Set(
-    questions.filter(q => q.type === 'essay' || q.type === 'coding').map(q => q.id),
+    questions.filter(q => q.type === 'essay' || q.type === 'coding' || q.type === 'file_upload').map(q => q.id),
   );
 
   await prisma.$transaction([

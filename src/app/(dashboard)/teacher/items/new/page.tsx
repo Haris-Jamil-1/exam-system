@@ -8,7 +8,6 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { createItem } from '@/lib/data';
 import { invalidateData } from '@/lib/data-refresh';
-import { generateQuestions } from '@/lib/ai/question-generator';
 import { itemFormSchema, type ItemFormData } from '@/lib/item-form-schema';
 import type { QuestionType, Option } from '@/types';
 import { CurriculumPicker, type CurriculumSelection } from '@/components/shared/CurriculumPicker';
@@ -19,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, Sparkles, Check, Code2, FileUp, Eye, EyeOff, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, Check, Code2, FileUp, Eye, EyeOff, ChevronRight } from 'lucide-react';
 import { MathTextarea, MathInput } from '@/components/rich/MathTextField';
 import { QuillEditor } from '@/components/rich/QuillEditor';
 import { RubricEditor } from '@/components/items/RubricEditor';
@@ -69,8 +68,6 @@ export default function NewItemPage() {
   ]);
   // fill_blank / short_answer correct answer text (no option list for these types)
   const [correctAnswerText, setCorrectAnswerText] = useState('');
-  const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [stemValue, setStemValue] = useState('');
@@ -119,15 +116,6 @@ export default function NewItemPage() {
   function handleStemChange(value: string) {
     setStemValue(value);
     setValue('stem', value, { shouldValidate: true });
-  }
-
-  async function handleAIAssist() {
-    if (!stemValue.trim()) return;
-    setIsGenerating(true);
-    await new Promise(r => setTimeout(r, 600));
-    const results = generateQuestions({ text: stemValue, count: 3, difficulty: 'medium', type: qType });
-    setAiSuggestions(results.map(r => r.stem));
-    setIsGenerating(false);
   }
 
   function addOption() {
@@ -304,19 +292,8 @@ export default function NewItemPage() {
 
             {/* Stem */}
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardHeader className="pb-2">
                 <CardTitle>Question Stem</CardTitle>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleAIAssist}
-                  disabled={isGenerating || !stemValue.trim()}
-                  className="gap-1"
-                >
-                  <Sparkles className="h-4 w-4" />
-                  {isGenerating ? 'Thinking...' : 'AI Assist'}
-                </Button>
               </CardHeader>
               <CardContent className="space-y-3">
                 <QuillEditor
@@ -325,15 +302,6 @@ export default function NewItemPage() {
                   onValueChange={handleStemChange}
                 />
                 {errors.stem && <p className="text-sm text-red-500">{errors.stem.message}</p>}
-
-                {aiSuggestions.length > 0 && (
-                  <div className="border rounded-lg p-3 space-y-2 bg-blue-50">
-                    <p className="text-xs font-medium text-blue-700">AI Suggestions:</p>
-                    {aiSuggestions.map((s, i) => (
-                      <p key={i} className="text-xs text-gray-600 border-s-2 border-blue-300 ps-2">{s}</p>
-                    ))}
-                  </div>
-                )}
               </CardContent>
             </Card>
 

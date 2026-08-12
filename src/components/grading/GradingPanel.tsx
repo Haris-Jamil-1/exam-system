@@ -23,10 +23,11 @@ interface GradingPanelProps {
   maxMarks: number;
   gradingStatus: string;
   suggestion: GradingSuggestion | null;
+  questionType: string;
   onChanged: () => void;
 }
 
-export function GradingPanel({ answerId, maxMarks, gradingStatus, suggestion, onChanged }: GradingPanelProps) {
+export function GradingPanel({ answerId, maxMarks, gradingStatus, suggestion, questionType, onChanged }: GradingPanelProps) {
   const [busy, setBusy] = useState(false);
   const [overriding, setOverriding] = useState(false);
   const [overrideMarks, setOverrideMarks] = useState('');
@@ -139,9 +140,11 @@ export function GradingPanel({ answerId, maxMarks, gradingStatus, suggestion, on
             <Button size="sm" variant="outline" disabled={busy} onClick={() => setOverriding(o => !o)}>
               <Pencil className="h-3.5 w-3.5 me-1" /> {gradingStatus === 'pending_ai' ? 'Grade manually' : gradingStatus === 'overridden' ? 'Change override' : 'Override'}
             </Button>
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => void act({ action: 'regrade' }, 'Regrade queued — refresh shortly.')}>
-              <RefreshCw className="h-3.5 w-3.5 me-1" /> Regrade with AI
-            </Button>
+            {questionType !== 'file_upload' && (
+              <Button size="sm" variant="outline" disabled={busy} onClick={() => void act({ action: 'regrade' }, 'Regrade queued — refresh shortly.')}>
+                <RefreshCw className="h-3.5 w-3.5 me-1" /> Regrade with AI
+              </Button>
+            )}
           </div>
           {overriding && (
             <div className="flex items-end gap-2 flex-wrap">
