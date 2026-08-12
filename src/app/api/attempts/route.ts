@@ -8,7 +8,7 @@ import { InsufficientPoolError } from '@/lib/data/pooling-errors';
 import { isStudentEligibleForExam } from '@/lib/exam-eligibility';
 import type { ExamSettings } from '@/types';
 
-const startSchema = z.object({ examId: z.string() });
+const startSchema = z.object({ examId: z.string(), verificationPhotoUrl: z.string().optional() });
 
 export const POST = withErrorHandling(async (request: Request) => {
   const user = await getAuthUser();
@@ -22,7 +22,16 @@ export const POST = withErrorHandling(async (request: Request) => {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { examId } = parsed.data;
+  const { examId, verificationPhotoUrl } = parsed.data;
+  // Defense in depth: /api/upload always writes under `{folder}/{callerId}/...` using the
+  // AUTHENTICATED user's own id (server-derived, not client input), so a path a caller could
+  // ever legitimately receive already belongs to them. Re-check here anyway rather than trust
+  // the client blindly — costs nothing and means a malformed/forged value is silently dropped
+  // instead of persisted.
+  const safeVerificationPhotoUrl =
+    verificationPhotoUrl && verificationPhotoUrl.startsWith(`verification/${user.id}/`)
+      ? verificationPhotoUrl
+      : undefined;
 
   const exam = await prisma.exam.findUnique({
     where: { id: examId },
@@ -121,7 +130,12 @@ export const POST = withErrorHandling(async (request: Request) => {
     try {
       attempt = await prisma.$transaction(async (tx) => {
         const created = await tx.examAttempt.create({
-          data: { examId, studentId: user.id, status: 'in_progress' },
+          data: {
+            examId,
+            studentId: user.id,
+            status: 'in_progress',
+            ...(safeVerificationPhotoUrl ? { verificationPhotoUrl: safeVerificationPhotoUrl } : {}),
+          },
         });
 
         // Stratified dynamic pooling: only for the attempt this call actually created (never

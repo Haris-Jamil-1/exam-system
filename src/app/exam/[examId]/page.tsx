@@ -85,10 +85,15 @@ export default function ExamPage() {
 
   // Biometric gate — shown before exam if proctoring level is strict
   const [biometricDone, setBiometricDone] = useState(false);
+  // Storage path of the face photo captured by the biometric gate (already uploaded by
+  // BiometricOnboarding by the time onComplete fires) — carried in a ref for the same reason
+  // unverifiedStartRef is: the gate runs before any attempt row exists, so nothing can be
+  // persisted until POST /api/attempts succeeds below.
+  const verificationPhotoRef = useRef<string | null>(null);
   // Set when the student used one of the pre-exam gates' escape hatches — reported to the
   // teacher as a single unverified_start violation once the attempt exists (both gates run
   // before any attempt row is created, so nothing can be logged earlier). `media` covers the
-  // device gate below, `biometric` the face/ID gate; the description names whichever applied.
+  // device gate below, `biometric` the face gate; the description names whichever applied.
   const unverifiedStartRef = useRef<{ biometric: boolean; media: boolean; mediaFailures: MediaFailure[] }>({
     biometric: false,
     media: false,
@@ -274,7 +279,10 @@ export default function ExamPage() {
       const res = await fetch('/api/attempts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ examId }),
+        body: JSON.stringify({
+          examId,
+          ...(verificationPhotoRef.current ? { verificationPhotoUrl: verificationPhotoRef.current } : {}),
+        }),
       });
       const body = await res.json().catch(() => ({}));
       const outcome = classifyStartExamResponse(res.status, body);
@@ -644,7 +652,10 @@ export default function ExamPage() {
     return (
       <BiometricOnboarding
         streamRef={media.streamRef}
-        onComplete={() => setBiometricDone(true)}
+        onComplete={(photoPath) => {
+          verificationPhotoRef.current = photoPath;
+          setBiometricDone(true);
+        }}
         onSkip={() => {
           unverifiedStartRef.current = { ...unverifiedStartRef.current, biometric: true };
           setBiometricDone(true);

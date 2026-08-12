@@ -154,7 +154,7 @@ describe('failure presentation', () => {
 describe('buildUnverifiedStartDescription — the escape hatch stays intact', () => {
   it('keeps the pre-existing biometric-only wording byte-identical', () => {
     expect(buildUnverifiedStartDescription({ biometricSkipped: true, mediaSkipped: false }))
-      .toBe('Student started the exam without completing face/ID identity verification');
+      .toBe('Student started the exam without completing face identity verification');
   });
 
   it('names the device bypass, with the specific reasons, when the device gate was skipped', () => {
@@ -173,7 +173,7 @@ describe('buildUnverifiedStartDescription — the escape hatch stays intact', ()
       mediaSkipped: true,
       mediaFailures: [{ device: 'camera', reason: 'denied' }],
     });
-    expect(description).toContain('face/ID identity verification');
+    expect(description).toContain('face identity verification');
     expect(description).toContain('camera and microphone');
     expect(description).toContain('camera: denied');
   });

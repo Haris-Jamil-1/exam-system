@@ -42,5 +42,31 @@ export async function GET(request: Request) {
     data: { screenshotUrl: null },
   });
 
-  return NextResponse.json({ purged: expired.length, storageObjectsRemoved: paths.length });
+  // Biometric-gate verification photos: unlike Violation evidence these are deliberately NOT
+  // purged on exam finalization (a teacher may need to review identity after grading), so this
+  // cron is their only retention backstop — same 30-day window, keyed off attempt start time
+  // since ExamAttempt has no per-row "evidence captured at" timestamp.
+  const expiredPhotos = await prisma.examAttempt.findMany({
+    where: { verificationPhotoUrl: { not: null }, startedAt: { lt: cutoff } },
+    select: { id: true, verificationPhotoUrl: true },
+    take: 500,
+  });
+  const photoPaths = expiredPhotos
+    .map(a => a.verificationPhotoUrl)
+    .filter((p): p is string => p !== null && !p.startsWith('http'));
+  if (photoPaths.length > 0) {
+    await adminSupabase.storage.from(BUCKET).remove(photoPaths);
+  }
+  if (expiredPhotos.length > 0) {
+    await prisma.examAttempt.updateMany({
+      where: { id: { in: expiredPhotos.map(a => a.id) } },
+      data: { verificationPhotoUrl: null },
+    });
+  }
+
+  return NextResponse.json({
+    purged: expired.length,
+    storageObjectsRemoved: paths.length,
+    verificationPhotosPurged: expiredPhotos.length,
+  });
 }

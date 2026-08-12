@@ -10,7 +10,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Camera, Send, StopCircle, Video, VideoOff } from 'lucide-react';
+import { Camera, Send, StopCircle, Video, VideoOff, ShieldCheck } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useWebRTCViewer } from '@/hooks/useWebRTCViewer';
 import { trustScoreTextClass } from '@/lib/trust-score';
@@ -53,6 +53,13 @@ export function StudentActionsModal({ student, violations, onActionDone }: {
   const [violationMediaState, setViolationMediaState] = useState<'idle' | 'loading' | 'failed'>('idle');
   const violationMediaKind = violationMediaUrl?.match(/\.(webm|mp3|wav|m4a|ogg)(\?|$)/i) ? 'audio' : 'image';
 
+  // The face photo captured by the biometric gate at exam start — a separate "mode" in the
+  // media pane below, same as violation evidence. Not requested on-demand like a snapshot;
+  // it either exists already (captured at exam start) or it doesn't (skipped/failed upload).
+  const [viewingVerificationPhoto, setViewingVerificationPhoto] = useState(false);
+  const [verificationPhotoUrl, setVerificationPhotoUrl] = useState<string | null>(null);
+  const [verificationPhotoState, setVerificationPhotoState] = useState<'idle' | 'loading' | 'failed'>('idle');
+
   useEffect(() => {
     pollAbort.current = false;
     return () => { pollAbort.current = true; };
@@ -66,6 +73,7 @@ export function StudentActionsModal({ student, violations, onActionDone }: {
   async function requestSnapshot() {
     if (!attemptId) return;
     setViewingViolationId(null);
+    setViewingVerificationPhoto(false);
     setSnapshotState('waiting');
     setSnapshotUrl(null);
     try {
@@ -107,6 +115,7 @@ export function StudentActionsModal({ student, violations, onActionDone }: {
   async function viewViolationEvidence(v: Violation) {
     if (!v.screenshotUrl) return;
     if (isLive) stopLive();
+    setViewingVerificationPhoto(false);
     setViewingViolationId(v.id);
     setViolationMediaUrl(null);
     setViolationMediaState('loading');
@@ -118,6 +127,24 @@ export function StudentActionsModal({ student, violations, onActionDone }: {
       setViolationMediaState('idle');
     } catch {
       setViolationMediaState('failed');
+    }
+  }
+
+  async function viewVerificationPhoto() {
+    if (!attemptId) return;
+    if (isLive) stopLive();
+    setViewingViolationId(null);
+    setViewingVerificationPhoto(true);
+    setVerificationPhotoUrl(null);
+    setVerificationPhotoState('loading');
+    try {
+      const res = await fetch(`/api/evidence?attemptId=${attemptId}`);
+      if (!res.ok) throw new Error();
+      const { url } = (await res.json()) as { url: string };
+      setVerificationPhotoUrl(url);
+      setVerificationPhotoState('idle');
+    } catch {
+      setVerificationPhotoState('failed');
     }
   }
 
@@ -207,6 +234,23 @@ export function StudentActionsModal({ student, violations, onActionDone }: {
               <img src={violationMediaUrl} alt="Violation evidence" className="w-full h-full object-cover" />
             )}
           </>
+        ) : viewingVerificationPhoto ? (
+          <>
+            {verificationPhotoState === 'loading' ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-white gap-2">
+                <ShieldCheck className="h-10 w-10 opacity-30 animate-pulse" />
+                <p className="text-sm opacity-60">Loading verification photo…</p>
+              </div>
+            ) : verificationPhotoState === 'failed' || !verificationPhotoUrl ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-white gap-2">
+                <ShieldCheck className="h-10 w-10 opacity-30" />
+                <p className="text-sm opacity-60">No verification photo captured for this attempt</p>
+              </div>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL, next/image can't optimize it
+              <img src={verificationPhotoUrl} alt={`Exam-start verification photo of ${student.name}`} className="w-full h-full object-cover" />
+            )}
+          </>
         ) : snapshotUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL, next/image can't optimize it
           <img src={snapshotUrl} alt={`Snapshot of ${student.name}`} className="w-full h-full object-cover" />
@@ -218,6 +262,16 @@ export function StudentActionsModal({ student, violations, onActionDone }: {
                snapshotState === 'failed' ? 'Snapshot unavailable (student offline or camera blocked)' :
                'No snapshot requested yet'}
             </p>
+          </div>
+        )}
+        {/* Verification photo (exam-start face capture) — available regardless of attempt
+            status, unlike the live/on-demand-snapshot actions, since a teacher may want to
+            check identity after the student has already submitted. */}
+        {attemptId && !isLive && (
+          <div className="absolute bottom-2 start-2">
+            <Button size="sm" variant="secondary" onClick={() => void viewVerificationPhoto()} disabled={verificationPhotoState === 'loading'}>
+              <ShieldCheck className="h-3.5 w-3.5 me-1.5" /> Verification photo
+            </Button>
           </div>
         )}
         {inProgress && (
@@ -232,7 +286,7 @@ export function StudentActionsModal({ student, violations, onActionDone }: {
                   <Camera className="h-3.5 w-3.5 me-1.5" />
                   {snapshotState === 'waiting' ? 'Waiting…' : 'Request snapshot'}
                 </Button>
-                <Button size="sm" variant="secondary" onClick={() => { setViewingViolationId(null); if (attemptId) startLive(attemptId); }}>
+                <Button size="sm" variant="secondary" onClick={() => { setViewingViolationId(null); setViewingVerificationPhoto(false); if (attemptId) startLive(attemptId); }}>
                   <Video className="h-3.5 w-3.5 me-1.5" /> Go live
                 </Button>
               </>

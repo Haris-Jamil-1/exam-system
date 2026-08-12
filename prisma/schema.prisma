@@ -588,6 +588,12 @@ model ExamAttempt {
   trustScore        Int           @default(100)
   violationCount    Int           @default(0)
   biometricVerified Boolean       @default(false)
+  // Face-capture photo taken at exam start (biometric gate), stored as a private storage path
+  // (exam-uploads bucket, verification/{studentId}/... — see /api/upload), shown to the teacher
+  // via /api/evidence?attemptId=... on the live monitor. Not purged on finalization like
+  // Violation evidence (identity checks may be needed after the exam ends); the 30-day cron
+  // still cleans it up eventually.
+  verificationPhotoUrl String?
   createdAt         DateTime      @default(now())
 
   exam             Exam             @relation(fields: [examId], references: [id])

@@ -20,11 +20,20 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const violationId = searchParams.get('violationId');
   const directiveId = searchParams.get('directiveId');
+  const attemptId = searchParams.get('attemptId');
 
   let path: string | null = null;
   let examScope: { teacherId: string; institutionId: string } | null = null;
 
-  if (violationId) {
+  if (attemptId) {
+    const attempt = await prisma.examAttempt.findUnique({
+      where: { id: attemptId },
+      select: { verificationPhotoUrl: true, exam: { select: { teacherId: true, institutionId: true } } },
+    });
+    if (!attempt) return notFound('Attempt not found');
+    path = attempt.verificationPhotoUrl;
+    examScope = attempt.exam;
+  } else if (violationId) {
     const violation = await prisma.violation.findUnique({
       where: { id: violationId },
       select: { screenshotUrl: true, exam: { select: { teacherId: true, institutionId: true } } },
@@ -41,7 +50,7 @@ export async function GET(request: Request) {
     path = directive.resultPath;
     examScope = directive.attempt.exam;
   } else {
-    return NextResponse.json({ error: 'violationId or directiveId is required' }, { status: 400 });
+    return NextResponse.json({ error: 'attemptId, violationId, or directiveId is required' }, { status: 400 });
   }
 
   if (!examScope || examScope.institutionId !== user.institutionId) return forbidden();

@@ -228,8 +228,8 @@ export function summarizeFailuresForLog(failures: readonly MediaFailure[]): stri
  *
  * The escape hatch (2026-07-20) is deliberately preserved: a student may always proceed, and
  * the teacher is always told. Hardening the device gate adds a SECOND reason a student may
- * have bypassed verification, so the description now says which — but the biometric-only
- * wording is kept byte-identical to what teachers have been reading, and the event itself is
+ * have bypassed verification, so the description now says which. Wording updated 2026-08-12
+ * when ID-document verification was removed (face-only capture now); the event itself is
  * still exactly one high-severity `unverified_start` (unchanged severity, trust deduction and
  * bell-panel label).
  */
@@ -243,11 +243,11 @@ export function buildUnverifiedStartDescription(input: {
     : '';
 
   if (input.mediaSkipped && input.biometricSkipped) {
-    return `Student started the exam without completing face/ID identity verification and without a working camera and microphone${deviceDetail}`;
+    return `Student started the exam without completing face identity verification and without a working camera and microphone${deviceDetail}`;
   }
   if (input.mediaSkipped) {
     return `Student started the exam without a working camera and microphone — device check bypassed${deviceDetail}`;
   }
   // Unchanged legacy wording for the original escape-hatch path.
-  return 'Student started the exam without completing face/ID identity verification';
+  return 'Student started the exam without completing face identity verification';
 }

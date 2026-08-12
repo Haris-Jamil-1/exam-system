@@ -19,7 +19,13 @@ export default function MonitorPage() {
   const [exam, setExam] = useState<Exam | null>(null);
   const [students, setStudents] = useState<MonitorStudent[]>([]);
   const [feed, setFeed] = useState<Violation[]>([]);
-  const [viewing, setViewing] = useState<MonitorStudent | null>(null);
+  // Holds only the id, never a frozen student object — StudentActionsModal previously froze
+  // trust score/violation count at whatever they were the moment the modal opened, because
+  // `viewing` held a one-time snapshot that never re-synced with `students` as it kept
+  // polling/refreshing underneath. Deriving the live object from `students` at render time
+  // makes staleness structurally impossible: there is only ever one copy of this data.
+  const [viewingId, setViewingId] = useState<string | null>(null);
+  const viewing = students.find(s => s.id === viewingId) ?? null;
 
   // One server action instead of two. These are polled every 10–60s, so the
   // second serialized round trip was being paid continuously, not just on load.
@@ -140,7 +146,7 @@ export default function MonitorPage() {
                         <Progress value={s.trustScore} className={`h-1.5 ${trustScoreProgressClass(s.trustScore)}`} />
                       </div>
                       <button
-                        onClick={() => setViewing(s)}
+                        onClick={() => setViewingId(s.id)}
                         disabled={!s.attemptId}
                         className="w-full text-xs flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
@@ -185,7 +191,7 @@ export default function MonitorPage() {
       </div>
 
       {/* Student review & actions modal */}
-      <Dialog open={!!viewing} onOpenChange={open => { if (!open) setViewing(null); }}>
+      <Dialog open={!!viewing} onOpenChange={open => { if (!open) setViewingId(null); }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

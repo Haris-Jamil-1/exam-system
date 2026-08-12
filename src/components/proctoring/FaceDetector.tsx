@@ -2,9 +2,9 @@
 // Real vision proctoring (Phase 3, doc 01). One shared frame loop on the webcam
 // stream: MediaPipe Face Landmarker (face count + coarse gaze) every TICK_MS,
 // COCO-SSD object detection every OBJECT_EVERY_N ticks. All inference is
-// client-side; only events leave the device. Evidence snapshots (decision 1):
-// captured ONLY for high-severity flags — multiple faces, phone, sustained
-// no-face — with a visible on-screen indicator when captured (decision 3).
+// client-side; only events leave the device. Evidence snapshots (decision 1,
+// widened 2026-08-12): captured for multiple_faces, phone, sustained no-face,
+// and gaze_away — with a visible on-screen indicator when captured (decision 3).
 //
 // Emit policy:
 // - multiple_faces / phone_detected: emitted the moment the episode opens
@@ -12,7 +12,8 @@
 // - no_face / gaze_away / prohibited_object: emitted when the episode closes,
 //   carrying full duration (server derives severity from it); open episodes are
 //   force-chunked at MAX_EPISODE_MS so a student who walks away surfaces on the
-//   monitor within ~1 minute, not when they return.
+//   monitor within ~1 minute, not when they return. no_face and gaze_away both
+//   snapshot at episode-open, attached once the episode closes.
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useProctoringStore } from '@/store/proctoringStore';
 import { ConditionEpisode } from '@/lib/proctoring/episodes';
@@ -73,6 +74,7 @@ export function FaceDetector({ buffer, captureRef, streamRef }: FaceDetectorProp
     let noFaceOpenedAt: number | null = null;
     let noFaceSnapshot: string | null = null;
     let gazeOpenedAt: number | null = null;
+    let gazeSnapshot: string | null = null;
     let lastGazeMeta: Record<string, unknown> = {};
 
     async function captureSnapshot(): Promise<string | null> {
@@ -184,6 +186,9 @@ export function FaceDetector({ buffer, captureRef, streamRef }: FaceDetectorProp
           timestamp: new Date(transition.startedAt).toISOString(),
           description: 'Sustained gaze away from screen',
         });
+        // Evidence capture — mirrors no_face/voice: snapshot the frame at episode-open (the
+        // moment gaze-away is first confirmed), attached once the episode closes below.
+        void captureSnapshot().then(path => { gazeSnapshot = path; });
       } else if (transition?.kind === 'closed') {
         emitGaze(transition.startedAt, transition.endedAt);
       } else if (gazeAway.isOpen && gazeOpenedAt && now - gazeOpenedAt > MAX_EPISODE_MS) {
@@ -211,8 +216,10 @@ export function FaceDetector({ buffer, captureRef, streamRef }: FaceDetectorProp
         endedAt: new Date(endedAt).toISOString(),
         description: 'Sustained gaze away from screen',
         metadata: lastGazeMeta,
+        screenshotUrl: gazeSnapshot ?? undefined,
       });
       gazeOpenedAt = null;
+      gazeSnapshot = null;
     }
 
     async function handleObjects(now: number) {

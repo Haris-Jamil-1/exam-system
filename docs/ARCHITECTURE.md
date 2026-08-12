@@ -29,7 +29,7 @@ git history.
 | Code execution | Hosted Judge0 (pay-per-use, `JUDGE0_API_URL`/`JUDGE0_API_KEY`) | Coding answers graded manually when unset |
 | Proctoring ML | Self-hosted, fully client-side: MediaPipe Face Landmarker + COCO-SSD (TensorFlow.js) + WebAudio energy VAD | Model assets in `public/models/` (~23 MB), zero external calls |
 | Realtime | Supabase Realtime (Postgres changes + Broadcast channels) | Live monitor refresh, monitor directives, WebRTC signaling |
-| Live video | Peer-to-peer WebRTC, STUN-only (`src/lib/webrtc-signaling.ts`) | No SFU/TURN — see §9 Gotchas |
+| Live video | Peer-to-peer WebRTC, STUN-only by default (`src/lib/webrtc-signaling.ts`) | No SFU; TURN configurable via `NEXT_PUBLIC_TURN_*` env — see §9 Gotchas |
 | Psychometrics | **Vercel Python Function** `api/psychometrics/compute.py` (psycopg, pure-Python stats) | Auto-detected via root `requirements.txt` |
 | Testing | vitest (`tests/unit/`, 275 tests) · Playwright (`e2e/`, needs a separate test Supabase project) · pytest (`api/psychometrics/test_stats.py`) | |
 | Deployment | **Vercel** (`vercel.json`: build command, 2 cron routes) | Live: https://exam-system-sigma.vercel.app |
@@ -789,12 +789,18 @@ here before (`ProctoringEventBuffer.revive()` exists because of it).
   don't "fix" it casually by adding a cron.
 - **Exam status is derived at read time** (`computeEffectiveExamStatus`) — the DB `status`
   column is not auto-flipped by any job; new read paths must apply the derivation.
-- **Biometric verification is simulated** — real camera/ID capture UI, but no
-  OCR/face-match backend exists. `ExamAttempt.biometricVerified` reflects flow completion,
-  not identity proof.
-- **WebRTC is STUN-only** — no TURN server. Cross-NAT/firewalled networks will hit the
-  viewer's `failed` state ("likely a firewall/network blocking a direct connection");
-  that state is the tell that a TURN server (self-hosted coturn or pay-per-use) is needed.
+- **Biometric verification is face-only, human-reviewed** (ID-document capture/matching was
+  removed 2026-08-12) — the client-side detector (`src/lib/face-verification.ts`) only confirms
+  exactly one sufficiently large live face at capture time; there is no automated identity
+  match against anything. The captured photo is uploaded (`ExamAttempt.verificationPhotoUrl`)
+  and shown to the teacher on the live monitor for a human identity call, not verified
+  automatically. `ExamAttempt.biometricVerified` remains a dead, unused flag.
+- **WebRTC is STUN-only by default, TURN-configurable** — set `NEXT_PUBLIC_TURN_URL` /
+  `_USERNAME` / `_CREDENTIAL` (all three) to add a relay; unset means STUN-only, and
+  cross-NAT/firewalled networks will hit the viewer's `failed` state ("likely a
+  firewall/network blocking a direct connection") after one automatic reconnect attempt.
+  That state is the tell that a TURN server (self-hosted coturn or pay-per-use) is needed —
+  which provider is a hosting/cost decision, not made for you.
 - **Supabase URL config is a manual dashboard step**: Authentication → URL Configuration →
   Site URL = `https://exam-system-sigma.vercel.app` (+ Additional Redirect URLs) or invite
   and reset emails redirect to localhost.

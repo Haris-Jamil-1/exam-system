@@ -33,7 +33,11 @@ export default function LiveMonitorPage() {
   const [feed, setFeed]               = useState<Violation[]>([]);
   const [loading, setLoading]         = useState(true);
   const [filter, setFilter]           = useState<'all' | 'flagged' | 'warning'>('all');
-  const [viewing, setViewing]         = useState<MonitorStudent | null>(null);
+  // Derived from `students` at render time, not a frozen snapshot — see the matching comment
+  // in teacher/exams/[examId]/monitor/page.tsx for why (StudentActionsModal's Trust/Violations
+  // tiles otherwise freeze at whatever they were when the modal was opened).
+  const [viewingId, setViewingId]     = useState<string | null>(null);
+  const viewing = students.find(s => s.id === viewingId) ?? null;
 
   useEffect(() => {
     getExams().then(exams => {
@@ -193,7 +197,7 @@ export default function LiveMonitorPage() {
                     )}
 
                     <button
-                      onClick={() => setViewing(student)}
+                      onClick={() => setViewingId(student.id)}
                       disabled={!student.attemptId}
                       className="mt-3 w-full text-xs flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
@@ -208,7 +212,7 @@ export default function LiveMonitorPage() {
       )}
 
       {/* Student review & actions modal */}
-      <Dialog open={!!viewing} onOpenChange={open => { if (!open) setViewing(null); }}>
+      <Dialog open={!!viewing} onOpenChange={open => { if (!open) setViewingId(null); }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

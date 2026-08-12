@@ -22,10 +22,25 @@ export type SignalMessage =
   | { type: 'unavailable'; viewerId: string; reason: string }
   | { type: 'close'; viewerId: string };
 
-// Public STUN only (Google's, no account needed) — sufficient for peers on the same network or
-// behind simple NATs. No TURN relay: see LIVE_VIDEO_PROGRESS.md's explicit judgment call on why
-// that's deferred rather than added preemptively (cost + this session's testing couldn't produce
-// a real cross-NAT signal either way).
-export const ICE_SERVERS: RTCIceServer[] = [
-  { urls: 'stun:stun.l.google.com:19302' },
-];
+// Public STUN (Google's, no account needed) always included — sufficient for peers on the same
+// network or behind simple NATs. That alone is exactly why "Connection lost" happens on real
+// student networks (campus/home firewalls, symmetric NAT, restrictive corporate networks) even
+// though it works fine on a dev machine: STUN only helps two peers discover each other's public
+// address, it can't relay traffic when a direct path is blocked. A TURN relay is required for
+// that case, and unlike STUN it isn't free — a real TURN server (self-hosted or a paid provider)
+// is a hosting/cost decision, so it isn't hardcoded here. Set all three NEXT_PUBLIC_TURN_* env
+// vars (server URL(s), username, credential) to add one; `useWebRTCViewer`'s `failed` state is
+// the real-world tell that a deployment needs this. Comma-separate NEXT_PUBLIC_TURN_URL for
+// multiple TURN URLs (e.g. UDP + TCP/443 fallback) sharing the same credentials.
+export function buildIceServers(): RTCIceServer[] {
+  const servers: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
+  const turnUrls = process.env.NEXT_PUBLIC_TURN_URL?.split(',').map(u => u.trim()).filter(Boolean);
+  const username = process.env.NEXT_PUBLIC_TURN_USERNAME;
+  const credential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
+  if (turnUrls && turnUrls.length > 0 && username && credential) {
+    servers.push({ urls: turnUrls, username, credential });
+  }
+  return servers;
+}
+
+export const ICE_SERVERS: RTCIceServer[] = buildIceServers();

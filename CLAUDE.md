@@ -9,6 +9,81 @@
 
 ## Session Log
 
+### 2026-08-12 — Proctoring module: ID verification removed, exam-start photo now reaches the teacher, trust-score/violation staleness fixed, gaze_away evidence, TURN-configurable WebRTC ✅
+
+Five-item punch list on the proctoring module.
+
+- **ID document verification removed entirely** — the biometric gate is now a single face-only
+  capture step (`webcam → verified`, was `webcam → id → verified`). `src/lib/face-verification.ts`
+  dropped `analyzeIdPhoto`/`faceMatchDistance`/`isSamePerson`/`FACE_MATCH_THRESHOLD` and the
+  cross-matching descriptor entirely — `analyzeLiveFace` now only confirms exactly one
+  sufficiently large live face, no embedding needed. Two of the three self-hosted model weight
+  sets (`face_landmark_68`, `face_recognition`, ~6.4MB) were genuinely unused after this and
+  deleted from `public/models/face-api/`; only the SSD MobileNet detector remains. No schema
+  columns existed for ID data specifically, so there was nothing to migrate away — this was a
+  pure code/asset removal. Scrubbed stale "face/ID" wording from the `unverified_start` violation
+  description (`media-readiness.ts`) and its pinned test.
+- **Exam-start photo now reaches the teacher** (previously captured into React state and
+  discarded on unmount — no mechanism sent it anywhere). `BiometricOnboarding` now uploads the
+  verified face capture via the existing `/api/upload` (folder `verification`) the moment it's
+  confirmed good, and hands the resulting storage path up through `onComplete`. The exam page
+  carries it in a ref (same reason `unverifiedStartRef` exists — the gate runs before any attempt
+  row exists) and includes it in `POST /api/attempts`'s body; the route persists it to new
+  `ExamAttempt.verificationPhotoUrl` only after re-verifying the path's userId segment matches
+  the caller (defense in depth — `/api/upload` already scopes paths server-side, so this can't
+  actually be forged, but costs nothing to check). `/api/evidence` gained an `attemptId` branch to
+  resolve it to a signed URL; `StudentActionsModal`'s live-monitor panel gained a "Verification
+  photo" button (available regardless of attempt status, unlike the live/snapshot actions, since a
+  teacher may want to check identity after submission). **Deliberately not purged on exam
+  finalization** like violation evidence — identity review may be needed after grading — but the
+  existing 30-day cron (`/api/cron/purge-evidence`) now also sweeps stale verification photos,
+  keyed off `startedAt` since `ExamAttempt` has no per-row evidence timestamp.
+- **Violation/trust-score staleness on the live monitor, root-caused and fixed**: `StudentActionsModal`
+  itself was already stateless w.r.t. its `student` prop — the bug was in both monitor pages
+  (`teacher/exams/[examId]/monitor` and `teacher/monitor`), which stored a **frozen snapshot**
+  object (`viewing: MonitorStudent | null`, set once via `setViewing(s)` at click time) instead of
+  just an id. The underlying `students` array kept refreshing via poll/Realtime, but `viewing`
+  never re-synced to it, so the modal's Trust/Violations tiles froze at whatever they were the
+  moment it opened — provably stale against the violations timeline below, which *did* keep
+  updating (fed from separate live `feed` state). Fixed at the root by changing both pages to hold
+  only `viewingId: string | null` and deriving `viewing = students.find(s => s.id === viewingId)`
+  at render time — one source of truth, structurally can't drift. (Traced but ruled out as the
+  cause: the write path is synchronous/awaited in all 4 call sites, `invalidateData()` is
+  same-browser-only so it couldn't apply here anyway since violations POST from the student's
+  browser, not the teacher's.)
+- **`gaze_away` evidence capture added**, mirroring the existing `no_face`/audio pattern exactly:
+  `FaceDetector.tsx`'s `handleGaze` now calls the same `captureSnapshot()` used by
+  multiple_faces/no_face/phone at episode-open, and `emitGaze` attaches the resulting path as
+  `screenshotUrl` — same upload endpoint, same bucket, same `/api/evidence` retrieval path,
+  visible on the violations timeline exactly like every other evidence-bearing violation type.
+- **WebRTC "Connection lost" on real networks — made TURN-configurable, added one automatic
+  reconnect attempt; did not silently pick a TURN provider**. Root cause confirmed: the app is
+  STUN-only (`webrtc-signaling.ts`), which only helps two peers discover each other's public
+  address — it cannot relay traffic through a blocking firewall/symmetric NAT, exactly what real
+  student networks hit that a dev machine never does. Real TURN relay is a hosting/cost decision
+  (self-hosted coturn vs. a pay-per-use provider), so per this repo's established pattern
+  (2026-07-17 live-video entry) it wasn't guessed — **asked Haris directly**; he chose "make it
+  configurable for now." `ICE_SERVERS` is now built from `NEXT_PUBLIC_TURN_URL`/`_USERNAME`/
+  `_CREDENTIAL` (all three or none — STUN-only fallback if unset, documented in `.env.example`),
+  with the building logic exported as `buildIceServers()` and unit-tested (5 new tests). Separately
+  — a real improvement independent of TURN — `useWebRTCViewer` no longer declares a dropped
+  connection dead immediately: a native `disconnected` state gets a 6s grace window to self-heal
+  (ICE's own connectivity checks often recover from a brief blip with zero action needed), and
+  either `disconnected`-past-grace or an immediate `failed` triggers one automatic reconnect (close
+  the dead `RTCPeerConnection`, re-send `request` over the still-subscribed signaling channel —
+  confirmed `WebRTCBroadcaster` already handles a re-request from the same `viewerId` correctly,
+  tearing down and renegotiating). Only one automatic retry per drop (reset on a real recovery) so
+  a persistently flaky network doesn't spam the student's browser forever.
+- **Verification**: `tsc` clean · `lint` back to the exact pre-existing 3-error/0-warning baseline
+  (one warning introduced and fixed along the way — a function left over from the ID-step removal)
+  · `vitest` 403/403 (404 baseline − 6 removed ID-matching tests + 5 new TURN-config tests) ·
+  `build` clean, 88 routes (no new routes) · schema pushed live (`prisma db push` +
+  `prisma generate`) · dev server smoke-tested post-build. **Known gap, not done this session**:
+  no live browser/camera QA (real biometric capture, real teacher↔student monitor session, real
+  cross-NAT WebRTC reconnect) — this module is camera/network-dependent in a way `tsc`/`lint`/
+  `vitest` can't honestly claim to cover; a human pass with real devices on a real network remains
+  worthwhile, especially for the TURN reconnect logic and the new verification-photo delivery path.
+
 ### 2026-08-10 (cont'd) — Dedicated `/super` login page; role cleanup for the platform owner's account ✅
 
 - **`/super` is now a real dedicated login page**, not just an authenticated-only view of the
@@ -1093,7 +1168,8 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 - `npm run build` → **PASSES** (0 errors, 88 routes)
 - `npm run lint` → 3 pre-existing baseline errors (`useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff), 0 warnings
 - `npx tsc --noEmit` → clean
-- `npx vitest run` → 404/404 passing (+ `pytest` 10/10 in `psychometrics/`)
+- `npx vitest run` → 403/403 passing (+ `pytest` 10/10 in `psychometrics/`)
+- Last verified: 2026-08-12 (proctoring module — ID verification removed, exam-start photo delivered to teacher, trust-score/violation staleness fixed, gaze_away evidence capture, TURN-configurable WebRTC; no live camera/network QA this session — see Session Log)
 - Last verified: 2026-08-10 (dedicated `/super` login page + account role cleanup; pushed `e0f0ee4`, confirmed live)
 - Last verified: 2026-08-10 (real Quill WYSIWYG editor, app-wide RTL fix, rubric editor, img-src allowlist hardening; pushed `e7cbc08`, confirmed live)
 - Last verified: 2026-08-05 (parallel batch — upload UI, upcoming-exams fix, proctoring device gate, performance/staleness; see the Session Log for the accepted real-hardware gap on the gate)
