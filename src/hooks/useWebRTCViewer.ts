@@ -7,7 +7,7 @@
 // attempt first, and switching to a different attemptId or unmounting always calls stop().
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { webrtcTopic, WEBRTC_SIGNAL_EVENT, ICE_SERVERS, type SignalMessage } from '@/lib/webrtc-signaling';
+import { webrtcTopic, WEBRTC_SIGNAL_EVENT, fetchIceServers, type SignalMessage } from '@/lib/webrtc-signaling';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
 export type ViewerState = 'idle' | 'connecting' | 'connected' | 'failed' | 'unavailable';
@@ -134,7 +134,11 @@ export function useWebRTCViewer(attemptId: string | null) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      const iceServers = await fetchIceServers();
+      // A newer start()/reconnect may have superseded this one while that fetch was in
+      // flight — if so, bail without touching pcRef, which the newer attempt already owns.
+      if (viewerIdRef.current !== viewerId) return;
+      const pc = new RTCPeerConnection({ iceServers });
       pcRef.current = pc;
 
       pc.ontrack = (e) => {

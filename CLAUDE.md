@@ -9,6 +9,51 @@
 
 ## Session Log
 
+### 2026-08-12 (cont'd) — Real TURN relay: Cloudflare Realtime credentials for teacher live-video ✅
+
+Follow-up to the same day's proctoring session, which shipped TURN as configurable-but-unset
+(STUN-only). Haris supplied a real Cloudflare Realtime TURN Token ID + API Token; implemented
+properly rather than as a quick env-var drop-in, since Cloudflare's credential model doesn't fit
+the static-value approach the earlier session's `NEXT_PUBLIC_TURN_*` scaffolding assumed.
+
+- **Verified the exact API contract before writing any code** (`developers.cloudflare.com/realtime/turn/generate-credentials`) rather than guessing: `POST
+  https://rtc.live.cloudflare.com/v1/turn/keys/{TOKEN_ID}/credentials/generate-ice-servers`,
+  `Authorization: Bearer {API_TOKEN}`, body `{ttl}`, returns an `iceServers` array (STUN +
+  TURN entries, TURN carrying a freshly-minted short-lived `username`/`credential`). Confirmed
+  live against Haris's real credentials via a direct `curl` before wiring up any app code.
+- **Replaced, not extended, the earlier static-credential scaffolding** — Cloudflare mints a new
+  short-lived credential per request; there's no fixed value to put in a `NEXT_PUBLIC_TURN_*`
+  var, and doing so would also be a real secret-exposure risk (the API token can mint credentials
+  against the whole Cloudflare account, so it must never reach the browser). Removed
+  `buildIceServers()`/`NEXT_PUBLIC_TURN_URL`/`_USERNAME`/`_CREDENTIAL` entirely. New
+  `src/lib/webrtc-turn.ts` (server-only) calls Cloudflare using two **server-only** env vars
+  (`CLOUDFLARE_TURN_TOKEN_ID`/`CLOUDFLARE_TURN_API_TOKEN`, deliberately no `NEXT_PUBLIC_` prefix),
+  strips `:53` URLs (Cloudflare's own docs flag that port as commonly browser-blocked — confirmed
+  present in the real response), and returns `null` on any failure (missing config, non-OK
+  response, network error) rather than throwing. New authenticated `GET
+  /api/webrtc/turn-credentials` exposes this to the browser; `fetchIceServers()`
+  (`webrtc-signaling.ts`) calls it and falls back to `STUN_ONLY_ICE_SERVERS` on any failure — a
+  TURN outage degrades reliability, it never blocks the call outright.
+- **Credentials are minted fresh per connection attempt**, not cached/reused: both
+  `WebRTCBroadcaster.tsx` (student/offerer) and `useWebRTCViewer.ts` (teacher/answerer) now
+  `await fetchIceServers()` immediately before constructing each `RTCPeerConnection` — the one
+  in `useWebRTCViewer`'s `handleOffer` also covers the reconnect path added earlier the same
+  session, since `scheduleReconnect` re-triggers `handleOffer` rather than building its own
+  connection. Both call sites re-check `activeViewerId`/`viewerIdRef` immediately after the new
+  `await` point before touching `pc`/`pcRef` — a race that couldn't happen before (everything was
+  synchronous) but genuinely can now that connection setup awaits a network round trip; a newer
+  request superseding an older one while its credential fetch is still in flight now correctly
+  leaves the newer request's connection in place instead of two competing writers to the same ref.
+- **Verification**: `tsc` clean · `lint` at the pre-existing 3-error baseline · `vitest` 408/408
+  (9 new: `fetchIceServers`'s STUN-fallback branches, `generateTurnIceServers`'s request shape +
+  port-53 stripping + failure modes, all via mocked `fetch`) · `build` clean, 90 routes (new
+  `/api/webrtc/turn-credentials`) · the real Cloudflare credentials were exercised live via
+  `curl` (confirmed a real signed TURN username/credential comes back) and added to Vercel
+  Production env (`CLOUDFLARE_TURN_TOKEN_ID`/`CLOUDFLARE_TURN_API_TOKEN`, marked Sensitive) —
+  takes effect on the next deploy. **Known gap, not done this session**: no live two-browser
+  WebRTC session was run through the actual relay (would need a real cross-NAT network setup to
+  meaningfully exercise TURN at all, same limitation noted for the STUN-only path earlier).
+
 ### 2026-08-12 (cont'd) — Assign/duplicate exam to another section; edit-screen schedule fields; mid-exam end-time extension with real-time student sync + audit trail ✅
 
 Two features, same session as the proctoring work above (separate commit).
@@ -1232,10 +1277,11 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 ---
 
 ## Build Status
-- `npm run build` → **PASSES** (0 errors, 89 routes)
+- `npm run build` → **PASSES** (0 errors, 90 routes)
 - `npm run lint` → 3 pre-existing baseline errors (`useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff), 0 warnings
 - `npx tsc --noEmit` → clean
-- `npx vitest run` → 403/403 passing (+ `pytest` 10/10 in `psychometrics/`)
+- `npx vitest run` → 408/408 passing (+ `pytest` 10/10 in `psychometrics/`)
+- Last verified: 2026-08-12 (real Cloudflare TURN relay for teacher live-video — replaces the earlier STUN-only-by-default scaffolding with live, working credentials; see Session Log)
 - Last verified: 2026-08-12 (assign/duplicate exam to another section, edit-screen schedule fields, mid-exam end-time extension with real-time student sync + audit trail; no live browser QA this session — see Session Log)
 - Last verified: 2026-08-12 (proctoring module — ID verification removed, exam-start photo delivered to teacher, trust-score/violation staleness fixed, gaze_away evidence capture, TURN-configurable WebRTC; no live camera/network QA this session — see Session Log)
 - Last verified: 2026-08-10 (dedicated `/super` login page + account role cleanup; pushed `e0f0ee4`, confirmed live)
@@ -1411,4 +1457,6 @@ CRON_SECRET           # optional — protects /api/cron/* routes (Vercel sends i
 JUDGE0_API_URL        # hosted pay-per-use Judge0 (judge0.com Shared Cloud, e.g. https://judge0-ce.p.sulu.sh); unset = coding graded manually
 JUDGE0_API_KEY        # key for the hosted Judge0 API
 PSYCHOMETRICS_SECRET  # optional shared secret for the internal psychometrics function (X-Service-Key)
+CLOUDFLARE_TURN_TOKEN_ID   # Cloudflare Realtime TURN key id — server-only, never NEXT_PUBLIC_; unset = STUN-only live-video
+CLOUDFLARE_TURN_API_TOKEN  # Cloudflare Realtime TURN API token — server-only; set on Vercel (Sensitive), not just .env.local
 ```

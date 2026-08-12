@@ -11,7 +11,7 @@
 // (unmount closes whatever's open).
 import { useEffect, type RefObject } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { webrtcTopic, WEBRTC_SIGNAL_EVENT, ICE_SERVERS, type SignalMessage } from '@/lib/webrtc-signaling';
+import { webrtcTopic, WEBRTC_SIGNAL_EVENT, fetchIceServers, type SignalMessage } from '@/lib/webrtc-signaling';
 
 interface WebRTCBroadcasterProps {
   attemptId: string;
@@ -51,7 +51,12 @@ export function WebRTCBroadcaster({ attemptId, streamRef }: WebRTCBroadcasterPro
         return;
       }
 
-      const conn = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      const iceServers = await fetchIceServers();
+      // A newer request may have superseded this one while that fetch was in flight — if so,
+      // its own handleRequest call already owns `pc`/`activeViewerId`; bail without touching them.
+      if (cancelled || activeViewerId !== viewerId) return;
+
+      const conn = new RTCPeerConnection({ iceServers });
       pc = conn;
       for (const track of stream.getTracks()) {
         // addTrack (not stream.clone()) — this only registers the track as a sender on the new
