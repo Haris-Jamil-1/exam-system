@@ -1,10 +1,13 @@
 'use server';
 import { prisma } from '@/lib/prisma';
 import { getSessionUser } from '@/lib/session';
-import { canManageClass, deriveInviteStatus, type CallerContext } from '@/lib/class-permissions';
+import {
+  deriveInviteStatus, resolveClassPermission, canReadClass, canEditClassRoster, canManageClassAccess,
+  type CallerContext,
+} from '@/lib/class-permissions';
 import { isEmailActiveElsewhere } from './invite-guards';
 import { getResend } from '@/lib/resend-client';
-import type { ClassSummary, ClassEnrollmentSummary, ClassInviteSummary } from '@/types';
+import type { ClassSummary, ClassEnrollmentSummary, ClassInviteSummary, ClassLevel, ClassPermissionRole, ClassCollaborator } from '@/types';
 
 const CLASS_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // Hard cap on one bulk-invite request, same rationale as MAX_BATCH_SIZE for AI generation —
@@ -21,75 +24,172 @@ async function getCaller(): Promise<CallerContext | null> {
 
 type PrismaClassRow = {
   id: string; name: string; teacherId: string; institutionId: string;
+  classLevel: string; ownerId: string | null;
   createdAt: Date; archivedAt: Date | null; _count?: { enrollments: number };
 };
 
-function mapClass(c: PrismaClassRow): ClassSummary {
+function mapClass(c: PrismaClassRow, myRole?: ClassPermissionRole | null): ClassSummary {
   return {
     id: c.id,
     name: c.name,
     teacherId: c.teacherId,
     institutionId: c.institutionId,
+    classLevel: c.classLevel as ClassLevel,
+    ownerId: c.ownerId ?? c.teacherId,
     createdAt: c.createdAt.toISOString(),
     archivedAt: c.archivedAt?.toISOString(),
     studentCount: c._count?.enrollments ?? 0,
+    myRole: myRole ?? undefined,
   };
 }
 
+const CLASS_SELECT = { id: true, name: true, teacherId: true, institutionId: true, classLevel: true, ownerId: true } as const;
+
 async function getClassForPermission(classId: string) {
-  return prisma.class.findUnique({
-    where: { id: classId },
-    select: { id: true, name: true, teacherId: true, institutionId: true },
-  });
+  return prisma.class.findUnique({ where: { id: classId }, select: CLASS_SELECT });
+}
+
+/** Resolves the caller's role on one class, including any explicit ClassAccess grant. */
+async function getClassPermission(classId: string, caller: CallerContext): Promise<{
+  cls: NonNullable<Awaited<ReturnType<typeof getClassForPermission>>>;
+  role: ClassPermissionRole | null;
+} | null> {
+  const cls = await getClassForPermission(classId);
+  if (!cls) return null;
+  const access = cls.institutionId === caller.institutionId
+    ? await prisma.classAccess.findUnique({
+        where: { classId_userId: { classId, userId: caller.id } },
+        select: { permissionRole: true },
+      })
+    : null;
+  const role = resolveClassPermission(cls, caller, (access?.permissionRole as ClassPermissionRole | undefined) ?? null);
+  return { cls, role };
 }
 
 // ── Class CRUD ───────────────────────────────────────────────────────────────
 
-export async function createClass(name: string): Promise<ClassSummary | null> {
+export async function createClass(name: string, classLevel: ClassLevel = 'personal'): Promise<ClassSummary | null> {
   const caller = await getCaller();
-  if (!caller || caller.role !== 'teacher') return null;
+  if (!caller || (caller.role !== 'teacher' && caller.role !== 'admin')) return null;
+  if (classLevel === 'institutional' && caller.role !== 'admin') return null; // mirrors createItemBank's gate
   const trimmed = name.trim();
   if (!trimmed) return null;
 
+  const ownerId = classLevel === 'institutional' ? caller.institutionId : caller.id;
   const cls = await prisma.class.create({
-    data: { name: trimmed, teacherId: caller.id, institutionId: caller.institutionId },
+    data: { name: trimmed, teacherId: caller.id, institutionId: caller.institutionId, classLevel, ownerId },
     include: { _count: { select: { enrollments: true } } },
   });
-  return mapClass(cls);
+  return mapClass(cls, 'owner');
 }
 
+/** Every class the caller can at least read — union of owned personal classes, classes shared
+ * with them, and (for admins) every institutional class in their institution. Used by the exam
+ * wizard's class picker, which needs "every class this teacher could assign an exam to" and
+ * doesn't care about the 3-tab distinction the dashboard page shows. */
 export async function getMyClasses(): Promise<ClassSummary[]> {
   const caller = await getCaller();
   if (!caller) return [];
-  // Admins get institution-wide oversight of every class, same authority pattern as exams/items.
-  const where = caller.role === 'admin'
-    ? { institutionId: caller.institutionId }
-    : { teacherId: caller.id };
 
+  if (caller.role === 'admin') {
+    const rows = await prisma.class.findMany({
+      where: { institutionId: caller.institutionId },
+      include: { _count: { select: { enrollments: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(r => mapClass(r, 'owner'));
+  }
+
+  const [ownedRows, accessRows] = await Promise.all([
+    prisma.class.findMany({
+      where: { institutionId: caller.institutionId, classLevel: 'personal', ownerId: caller.id },
+      include: { _count: { select: { enrollments: true } } },
+    }),
+    prisma.classAccess.findMany({ where: { userId: caller.id }, select: { classId: true, permissionRole: true } }),
+  ]);
+  const roleByClass = new Map(accessRows.map(a => [a.classId, a.permissionRole as ClassPermissionRole]));
+  const grantedRows = accessRows.length
+    ? await prisma.class.findMany({
+        where: { id: { in: accessRows.map(a => a.classId) }, institutionId: caller.institutionId },
+        include: { _count: { select: { enrollments: true } } },
+      })
+    : [];
+
+  const seen = new Set(ownedRows.map(r => r.id));
+  const combined = [
+    ...ownedRows.map(r => mapClass(r, 'owner')),
+    ...grantedRows.filter(r => !seen.has(r.id)).map(r => mapClass(r, roleByClass.get(r.id) ?? null)),
+  ];
+  return combined.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** Institution-level classes visible to the caller: every institutional class in their own institution. */
+export async function getInstitutionClasses(): Promise<ClassSummary[]> {
+  const caller = await getCaller();
+  if (!caller) return [];
   const rows = await prisma.class.findMany({
-    where,
+    where: { institutionId: caller.institutionId, classLevel: 'institutional' },
+    include: { _count: { select: { enrollments: true } } },
+    orderBy: { createdAt: 'asc' },
+  });
+  const accessRows = await prisma.classAccess.findMany({
+    where: { userId: caller.id, classId: { in: rows.map(r => r.id) } },
+    select: { classId: true, permissionRole: true },
+  });
+  const roleByClass = new Map(accessRows.map(a => [a.classId, a.permissionRole as ClassPermissionRole]));
+  return rows
+    .map(r => {
+      const role = resolveClassPermission(r, caller, roleByClass.get(r.id) ?? null);
+      return canReadClass(role) ? mapClass(r, role) : null;
+    })
+    .filter((c): c is ClassSummary => c !== null);
+}
+
+/** Personal classes the caller owns. */
+export async function getMyPrivateClasses(): Promise<ClassSummary[]> {
+  const caller = await getCaller();
+  if (!caller) return [];
+  const rows = await prisma.class.findMany({
+    where: { institutionId: caller.institutionId, classLevel: 'personal', ownerId: caller.id },
     include: { _count: { select: { enrollments: true } } },
     orderBy: { createdAt: 'desc' },
   });
-  return rows.map(mapClass);
+  return rows.map(r => mapClass(r, 'owner'));
+}
+
+/** Personal classes owned by someone else, shared with the caller via ClassAccess. */
+export async function getSharedWithMeClasses(): Promise<ClassSummary[]> {
+  const caller = await getCaller();
+  if (!caller) return [];
+  const accessRows = await prisma.classAccess.findMany({ where: { userId: caller.id }, select: { classId: true, permissionRole: true } });
+  if (accessRows.length === 0) return [];
+  const roleByClass = new Map(accessRows.map(a => [a.classId, a.permissionRole as ClassPermissionRole]));
+  const rows = await prisma.class.findMany({
+    where: {
+      id: { in: accessRows.map(a => a.classId) },
+      institutionId: caller.institutionId, // cross-tenant guard even if an access row somehow existed
+      classLevel: 'personal',
+      ownerId: { not: caller.id }, // don't duplicate "my private classes"
+    },
+    include: { _count: { select: { enrollments: true } } },
+  });
+  return rows.map(r => mapClass(r, roleByClass.get(r.id) ?? null));
 }
 
 export async function getClassById(classId: string): Promise<ClassSummary | null> {
   const caller = await getCaller();
   if (!caller) return null;
-  const cls = await prisma.class.findUnique({
-    where: { id: classId },
-    include: { _count: { select: { enrollments: true } } },
-  });
-  if (!cls || !canManageClass(cls, caller)) return null;
-  return mapClass(cls);
+  const result = await getClassPermission(classId, caller);
+  if (!result || !canReadClass(result.role)) return null;
+  const cls = await prisma.class.findUnique({ where: { id: classId }, include: { _count: { select: { enrollments: true } } } });
+  return cls ? mapClass(cls, result.role) : null;
 }
 
 export async function updateClass(classId: string, name: string): Promise<ClassSummary | null> {
   const caller = await getCaller();
   if (!caller) return null;
-  const existing = await getClassForPermission(classId);
-  if (!existing || !canManageClass(existing, caller)) return null;
+  const result = await getClassPermission(classId, caller);
+  if (!result || !canManageClassAccess(result.role)) return null;
   const trimmed = name.trim();
   if (!trimmed) return null;
 
@@ -98,30 +198,30 @@ export async function updateClass(classId: string, name: string): Promise<ClassS
     data: { name: trimmed },
     include: { _count: { select: { enrollments: true } } },
   });
-  return mapClass(updated);
+  return mapClass(updated, result.role);
 }
 
 export async function archiveClass(classId: string, archived: boolean): Promise<ClassSummary | null> {
   const caller = await getCaller();
   if (!caller) return null;
-  const existing = await getClassForPermission(classId);
-  if (!existing || !canManageClass(existing, caller)) return null;
+  const result = await getClassPermission(classId, caller);
+  if (!result || !canManageClassAccess(result.role)) return null;
 
   const updated = await prisma.class.update({
     where: { id: classId },
     data: { archivedAt: archived ? new Date() : null },
     include: { _count: { select: { enrollments: true } } },
   });
-  return mapClass(updated);
+  return mapClass(updated, result.role);
 }
 
-// ── Enrollment ───────────────────────────────────────────────────────────────
+// ── Enrollment (editor+ — matches Item Bank's "assigned instructors can add/edit items" tier) ──
 
 export async function getEnrollments(classId: string): Promise<ClassEnrollmentSummary[]> {
   const caller = await getCaller();
   if (!caller) return [];
-  const cls = await getClassForPermission(classId);
-  if (!cls || !canManageClass(cls, caller)) return [];
+  const result = await getClassPermission(classId, caller);
+  if (!result || !canEditClassRoster(result.role)) return [];
 
   const rows = await prisma.classEnrollment.findMany({
     where: { classId },
@@ -142,20 +242,20 @@ export async function getEnrollments(classId: string): Promise<ClassEnrollmentSu
 export async function removeEnrollment(classId: string, studentId: string): Promise<boolean> {
   const caller = await getCaller();
   if (!caller) return false;
-  const cls = await getClassForPermission(classId);
-  if (!cls || !canManageClass(cls, caller)) return false;
+  const result = await getClassPermission(classId, caller);
+  if (!result || !canEditClassRoster(result.role)) return false;
 
   await prisma.classEnrollment.deleteMany({ where: { classId, studentId } });
   return true;
 }
 
-// ── Invites ──────────────────────────────────────────────────────────────────
+// ── Invites (editor+) ────────────────────────────────────────────────────────
 
 export async function getClassInvites(classId: string): Promise<ClassInviteSummary[]> {
   const caller = await getCaller();
   if (!caller) return [];
-  const cls = await getClassForPermission(classId);
-  if (!cls || !canManageClass(cls, caller)) return [];
+  const result = await getClassPermission(classId, caller);
+  if (!result || !canEditClassRoster(result.role)) return [];
 
   const rows = await prisma.classInvite.findMany({ where: { classId }, orderBy: { createdAt: 'desc' } });
   const now = new Date();
@@ -183,8 +283,10 @@ export type BulkInviteResult = { email: string; outcome: 'invited' | 'already_en
 export async function createClassInvites(classId: string, emails: string[]): Promise<BulkInviteResult[] | null> {
   const caller = await getCaller();
   if (!caller) return null;
+  const result = await getClassPermission(classId, caller);
+  if (!result || !canEditClassRoster(result.role)) return null;
   const cls = await prisma.class.findUnique({ where: { id: classId }, select: { id: true, name: true, teacherId: true, institutionId: true } });
-  if (!cls || !canManageClass(cls, caller)) return null;
+  if (!cls) return null;
 
   const uniqueEmails = [...new Set(emails.map(e => e.trim().toLowerCase()))].slice(0, MAX_BULK_INVITES);
   const results: BulkInviteResult[] = [];
@@ -268,4 +370,72 @@ export async function createClassInvites(classId: string, emails: string[]): Pro
   }
 
   return results;
+}
+
+// ── Collaborators (owner-only to manage — mirrors item-banks.ts's addCollaborator/removeCollaborator) ──
+
+export async function getClassCollaborators(classId: string): Promise<ClassCollaborator[]> {
+  const caller = await getCaller();
+  if (!caller) return [];
+  const result = await getClassPermission(classId, caller);
+  if (!result || !canReadClass(result.role)) return [];
+  const rows = await prisma.classAccess.findMany({
+    where: { classId },
+    include: { user: { select: { name: true, email: true } } },
+    orderBy: { createdAt: 'asc' },
+  });
+  return rows.map(r => ({
+    id: r.id,
+    classId: r.classId,
+    userId: r.userId,
+    userName: r.user.name,
+    userEmail: r.user.email,
+    permissionRole: r.permissionRole as ClassPermissionRole,
+    assignedById: r.assignedById,
+    createdAt: r.createdAt.toISOString(),
+  }));
+}
+
+export async function addClassCollaborator(
+  classId: string,
+  userId: string,
+  permissionRole: Exclude<ClassPermissionRole, 'owner'>,
+): Promise<ClassCollaborator> {
+  const caller = await getCaller();
+  if (!caller) throw new Error('Unauthorized');
+  const result = await getClassPermission(classId, caller);
+  if (!result) throw new Error('Not found');
+  if (!canManageClassAccess(result.role)) throw new Error('Forbidden');
+
+  // Same cross-tenant guard as Item Bank's addCollaborator — the target user must belong to the
+  // SAME institution as the class.
+  const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { institutionId: true, name: true, email: true } });
+  if (!targetUser || targetUser.institutionId !== result.cls.institutionId) {
+    throw new Error('Forbidden: user is not in this institution');
+  }
+  if (userId === (result.cls.ownerId ?? result.cls.teacherId)) {
+    throw new Error('That user already owns this class');
+  }
+
+  const row = await prisma.classAccess.upsert({
+    where: { classId_userId: { classId, userId } },
+    create: { classId, userId, permissionRole, assignedById: caller.id },
+    update: { permissionRole, assignedById: caller.id },
+  });
+  return {
+    id: row.id, classId: row.classId, userId: row.userId,
+    userName: targetUser.name, userEmail: targetUser.email,
+    permissionRole: row.permissionRole as ClassPermissionRole,
+    assignedById: row.assignedById, createdAt: row.createdAt.toISOString(),
+  };
+}
+
+export async function removeClassCollaborator(classId: string, userId: string): Promise<boolean> {
+  const caller = await getCaller();
+  if (!caller) throw new Error('Unauthorized');
+  const result = await getClassPermission(classId, caller);
+  if (!result) return false;
+  if (!canManageClassAccess(result.role)) throw new Error('Forbidden');
+  await prisma.classAccess.deleteMany({ where: { classId, userId } });
+  return true;
 }

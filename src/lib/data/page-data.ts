@@ -26,7 +26,7 @@
  */
 import {
   getAnalyticsKpis, getScoreDistribution, getTrustTrend, getQuestionDifficulty,
-  getAdminStats, getTeachersList, getPendingExams, getApprovedExams,
+  getAdminStats, getTeachersList, getPendingExams, getApprovedExams, getScoreByTag,
 } from './analytics';
 import { getAllUsers, getMyInstitution } from './users';
 import { getExams, getExamById } from './exams';
@@ -36,18 +36,20 @@ import { getQuestions } from './questions';
 import { getSections } from './sections';
 import { getStudentResults, getMonitorStudents } from './students';
 import { getMonitorFeed } from './violations';
-import { getClassById, getEnrollments, getClassInvites } from './classes';
+import { getClassById, getEnrollments, getClassInvites, getInstitutionClasses, getMyPrivateClasses, getSharedWithMeClasses } from './classes';
+import { getInstitutionCourses, getMyPrivateCourses, getSharedWithMeCourses, getCourseById, getTopics, getCloPerformanceReport } from './curriculum';
 
 // ── Teacher ───────────────────────────────────────────────────────────────────
 
 export async function getTeacherAnalyticsData() {
-  const [kpis, scoreDistribution, trustTrend, questionDifficulty] = await Promise.all([
+  const [kpis, scoreDistribution, trustTrend, questionDifficulty, scoreByTag] = await Promise.all([
     getAnalyticsKpis(),
     getScoreDistribution(),
     getTrustTrend(),
     getQuestionDifficulty(),
+    getScoreByTag(),
   ]);
-  return { kpis, scoreDistribution, trustTrend, questionDifficulty };
+  return { kpis, scoreDistribution, trustTrend, questionDifficulty, scoreByTag };
 }
 
 export async function getExamEditPageData(examId: string) {
@@ -85,6 +87,35 @@ export async function getClassPageData(classId: string) {
     getClassInvites(classId),
   ]);
   return { cls: cls ?? null, enrollments, invites };
+}
+
+/** The three-tab Classes dashboard — mirrors getItemBanksPageData. */
+export async function getClassesPageData() {
+  const [institutionClasses, privateClasses, sharedClasses] = await Promise.all([
+    getInstitutionClasses(),
+    getMyPrivateClasses(),
+    getSharedWithMeClasses(),
+  ]);
+  return { institutionClasses, privateClasses, sharedClasses };
+}
+
+/** The three-tab Curriculum dashboard — mirrors getItemBanksPageData. */
+export async function getCurriculumPageData() {
+  const [institutionCourses, privateCourses, sharedCourses] = await Promise.all([
+    getInstitutionCourses(),
+    getMyPrivateCourses(),
+    getSharedWithMeCourses(),
+  ]);
+  return { institutionCourses, privateCourses, sharedCourses };
+}
+
+/** Course detail (teacher Curriculum drill-down) — course + its topics + per-CLO performance
+ * rollup in one round trip. */
+export async function getCoursePageData(courseId: string) {
+  const [course, topics, cloPerformance] = await Promise.all([
+    getCourseById(courseId), getTopics(courseId), getCloPerformanceReport(courseId),
+  ]);
+  return { course: course ?? null, topics, cloPerformance };
 }
 
 /** The three-tab bank dashboard — was three sequential `.then()` chains. */

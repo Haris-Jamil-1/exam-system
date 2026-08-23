@@ -1,21 +1,45 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { getCollaborators, addCollaborator, removeCollaborator, getAllUsers } from '@/lib/data';
-import type { ItemBankCollaborator, ItemBankPermissionRole, CurrentUser } from '@/types';
+import { getAllUsers } from '@/lib/data';
+import type { CurrentUser } from '@/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { X, Search, UserPlus } from 'lucide-react';
 
-interface ManageAccessDialogProps {
-  bankId: string;
-  bankOwnerId: string;
-  open: boolean;
-  onClose: () => void;
+type Role = 'owner' | 'editor' | 'viewer';
+
+/** Structural shape shared by ItemBankCollaborator/ClassCollaborator/CourseCollaborator — the
+ * dialog only ever reads these fields, so any of the three (which each add their own
+ * bankId/classId/courseId field on top) satisfies this. */
+export interface AccessCollaborator {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  permissionRole: Role;
+  assignedById: string;
+  createdAt: string;
 }
 
-export function ManageAccessDialog({ bankId, bankOwnerId, open, onClose }: ManageAccessDialogProps) {
-  const [collaborators, setCollaborators] = useState<ItemBankCollaborator[]>([]);
+interface ManageAccessDialogProps {
+  /** The bank/class/course id — passed through to the injected fetch/add/remove callbacks. */
+  resourceId: string;
+  resourceOwnerId: string;
+  open: boolean;
+  onClose: () => void;
+  fetchCollaborators: (resourceId: string) => Promise<AccessCollaborator[]>;
+  onAdd: (resourceId: string, userId: string, role: Exclude<Role, 'owner'>) => Promise<AccessCollaborator>;
+  onRemove: (resourceId: string, userId: string) => Promise<boolean>;
+}
+
+/** Generic "Manage Access" dialog — one implementation shared by Item Banks, Classes, and
+ * Curriculum (Courses), which all use the exact same owner/editor/viewer sharing model
+ * (see item-bank-permissions.ts's doc comment for the shape this mirrors). Domain-specific data
+ * access is injected via props rather than hardcoded, so this component has no idea which
+ * resource type it's managing access for. */
+export function ManageAccessDialog({ resourceId, resourceOwnerId, open, onClose, fetchCollaborators, onAdd, onRemove }: ManageAccessDialogProps) {
+  const [collaborators, setCollaborators] = useState<AccessCollaborator[]>([]);
   const [allUsers, setAllUsers] = useState<CurrentUser[]>([]);
   const [search, setSearch] = useState('');
   const [inviteRole, setInviteRole] = useState<'editor' | 'viewer'>('editor');
@@ -23,15 +47,18 @@ export function ManageAccessDialog({ bankId, bankOwnerId, open, onClose }: Manag
 
   useEffect(() => {
     if (!open) return;
-    getCollaborators(bankId).then(setCollaborators);
+    fetchCollaborators(resourceId).then(setCollaborators);
     getAllUsers().then(setAllUsers);
-  }, [open, bankId]);
+    // fetchCollaborators/onAdd/onRemove are stable module-level server-action references at
+    // every call site — omitted from deps to avoid re-running on every parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, resourceId]);
 
   const collaboratorIds = new Set(collaborators.map(c => c.userId));
   const q = search.trim().toLowerCase();
   const candidates = allUsers.filter(u =>
     u.role === 'teacher' &&
-    u.id !== bankOwnerId &&
+    u.id !== resourceOwnerId &&
     !collaboratorIds.has(u.id) &&
     (q === '' || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
   );
@@ -39,7 +66,7 @@ export function ManageAccessDialog({ bankId, bankOwnerId, open, onClose }: Manag
   async function handleAdd(userId: string) {
     setBusyUserId(userId);
     try {
-      const collab = await addCollaborator(bankId, userId, inviteRole);
+      const collab = await onAdd(resourceId, userId, inviteRole);
       setCollaborators(prev => [...prev, collab]);
     } finally {
       setBusyUserId(null);
@@ -49,18 +76,18 @@ export function ManageAccessDialog({ bankId, bankOwnerId, open, onClose }: Manag
   async function handleRemove(userId: string) {
     setBusyUserId(userId);
     try {
-      await removeCollaborator(bankId, userId);
+      await onRemove(resourceId, userId);
       setCollaborators(prev => prev.filter(c => c.userId !== userId));
     } finally {
       setBusyUserId(null);
     }
   }
 
-  async function handleRoleChange(userId: string, role: ItemBankPermissionRole) {
+  async function handleRoleChange(userId: string, role: Role) {
     if (role === 'owner') return;
     setBusyUserId(userId);
     try {
-      const collab = await addCollaborator(bankId, userId, role);
+      const collab = await onAdd(resourceId, userId, role);
       setCollaborators(prev => prev.map(c => (c.userId === userId ? collab : c)));
     } finally {
       setBusyUserId(null);
@@ -87,7 +114,7 @@ export function ManageAccessDialog({ bankId, bankOwnerId, open, onClose }: Manag
                     <div className="flex items-center gap-1.5 shrink-0">
                       <Select
                         value={c.permissionRole}
-                        onValueChange={v => handleRoleChange(c.userId, v as ItemBankPermissionRole)}
+                        onValueChange={v => handleRoleChange(c.userId, v as Role)}
                         disabled={busyUserId === c.userId}
                       >
                         <SelectTrigger className="h-7 w-24 text-xs"><SelectValue /></SelectTrigger>

@@ -19,7 +19,7 @@ import { RichText } from '@/components/rich/RichText';
 import { computeExamDurationMinutes, MIN_EXAM_DURATION_MINUTES } from '@/lib/exam-duration';
 import { DateTimeField } from '@/components/shared/DateTimeField';
 import type { QuestionType, Item, ClassSummary } from '@/types';
-import { Plus, Check, ChevronRight, ChevronLeft, Search, ChevronDown, ChevronUp, Clock } from 'lucide-react';
+import { Plus, Check, ChevronRight, ChevronLeft, Search, ChevronDown, ChevronUp, Clock, X } from 'lucide-react';
 
 const step1Schema = z.object({
   title: z.string().min(3, 'Title required'),
@@ -57,7 +57,7 @@ const ALL_QUESTION_TYPES: { value: QuestionType; label: string }[] = [
 const TYPE_LABELS: Record<QuestionType, string> = {
   mcq: 'MCQ', mrq: 'MRQ', true_false: 'T/F', short_answer: 'Short',
   essay: 'Essay', fill_blank: 'Fill', matching: 'Match', ordering: 'Order',
-  coding: 'Code', file_upload: 'File',
+  coding: 'Code', file_upload: 'File', audio_response: 'Audio', video_response: 'Video', composite_case: 'Case Study',
 };
 
 const DIFF_VARIANT: Record<string, string> = { easy: 'success', medium: 'warning', hard: 'danger' };
@@ -213,6 +213,11 @@ export default function NewExamPage() {
   // PHASE4_FIXES_ROUND2_PROGRESS.md for the full "should this become required" judgment call.
   const [classes, setClasses] = useState<ClassSummary[]>([]);
   const [classId, setClassId] = useState<string>('');
+  // Feature 2: tag targeting alongside the class above — empty targetTags keeps the exact
+  // pre-existing behavior (classId/teacherId alone decide visibility). See exam-eligibility.ts.
+  const [targetTags, setTargetTags] = useState<string[]>([]);
+  const [targetTagsOperator, setTargetTagsOperator] = useState<'AND' | 'OR'>('OR');
+  const [tagDraft, setTagDraft] = useState('');
 
   useEffect(() => {
     getMyClasses().then(cs => setClasses(cs.filter(c => !c.archivedAt)));
@@ -301,6 +306,8 @@ export default function NewExamPage() {
         institutionId: '',
         teacherId: '',
         classId: classId || undefined,
+        targetTags,
+        targetTagsOperator,
         maxViolations,
         status: 'draft',
         isProctoringEnabled,
@@ -338,6 +345,7 @@ export default function NewExamPage() {
           rubric: item.rubric,
           gradingWeights: item.gradingWeights,
           timeLimitSeconds: item.timeLimitSeconds,
+          mediaSettings: item.mediaSettings,
         });
         await incrementItemUsage(item.id);
       }
@@ -410,6 +418,44 @@ export default function NewExamPage() {
                 </p>
               </div>
               <div className="space-y-2">
+                <Label>Target Tags <span className="text-muted-foreground font-normal">(optional — narrow or widen by student profile tag)</span></Label>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {targetTags.map(tag => (
+                    <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                      {tag}
+                      <button type="button" onClick={() => setTargetTags(prev => prev.filter(t => t !== tag))} className="text-blue-400 hover:text-blue-700">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                  <Input
+                    value={tagDraft}
+                    onChange={e => setTagDraft(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key !== 'Enter') return;
+                      e.preventDefault();
+                      const trimmed = tagDraft.trim();
+                      if (trimmed && !targetTags.includes(trimmed)) setTargetTags(prev => [...prev, trimmed]);
+                      setTagDraft('');
+                    }}
+                    placeholder="Type a tag and press Enter…"
+                    className="h-7 w-48 text-xs"
+                  />
+                </div>
+                {targetTags.length > 0 && (
+                  <div className="flex items-center gap-3 text-xs">
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input type="radio" checked={targetTagsOperator === 'OR'} onChange={() => setTargetTagsOperator('OR')} />
+                      Any (OR) — class OR tag qualifies
+                    </label>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input type="radio" checked={targetTagsOperator === 'AND'} onChange={() => setTargetTagsOperator('AND')} />
+                      Must match (AND) — class AND tag required
+                    </label>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2">
                 <Label>Subject</Label>
                 <Input placeholder="Computer Science" {...register('subject')} />
                 {errors.subject && <p className="text-sm text-red-500">{errors.subject.message}</p>}
@@ -458,6 +504,7 @@ export default function NewExamPage() {
                 <Textarea
                   placeholder="e.g. Calculators are prohibited. Ensure your camera is active. Read each question fully before answering."
                   rows={4}
+                  dir="auto"
                   {...register('instructions')}
                 />
               </div>

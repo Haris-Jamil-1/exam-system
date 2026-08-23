@@ -44,7 +44,7 @@ beforeEach(() => {
   // unscoped (classId: null) exams every test in this file uses — same pre-existing behavior.
   mockPrisma.user.findUnique.mockResolvedValue({
     studentTeachers: [{ teacherId: 'teacher-1' }],
-    classEnrollments: [],
+    classEnrollments: [], tags: [],
   });
 });
 
@@ -88,7 +88,7 @@ describe('POST /api/attempts — section-weight-sums-to-100% blocks exam start',
   it('blocks starting a brand-new attempt when section weights sum to 80, not 100', async () => {
     mockPrisma.exam.findUnique.mockResolvedValue({
       startTime: new Date(Date.now() - 60_000), endTime: new Date(Date.now() + 3600_000),
-      status: 'live', institutionId: 'inst-a', settings: {}, classId: null, teacherId: 'teacher-1', approvalStatus: 'approved',
+      status: 'live', institutionId: 'inst-a', settings: {}, classId: null, teacherId: 'teacher-1', approvalStatus: 'approved', targetTags: [], targetTagsOperator: 'OR',
       sections: [{ sectionWeight: 40 }, { sectionWeight: 40 }],
     });
     mockPrisma.examAttempt.findUnique.mockResolvedValue(null);
@@ -103,7 +103,7 @@ describe('POST /api/attempts — section-weight-sums-to-100% blocks exam start',
   it('allows starting when weights sum to exactly 100', async () => {
     mockPrisma.exam.findUnique.mockResolvedValue({
       startTime: new Date(Date.now() - 60_000), endTime: new Date(Date.now() + 3600_000),
-      status: 'live', institutionId: 'inst-a', settings: {}, classId: null, teacherId: 'teacher-1', approvalStatus: 'approved',
+      status: 'live', institutionId: 'inst-a', settings: {}, classId: null, teacherId: 'teacher-1', approvalStatus: 'approved', targetTags: [], targetTagsOperator: 'OR',
       sections: [{ sectionWeight: 60 }, { sectionWeight: 40 }],
     });
     mockPrisma.examAttempt.findUnique.mockResolvedValue(null);
@@ -119,7 +119,7 @@ describe('POST /api/attempts — section-weight-sums-to-100% blocks exam start',
   it('does not check weights at all for a non-sectioned exam', async () => {
     mockPrisma.exam.findUnique.mockResolvedValue({
       startTime: new Date(Date.now() - 60_000), endTime: new Date(Date.now() + 3600_000),
-      status: 'live', institutionId: 'inst-a', settings: {}, classId: null, teacherId: 'teacher-1', approvalStatus: 'approved', sections: [],
+      status: 'live', institutionId: 'inst-a', settings: {}, classId: null, teacherId: 'teacher-1', approvalStatus: 'approved', targetTags: [], targetTagsOperator: 'OR', sections: [],
     });
     mockPrisma.examAttempt.findUnique.mockResolvedValue(null);
     mockPrisma.examAttempt.create.mockResolvedValue({
@@ -134,7 +134,7 @@ describe('POST /api/attempts — section-weight-sums-to-100% blocks exam start',
   it('still allows RESUMING an existing attempt even if weights are (now) misconfigured', async () => {
     mockPrisma.exam.findUnique.mockResolvedValue({
       startTime: new Date(Date.now() - 60_000), endTime: new Date(Date.now() + 3600_000),
-      status: 'live', institutionId: 'inst-a', settings: {}, classId: null, teacherId: 'teacher-1', approvalStatus: 'approved',
+      status: 'live', institutionId: 'inst-a', settings: {}, classId: null, teacherId: 'teacher-1', approvalStatus: 'approved', targetTags: [], targetTagsOperator: 'OR',
       sections: [{ sectionWeight: 40 }, { sectionWeight: 40 }],
     });
     mockPrisma.examAttempt.findUnique.mockResolvedValue({

@@ -19,6 +19,11 @@ export interface RubricRow {
   /** Per performance-level description text, keyed by RubricLevelColumn.id. */
   descriptions: Record<string, string>;
   subRows: RubricRow[];
+  /** Zero-Anchor / Veto criterion (e.g. Academic Integrity): if the AI scores this leaf
+   *  dimension at zero, the grading pipeline nullifies the item's whole suggested score
+   *  regardless of every other dimension. Only meaningful on a leaf row (no sub-dimensions) —
+   *  a parent row is never itself graded, see compileRubric's own doc comment. */
+  isVeto?: boolean;
 }
 
 const WEIGHT_EPSILON = 0.01;
@@ -88,7 +93,7 @@ export function compileRubric(rows: RubricRow[], levels: RubricLevelColumn[], it
       .map(level => row.descriptions[level.id]?.trim())
       .filter(Boolean)
       .join(' | ');
-    criteria.push({ name, maxPoints, ...(description ? { description } : {}) });
+    criteria.push({ name, maxPoints, ...(description ? { description } : {}), ...(row.isVeto ? { isVeto: true } : {}) });
   }
 
   for (const row of rows) visit(row, null);

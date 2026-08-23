@@ -4,7 +4,7 @@
 // CLO metadata (Bloom's + Domain) is inherited by all linked questions automatically
 import { useState, useEffect } from 'react';
 import {
-  getCourses, getTopics, getCLOs,
+  getInstitutionCourses, getTopics, getCLOs,
   createCourse, createTopic, createCLO,
 } from '@/lib/data';
 import type { Course, Topic, LearningObjective, BloomsLevel, LearningDomain } from '@/types';
@@ -50,7 +50,7 @@ export default function CurriculumPage() {
   const [saving, setSaving]                 = useState(false);
 
   useEffect(() => {
-    getCourses().then(setCourses);
+    getInstitutionCourses().then(setCourses);
   }, []);
 
   useEffect(() => {
@@ -76,7 +76,7 @@ export default function CurriculumPage() {
   async function handleAddCourse() {
     if (!newCourseCode.trim() || !newCourseTitle.trim()) return;
     setSaving(true);
-    const c = await createCourse({ code: newCourseCode.trim().toUpperCase(), title: newCourseTitle.trim(), institutionId: '' });
+    const c = await createCourse({ code: newCourseCode.trim().toUpperCase(), title: newCourseTitle.trim(), courseLevel: 'institutional' });
     setCourses(prev => [...prev, c]);
     setNewCourseCode(''); setNewCourseTitle('');
     setShowAddCourse(false);

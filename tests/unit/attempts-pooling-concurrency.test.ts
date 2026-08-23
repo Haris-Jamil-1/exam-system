@@ -39,6 +39,7 @@ vi.mock('@/lib/prisma', () => ({
       findUnique: vi.fn().mockResolvedValue({
         studentTeachers: [{ teacherId: 'teacher-1' }],
         classEnrollments: [],
+        tags: [],
       }),
     },
     examAttempt: {
@@ -123,6 +124,8 @@ beforeEach(() => {
     teacherId: 'teacher-1',
     approvalStatus: 'approved',
     sections: [],
+    targetTags: [],
+    targetTagsOperator: 'OR',
     settings: {
       dynamicPoolingBankIds: ['bank-1'],
       dynamicPoolingBlueprint: { 'clo-1': 5 },

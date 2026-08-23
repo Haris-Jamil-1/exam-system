@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const {
-  mockUser, mockPrismaUser, mockClass, mockClassEnrollment, mockClassInvite, mockSend,
+  mockUser, mockPrismaUser, mockClass, mockClassAccess, mockClassEnrollment, mockClassInvite, mockSend,
 } = vi.hoisted(() => ({
   mockUser: vi.fn(),
   mockPrismaUser: { findUnique: vi.fn(), findFirst: vi.fn() },
   mockClass: { findUnique: vi.fn() },
+  mockClassAccess: { findUnique: vi.fn() },
   mockClassEnrollment: { findUnique: vi.fn() },
   mockClassInvite: { findFirst: vi.fn(), create: vi.fn(), delete: vi.fn() },
   mockSend: vi.fn(),
@@ -15,6 +16,7 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: mockPrismaUser,
     class: mockClass,
+    classAccess: mockClassAccess,
     classEnrollment: mockClassEnrollment,
     classInvite: mockClassInvite,
   },
@@ -49,7 +51,11 @@ const CLASS_ID = 'class-1';
 beforeEach(() => {
   vi.clearAllMocks();
   mockUser.mockReturnValue({ id: 'supabase-teacher' });
-  mockClass.findUnique.mockResolvedValue({ id: CLASS_ID, name: 'Algebra', teacherId: 'teacher-1', institutionId: INSTITUTION_A });
+  mockClass.findUnique.mockResolvedValue({
+    id: CLASS_ID, name: 'Algebra', teacherId: 'teacher-1', institutionId: INSTITUTION_A,
+    classLevel: 'personal', ownerId: 'teacher-1',
+  });
+  mockClassAccess.findUnique.mockResolvedValue(null);
   mockClassEnrollment.findUnique.mockResolvedValue(null);
   mockClassInvite.findFirst.mockResolvedValue(null);
   mockClassInvite.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'invite-1', token: 'tok-1', ...data }));

@@ -10,23 +10,54 @@ export interface CallerContext {
   isSuperAdmin?: boolean;
 }
 
-export type PrismaClassForPermission = {
+// ── Institution/Private/Shared tenancy (mirrors item-bank-permissions.ts's
+// resolveBankPermission exactly — see that file for the full rationale) ──────────────────────
+
+export type ClassPermissionRole = 'owner' | 'editor' | 'viewer';
+
+export type PrismaClassForTenancy = {
+  id: string;
+  classLevel: string;
+  ownerId: string | null;
   teacherId: string;
   institutionId: string;
 };
 
-// A teacher manages only their own classes; an institution admin manages every class in their
-// own institution (matches the admin-authority pattern already established for exams/questions/
-// item banks elsewhere in this app). Cross-tenant is always denied first.
-export function canManageClass(cls: PrismaClassForPermission, caller: CallerContext): boolean {
-  if (cls.institutionId !== caller.institutionId) return false;
-  if (caller.role === 'admin') return true;
-  return caller.id === cls.teacherId;
+// Single source of truth for "what can this caller do with this class" under the sharing model.
+// Cross-tenant is a hard, unconditional deny before any ownership/role logic runs. Institution
+// admins get full (owner) oversight over every class in their own institution, institutional or
+// personal — same admin-authority precedent as resolveBankPermission (SEC-01..04, Item Banks).
+export function resolveClassPermission(
+  cls: PrismaClassForTenancy,
+  caller: CallerContext,
+  accessRole: ClassPermissionRole | null,
+): ClassPermissionRole | null {
+  if (cls.institutionId !== caller.institutionId) return null;
+  if (caller.role === 'admin') return 'owner';
+
+  if (cls.classLevel === 'institutional') {
+    return accessRole; // teachers only get whatever role was explicitly granted — no implicit access
+  }
+
+  // Personal class: the owner (falls back to teacherId for rows predating this column — every
+  // pre-existing class was backfilled at migration time, but the fallback costs nothing and
+  // guards against any row the backfill somehow missed) is always owner.
+  if ((cls.ownerId ?? cls.teacherId) === caller.id) return 'owner';
+  return accessRole;
 }
 
-// Removing a student from a class roster follows the same ownership rule as managing the
-// class itself — there is no separate "remove-only" role.
-export const canRemoveEnrollment = canManageClass;
+export function canReadClass(role: ClassPermissionRole | null): boolean {
+  return role !== null;
+}
+// Roster/invite management (add/remove students, send invites) — editor and owner both.
+export function canEditClassRoster(role: ClassPermissionRole | null): boolean {
+  return role === 'owner' || role === 'editor';
+}
+// Rename/archive/share the class itself — owner only (mirrors ItemBank: editors "cannot delete
+// the bank or alter its core settings").
+export function canManageClassAccess(role: ClassPermissionRole | null): boolean {
+  return role === 'owner';
+}
 
 export type UserForDeactivation = {
   id: string;

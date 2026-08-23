@@ -19,6 +19,7 @@ type PrismaQuestion = {
   explanation: string | null; correctAnswer: unknown; learningObjectiveId: string | null;
   codeLanguage: string | null; starterCode: string | null; testCases: unknown;
   allowedFileTypes: string[]; maxFileSizeMB: number | null; timeLimitSeconds: number | null;
+  mediaSettings: unknown;
   rubric: unknown; gradingWeights: unknown; sourceItemId: string | null;
   options: PrismaOption[];
 };
@@ -43,6 +44,7 @@ function mapQuestion(q: PrismaQuestion): Question {
     testCases: q.testCases as TestCase[] | undefined,
     allowedFileTypes: q.allowedFileTypes.length ? q.allowedFileTypes : undefined,
     maxFileSizeMB: q.maxFileSizeMB ?? undefined,
+    mediaSettings: (q.mediaSettings as Question['mediaSettings']) ?? undefined,
     timeLimitSeconds: q.timeLimitSeconds ?? undefined,
     rubric: (q.rubric as Question['rubric']) ?? undefined,
     gradingWeights: (q.gradingWeights as Question['gradingWeights']) ?? undefined,
@@ -204,6 +206,7 @@ export async function createQuestion(data: Omit<Question, 'id'>): Promise<Questi
         ...(rest.testCases !== undefined && { testCases: rest.testCases as object }),
         allowedFileTypes: rest.allowedFileTypes ?? [],
         maxFileSizeMB: rest.maxFileSizeMB ?? null,
+        ...(rest.mediaSettings !== undefined && { mediaSettings: rest.mediaSettings as object }),
         timeLimitSeconds: rest.timeLimitSeconds ?? null,
         ...(rest.rubric !== undefined && { rubric: rest.rubric as object }),
         ...(rest.gradingWeights !== undefined && { gradingWeights: rest.gradingWeights as object }),
@@ -248,6 +251,7 @@ export async function updateQuestion(id: string, data: Partial<Question>): Promi
       ...(data.testCases !== undefined && { testCases: data.testCases as object }),
       ...(data.allowedFileTypes && { allowedFileTypes: data.allowedFileTypes }),
       ...(data.maxFileSizeMB !== undefined && { maxFileSizeMB: data.maxFileSizeMB ?? null }),
+      ...(data.mediaSettings !== undefined && { mediaSettings: data.mediaSettings as object }),
       ...(data.timeLimitSeconds !== undefined && { timeLimitSeconds: data.timeLimitSeconds ?? null }),
       ...(data.rubric !== undefined && { rubric: data.rubric as object }),
       ...(data.gradingWeights !== undefined && { gradingWeights: data.gradingWeights as object }),

@@ -19,7 +19,6 @@ export interface CurriculumSelection {
 interface Props {
   value: CurriculumSelection | null;
   onChange: (v: CurriculumSelection) => void;
-  institutionId?: string;
 }
 
 const BLOOMS_COLOR: Record<BloomsLevel, string> = {
@@ -37,7 +36,7 @@ const DOMAIN_COLOR: Record<LearningDomain, string> = {
   Values:    'bg-rose-100 text-rose-700',
 };
 
-export function CurriculumPicker({ value, onChange, institutionId }: Props) {
+export function CurriculumPicker({ value, onChange }: Props) {
   const [courses, setCourses] = useState<Course[]>([]);
   const [topics, setTopics]   = useState<Topic[]>([]);
   const [clos, setClos]       = useState<LearningObjective[]>([]);
@@ -50,8 +49,8 @@ export function CurriculumPicker({ value, onChange, institutionId }: Props) {
   const selectedCLO = clos.find(c => c.id === cloId) ?? null;
 
   useEffect(() => {
-    getCourses(institutionId).then(setCourses);
-  }, [institutionId]);
+    getCourses().then(setCourses);
+  }, []);
 
   useEffect(() => {
     async function update() {

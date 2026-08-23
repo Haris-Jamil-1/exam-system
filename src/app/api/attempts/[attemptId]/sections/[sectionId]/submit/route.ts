@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } from '@/lib/api-auth';
 import { runGradingForAttempt } from '@/lib/ai/grading';
-import { scoreAnswers, computeSectionScores, type PerQuestion } from '@/lib/scoring';
+import { scoreAnswers, computeSectionScores, MANUALLY_GRADED_TYPES, type PerQuestion } from '@/lib/scoring';
 import { computeTrustScore, type TrustScoreInput } from '@/lib/trust-score';
 import { purgeAttemptEvidence } from '@/lib/proctoring/evidence-purge';
 import type { Question, ExamSection, ExamSettings } from '@/types';
@@ -93,7 +93,7 @@ export const POST = withErrorHandling(async (
   // Essay/coding/file_upload answers enter the grading state machine (doc 03) —
   // same two-stage flow as the non-sectioned submit route.
   const needsGrading = new Set(
-    questions.filter(q => q.type === 'essay' || q.type === 'coding' || q.type === 'file_upload').map(q => q.id),
+    questions.filter(q => MANUALLY_GRADED_TYPES.includes(q.type)).map(q => q.id),
   );
 
   await prisma.$transaction([

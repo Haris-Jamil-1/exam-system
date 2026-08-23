@@ -293,6 +293,7 @@ export function MathTextarea({
         disabled={disabled}
         placeholder={placeholder}
         className={className}
+        dir="auto"
         onBlur={onBlur}
         onKeyDown={handleKeyDown}
         onChange={event => onValueChange(event.target.value)}
@@ -330,6 +331,7 @@ export function MathInput({
           disabled={disabled}
           placeholder={placeholder}
           className={className}
+          dir="auto"
           onKeyDown={handleKeyDown}
           onChange={event => onValueChange(event.target.value)}
         />

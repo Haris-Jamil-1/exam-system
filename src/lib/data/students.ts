@@ -31,6 +31,9 @@ export type StudentRosterEntry = CurrentUser & {
   // no arguments, which resolved to an empty `where: {}` and returned every violation in the
   // entire database across every institution).
   violationCount: number;
+  // Feature 2 (notes.pdf): free-text profile tags — targeting dimension alongside Class
+  // membership, see exam-eligibility.ts.
+  tags: string[];
 };
 
 export async function getStudents(_institutionId?: string): Promise<StudentRosterEntry[]> {
@@ -96,7 +99,42 @@ export async function getStudents(_institutionId?: string): Promise<StudentRoste
     classNames: classNamesByStudent.get(r.id) ?? [],
     trustScore: trustByStudent.get(r.id) ?? null,
     violationCount: violationsByStudent.get(r.id) ?? 0,
+    tags: r.tags,
   }));
+}
+
+// Bulk tag mutation — one call covers both "Bulk Tag" (add) and "Remove Tag" from the roster UI's
+// multi-select action bar. Scoped to the caller's own roster the same way getStudents is (a
+// teacher can only tag their own students, an admin any student in their institution) so this
+// can't be used to tag an arbitrary student by id.
+export async function setStudentTags(studentIds: string[], tag: string, action: 'add' | 'remove'): Promise<number> {
+  const { institutionId, role, prismaUserId } = await getSessionContext();
+  if (!institutionId || studentIds.length === 0) return 0;
+
+  const rosterWhere = role === 'teacher' && prismaUserId
+    ? {
+        role: 'student' as const,
+        institutionId,
+        id: { in: studentIds },
+        OR: [
+          { studentTeachers: { some: { teacherId: prismaUserId } } },
+          { classEnrollments: { some: { class: { teacherId: prismaUserId } } } },
+        ],
+      }
+    : { role: 'student' as const, institutionId, id: { in: studentIds } };
+
+  const targets = await prisma.user.findMany({ where: rosterWhere, select: { id: true, tags: true } });
+  if (targets.length === 0) return 0;
+
+  await prisma.$transaction(
+    targets.map(t => {
+      const nextTags = action === 'add'
+        ? (t.tags.includes(tag) ? t.tags : [...t.tags, tag])
+        : t.tags.filter(existing => existing !== tag);
+      return prisma.user.update({ where: { id: t.id }, data: { tags: nextTags } });
+    }),
+  );
+  return targets.length;
 }
 
 export async function getStudentById(id: string): Promise<CurrentUser | undefined> {

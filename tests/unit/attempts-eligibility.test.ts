@@ -58,6 +58,8 @@ function baseExam(overrides: Partial<{ classId: string | null; teacherId: string
     teacherId: TEACHER,
     approvalStatus: 'approved',
     sections: [],
+    targetTags: [],
+    targetTagsOperator: 'OR',
     ...overrides,
   };
 }
@@ -80,7 +82,7 @@ describe('POST /api/attempts — eligibility gate (Task 5)', () => {
     mockExam.findUnique.mockResolvedValue(baseExam({ classId: CLASS_B, teacherId: TEACHER }));
     mockUser.findUnique.mockResolvedValue({
       studentTeachers: [{ teacherId: TEACHER }],
-      classEnrollments: [{ classId: CLASS_A }],
+      classEnrollments: [{ classId: CLASS_A }], tags: [],
     });
 
     const res = await POST(makeRequest());
@@ -91,7 +93,7 @@ describe('POST /api/attempts — eligibility gate (Task 5)', () => {
     mockExam.findUnique.mockResolvedValue(baseExam({ classId: CLASS_A, teacherId: TEACHER }));
     mockUser.findUnique.mockResolvedValue({
       studentTeachers: [],
-      classEnrollments: [{ classId: CLASS_A }],
+      classEnrollments: [{ classId: CLASS_A }], tags: [],
     });
 
     const res = await POST(makeRequest());
@@ -103,7 +105,7 @@ describe('POST /api/attempts — eligibility gate (Task 5)', () => {
     mockExam.findUnique.mockResolvedValue(baseExam({ classId: CLASS_A, teacherId: TEACHER, institutionId: INSTITUTION_A }));
     mockUser.findUnique.mockResolvedValue({
       studentTeachers: [],
-      classEnrollments: [{ classId: CLASS_A }],
+      classEnrollments: [{ classId: CLASS_A }], tags: [],
     });
 
     const res = await POST(makeRequest());
@@ -114,7 +116,7 @@ describe('POST /api/attempts — eligibility gate (Task 5)', () => {
     mockExam.findUnique.mockResolvedValue(baseExam({ classId: null, teacherId: TEACHER }));
     mockUser.findUnique.mockResolvedValue({
       studentTeachers: [{ teacherId: TEACHER }],
-      classEnrollments: [],
+      classEnrollments: [], tags: [],
     });
 
     const res = await POST(makeRequest());
@@ -125,7 +127,7 @@ describe('POST /api/attempts — eligibility gate (Task 5)', () => {
     mockExam.findUnique.mockResolvedValue(baseExam({ classId: null, teacherId: TEACHER }));
     mockUser.findUnique.mockResolvedValue({
       studentTeachers: [{ teacherId: 'some-other-teacher' }],
-      classEnrollments: [],
+      classEnrollments: [], tags: [],
     });
 
     const res = await POST(makeRequest());
@@ -141,7 +143,7 @@ describe('POST /api/attempts — eligibility gate (Task 5)', () => {
     });
     mockExam.findUnique.mockResolvedValue(baseExam({ classId: CLASS_B, teacherId: TEACHER }));
     // mockUser.findUnique deliberately not stubbed with matching class — should never be consulted
-    mockUser.findUnique.mockResolvedValue({ studentTeachers: [], classEnrollments: [] });
+    mockUser.findUnique.mockResolvedValue({ studentTeachers: [], classEnrollments: [], tags: [] });
 
     const res = await POST(makeRequest());
     expect(res.status).toBe(201);

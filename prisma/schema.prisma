@@ -40,6 +40,15 @@ enum QuestionType {
   ordering
   coding
   file_upload
+  // notes.pdf "Advanced Item Types & Multimedia Responses" — graded manually only (decided
+  // 2026-08-22, not routed through the AI grading pipeline; see gradeEssayAnswer/
+  // gradeCodingAnswer's own type gating in lib/ai/grading.ts, which audio/video simply never
+  // reach — same structural path file_upload already uses).
+  audio_response
+  video_response
+  // Split-screen parent/child case-study rendering — schema landed this pass (mediaSettings/
+  // parentItemId below), UI deliberately deferred to a follow-up (see docs/left.md).
+  composite_case
 }
 
 enum Difficulty {
@@ -108,6 +117,33 @@ enum ItemBankPermissionRole {
   viewer
 }
 
+enum ClassLevel {
+  institutional
+  personal
+}
+
+enum ClassPermissionRole {
+  owner
+  editor
+  viewer
+}
+
+enum CourseLevel {
+  institutional
+  personal
+}
+
+enum CoursePermissionRole {
+  owner
+  editor
+  viewer
+}
+
+enum TargetTagsOperator {
+  AND
+  OR
+}
+
 enum ClassInviteStatus {
   pending
   accepted
@@ -151,6 +187,10 @@ model User {
   role          Role
   department    String?
   avatarUrl     String?
+  // Free-text profile tags (e.g. "Postgraduate", "Extra_Time") — student-facing targeting
+  // dimension alongside Class membership, see Exam.targetTags/targetTagsOperator below.
+  // Meaningful for any role but populated in practice only for students.
+  tags          String[] @default([])
   institutionId String
   createdAt     DateTime @default(now())
   // Follow-up task 3: platform-level Super Admin — deliberately NOT a Role
@@ -183,6 +223,10 @@ model User {
   classes             Class[]           @relation("ClassTeacher")
   classInvitesSent    ClassInvite[]     @relation("ClassInvitedBy")
   classEnrollments    ClassEnrollment[] @relation("ClassEnrollmentStudent")
+  classAccess         ClassAccess[]     @relation("ClassAccessUser")
+  classAccessGrant    ClassAccess[]     @relation("ClassAccessAssignedBy")
+  courseAccess        CourseAccess[]    @relation("CourseAccessUser")
+  courseAccessGrant   CourseAccess[]    @relation("CourseAccessAssignedBy")
 
   @@index([institutionId])
   @@index([institutionId, role])
@@ -217,10 +261,20 @@ model InviteToken {
 }
 
 model Class {
-  id            String    @id @default(cuid())
+  id            String     @id @default(cuid())
   name          String
   teacherId     String
   institutionId String
+  // Institution/Private/Shared tenancy, mirroring ItemBank's classLevel+ownerId pattern exactly
+  // (see item-bank-permissions.ts's resolveBankPermission, the class-permissions.ts equivalent
+  // is resolveClassPermission). classLevel is deliberately additive: every pre-existing row
+  // defaults to 'personal' with ownerId left null (code falls back to teacherId for those, so
+  // no backfill was required), which reproduces the exact pre-existing single-teacher-owned
+  // behavior. ownerId is a Institution.id for 'institutional' classes, a User.id for 'personal'
+  // ones — same overloaded-FK shape as ItemBank.ownerId, for the same reason (the target table
+  // differs by level, so a real FK constraint can't express it).
+  classLevel    ClassLevel @default(personal)
+  ownerId       String?
   createdAt     DateTime  @default(now())
   archivedAt    DateTime?
 
@@ -229,9 +283,28 @@ model Class {
   invites     ClassInvite[]
   enrollments ClassEnrollment[]
   exams       Exam[]
+  access      ClassAccess[]
 
   @@index([teacherId])
   @@index([institutionId])
+  @@index([institutionId, classLevel])
+}
+
+model ClassAccess {
+  id             String              @id @default(cuid())
+  classId        String
+  userId         String
+  permissionRole ClassPermissionRole
+  assignedById   String
+  createdAt      DateTime            @default(now())
+
+  class      Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+  user       User  @relation("ClassAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy User  @relation("ClassAccessAssignedBy", fields: [assignedById], references: [id])
+
+  @@unique([classId, userId])
+  @@index([userId])
+  @@index([classId])
 }
 
 model ClassInvite {
@@ -300,6 +373,15 @@ model Exam {
   // scoped to exactly this class's ClassEnrollment roster instead. See getStudentExams /
   // POST /api/attempts for the enforcement side of this.
   classId            String?
+  // Feature 2 (notes.pdf): profile-tag targeting alongside the Class dimension above. Empty
+  // targetTags = no tag restriction (the exam's visibility is governed by classId/teacherId
+  // alone, exactly the pre-existing behavior — fully backward compatible). When targetTags is
+  // non-empty, targetTagsOperator governs how it combines with the class/teacher eligibility
+  // above: OR widens visibility (anyone in the class/taught-by-teacher, OR anyone in the
+  // institution holding one of these tags); AND narrows it (must be class/teacher-eligible AND
+  // hold one of these tags). See exam-eligibility.ts for the single enforcement point.
+  targetTags         String[]           @default([])
+  targetTagsOperator TargetTagsOperator @default(OR)
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
@@ -369,6 +451,12 @@ model Question {
   // gradingWeights (coding): {testWeight, qualityWeight}, default 70/30.
   rubric              Json?
   gradingWeights      Json?
+  // Advanced Item Types (notes.pdf): same shape as Item.mediaSettings, copied through at
+  // materialization time (createQuestion/duplicateExam) exactly like every other Item field.
+  mediaSettings       Json?
+  // Set only when this question is a sub-question belonging to a composite_case parent question
+  // (schema landed this pass, composite UI deferred — see QuestionType's own comment).
+  parentQuestionId    String?
   // Phase 3 (doc 05): durable link back to the bank Item this question was
   // materialized from — item-level psychometrics aggregate across
   // administrations through this. Null = authored directly on the exam
@@ -383,9 +471,12 @@ model Question {
   options           Option[]
   answers           Answer[]
   itemLocks         ItemLock[]
+  parentQuestion    Question?          @relation("QuestionComposite", fields: [parentQuestionId], references: [id], onDelete: Cascade)
+  childQuestions    Question[]         @relation("QuestionComposite")
 
   @@index([examId, attemptId])
   @@index([sectionId])
+  @@index([parentQuestionId])
 }
 
 model ExamSection {
@@ -466,6 +557,12 @@ model Item {
   gradingWeights      Json?
   facilityIndex       Float?
   discriminationIndex Float?
+  // Advanced Item Types (notes.pdf): {minDurationSeconds, maxDurationSeconds, prepTimeSeconds,
+  // allowScreenShare, maxRetries} for audio_response/video_response. Unused by every other type.
+  mediaSettings       Json?
+  // Set only when this item is a sub-question belonging to a composite_case parent item (schema
+  // landed this pass, composite UI deferred — see the QuestionType enum's own comment).
+  parentItemId        String?
   version             Int          @default(1)
   previousVersionId   String?
   institutionId       String
@@ -486,10 +583,13 @@ model Item {
   bank              ItemBank?          @relation(fields: [bankId], references: [id])
   generationJob     GenerationJob?     @relation(fields: [generationJobId], references: [id])
   options           ItemOption[]
+  parentItem        Item?              @relation("ItemComposite", fields: [parentItemId], references: [id], onDelete: Cascade)
+  childItems        Item[]             @relation("ItemComposite")
 
   @@index([bankId])
   @@index([bankId, learningObjectiveId])
   @@index([generationJobId])
+  @@index([parentItemId])
 }
 
 // Async AI item-generation job (Phase 3, doc 02): the row IS the durability —
@@ -695,6 +795,10 @@ model AnswerGrading {
   model           String?
   inputTokens     Int?
   outputTokens    Int?
+  // Wall-clock time of the AI call (ai_suggestion rows only) — operational metric for the
+  // system-audit-logging ask, distinct from rubricSnapshot/criterionScores/rationale which
+  // record the grading *decision* trail, not how long/expensive producing it was.
+  latencyMs       Int?
   gradedById      String?
   createdAt       DateTime    @default(now())
 
@@ -857,16 +961,41 @@ model ExamReliabilityStat {
 }
 
 model Course {
-  id            String   @id @default(cuid())
+  id            String      @id @default(cuid())
   code          String
   title         String
   institutionId String
-  createdAt     DateTime @default(now())
+  // Same Institution/Private/Shared tenancy as Class/ItemBank — see the Class model's own
+  // comment for the shared rationale. Every pre-existing row defaults to 'institutional' (they
+  // were all admin-created, institution-wide by construction) with ownerId backfilled to
+  // institutionId, matching how they already behaved.
+  courseLevel   CourseLevel @default(institutional)
+  ownerId       String?
+  createdAt     DateTime    @default(now())
 
-  institution Institution @relation(fields: [institutionId], references: [id])
+  institution Institution    @relation(fields: [institutionId], references: [id])
   topics      Topic[]
+  access      CourseAccess[]
 
-  @@unique([institutionId, code])
+  @@unique([institutionId, ownerId, code])
+  @@index([institutionId, courseLevel])
+}
+
+model CourseAccess {
+  id             String               @id @default(cuid())
+  courseId       String
+  userId         String
+  permissionRole CoursePermissionRole
+  assignedById   String
+  createdAt      DateTime             @default(now())
+
+  course     Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  user       User   @relation("CourseAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy User   @relation("CourseAccessAssignedBy", fields: [assignedById], references: [id])
+
+  @@unique([courseId, userId])
+  @@index([userId])
+  @@index([courseId])
 }
 
 model Topic {

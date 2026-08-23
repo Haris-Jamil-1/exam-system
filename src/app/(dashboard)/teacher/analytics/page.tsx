@@ -3,7 +3,8 @@ import { getTeacherAnalyticsData } from '@/lib/data';
 import { useServerData } from '@/hooks/useServerData';
 import type { StatValue } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, TrendingDown } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { TrendingUp, TrendingDown, Tag } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -18,6 +19,7 @@ export default function AnalyticsPage() {
   const scoreDist = data?.scoreDistribution ?? [];
   const trustTrend = data?.trustTrend ?? [];
   const diffData = data?.questionDifficulty ?? [];
+  const scoreByTag = data?.scoreByTag ?? [];
 
   return (
     <div className="space-y-6">
@@ -71,6 +73,26 @@ export default function AnalyticsPage() {
           </ResponsiveContainer>
         </CardContent>
       </Card>
+
+      {/* Score by student profile tag */}
+      {scoreByTag.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Tag className="h-4 w-4 text-blue-600" /> Average Score by Student Tag</CardTitle></CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {scoreByTag.map(row => (
+                <div key={row.tag} className="flex items-center justify-between rounded-lg border px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">{row.tag}</Badge>
+                    <span className="text-xs text-muted-foreground">{row.studentCount} student{row.studentCount === 1 ? '' : 's'}</span>
+                  </div>
+                  <span className="text-sm font-semibold">{row.averageScorePercent}%</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Question difficulty */}
       <Card>

@@ -17,7 +17,7 @@ import { RichText } from '@/components/rich/RichText';
 const TYPE_LABELS: Record<QuestionType, string> = {
   mcq: 'MCQ', mrq: 'MRQ', true_false: 'T/F', short_answer: 'Short',
   essay: 'Essay', fill_blank: 'Fill', matching: 'Match', ordering: 'Order',
-  coding: 'Code', file_upload: 'File',
+  coding: 'Code', file_upload: 'File', audio_response: 'Audio', video_response: 'Video', composite_case: 'Case Study',
 };
 
 const DIFF_VARIANT: Record<string, 'success' | 'warning' | 'danger'> = {

@@ -12,6 +12,7 @@ type PrismaExam = {
   maxViolations: number; settings: unknown; resultsPublishedAt: Date | null;
   instructions: string | null; isProctoringEnabled: boolean;
   institutionId: string; teacherId: string; classId: string | null; createdAt: Date;
+  targetTags: string[]; targetTagsOperator: string;
   _count?: { questions: number; enrollments: number };
 };
 
@@ -35,6 +36,8 @@ function mapExam(e: PrismaExam): Exam {
     institutionId: e.institutionId,
     teacherId: e.teacherId,
     classId: e.classId,
+    targetTags: e.targetTags,
+    targetTagsOperator: e.targetTagsOperator as Exam['targetTagsOperator'],
     createdAt: e.createdAt.toISOString(),
     _count: e._count,
   };
@@ -108,6 +111,8 @@ export async function createExam(data: Omit<Exam, 'id' | 'createdAt'>): Promise<
         institutionId,
         teacherId,
         classId,
+        targetTags: data.targetTags ?? [],
+        targetTagsOperator: data.targetTagsOperator ?? 'OR',
       },
       include: { _count: { select: COUNT_SELECT } },
     });
@@ -275,6 +280,7 @@ export async function duplicateExam(
           testCases: q.testCases ?? undefined,
           allowedFileTypes: q.allowedFileTypes,
           maxFileSizeMB: q.maxFileSizeMB,
+          mediaSettings: q.mediaSettings ?? undefined,
           timeLimitSeconds: q.timeLimitSeconds,
           rubric: q.rubric ?? undefined,
           gradingWeights: q.gradingWeights ?? undefined,

@@ -2,7 +2,7 @@
 import { prisma } from '@/lib/prisma';
 import { getSessionContext as getSession } from '@/lib/session';
 import { computeEffectiveExamStatus } from '@/lib/exam-status';
-import { studentVisibleExamWhere } from '@/lib/exam-eligibility';
+import { studentVisibleExamWhere, filterExamsByTagTargeting } from '@/lib/exam-eligibility';
 import type { StatValue, PendingExam } from '@/types';
 
 // A 'scheduled' exam whose startTime has passed (and endTime hasn't) is effectively live even
@@ -120,6 +120,49 @@ export async function getAnalyticsKpis(): Promise<StatValue[]> {
   ];
 }
 
+// Feature 2 (notes.pdf): "extract macro performance profiles (e.g. comparing the average scaled
+// score of 'Scholarship' students versus 'Non-Scholarship' cohorts across various exams),
+// independent of their class groups." Scoped to the caller's own teacher-visible attempts (or
+// institution-wide for an admin), same authority pattern as every other analytics query here.
+export interface ScoreByTagRow {
+  tag: string;
+  averageScorePercent: number;
+  studentCount: number;
+}
+
+export async function getScoreByTag(): Promise<ScoreByTagRow[]> {
+  const { institutionId, role, prismaUserId } = await getSession();
+  if (!institutionId) return [];
+
+  const examWhere = role === 'teacher' && prismaUserId ? { institutionId, teacherId: prismaUserId } : { institutionId };
+  const attempts = await prisma.examAttempt.findMany({
+    where: { exam: examWhere, status: { not: 'in_progress' }, scorePercentage: { not: null } },
+    select: { studentId: true, scorePercentage: true, student: { select: { tags: true } } },
+  });
+
+  // Average is per-attempt (same convention as getAnalyticsKpis' own avg score), not
+  // per-student-then-averaged — a student with more attempts naturally weighs in proportionally.
+  const byTag = new Map<string, { sum: number; attemptCount: number; students: Set<string> }>();
+  for (const a of attempts) {
+    if (a.scorePercentage === null) continue;
+    for (const tag of a.student.tags) {
+      const bucket = byTag.get(tag) ?? { sum: 0, attemptCount: 0, students: new Set<string>() };
+      bucket.sum += a.scorePercentage;
+      bucket.attemptCount += 1;
+      bucket.students.add(a.studentId);
+      byTag.set(tag, bucket);
+    }
+  }
+
+  return Array.from(byTag.entries())
+    .map(([tag, { sum, attemptCount, students }]) => ({
+      tag,
+      averageScorePercent: Number((sum / attemptCount).toFixed(1)),
+      studentCount: students.size,
+    }))
+    .sort((a, b) => a.tag.localeCompare(b.tag));
+}
+
 export async function getScoreDistribution(examId?: string): Promise<{ range: string; count: number }[]> {
   const { institutionId } = await getSession();
   const where = examId
@@ -198,7 +241,7 @@ export async function getQuestionDifficulty(examId?: string): Promise<{ difficul
 export async function getAdminStats(): Promise<StatValue[]> {
   const { institutionId } = await getSession();
   if (!institutionId) return [];
-  const [pending, teachers, students, trustAgg] = await Promise.all([
+  const [pending, teachers, students, trustAgg, overrideRate] = await Promise.all([
     prisma.exam.count({ where: { institutionId, approvalStatus: 'pending' } }),
     prisma.user.count({ where: { institutionId, role: 'teacher' } }),
     prisma.user.count({ where: { institutionId, role: 'student' } }),
@@ -206,13 +249,33 @@ export async function getAdminStats(): Promise<StatValue[]> {
       where: { exam: { institutionId } },
       _avg: { trustScore: true },
     }),
+    getAiGradingOverrideRate(institutionId),
   ]);
   return [
     { key: 'pendingApprovals', label: 'Pending Approvals', value: pending },
     { key: 'teachers', label: 'Total Teachers', value: teachers },
     { key: 'students', label: 'Total Students', value: students },
     { key: 'avgTrust', label: 'Avg Trust Score', value: trustAgg._avg.trustScore?.toFixed(1) ?? '—' },
+    { key: 'aiOverrideRate', label: 'AI Grading Override Rate', value: overrideRate ?? '—' },
   ];
+}
+
+// System-audit-logging ask (notes.pdf's AI grading governance section): how often instructors
+// change an AI suggestion vs. just confirm it — signal for prompt tuning / LLM alignment, not a
+// student-facing number. Defined over every teacher-finalized AI-graded answer in the
+// institution (confirmation + override rows both count; a confirm-only history reads as 0%).
+async function getAiGradingOverrideRate(institutionId: string): Promise<string | null> {
+  const [overrides, confirmations] = await Promise.all([
+    prisma.answerGrading.count({
+      where: { kind: 'teacher_override', answer: { question: { exam: { institutionId } } } },
+    }),
+    prisma.answerGrading.count({
+      where: { kind: 'teacher_confirmation', answer: { question: { exam: { institutionId } } } },
+    }),
+  ]);
+  const total = overrides + confirmations;
+  if (total === 0) return null; // no AI-graded answers finalized yet — nothing to report
+  return `${((overrides / total) * 100).toFixed(0)}%`;
 }
 
 export async function getStudentStats(): Promise<StatValue[]> {
@@ -356,6 +419,7 @@ async function getStudentVisibilityContext(supabaseId: string) {
       institutionId: student.institutionId,
       teacherIds: student.studentTeachers.map(r => r.teacherId),
       enrolledClassIds: student.classEnrollments.map(r => r.classId),
+      tags: student.tags,
     }),
   };
 }
@@ -381,7 +445,7 @@ export async function getStudentExams() {
   ]);
 
   const attemptMap = new Map(attempts.map(a => [a.examId, a]));
-  return exams.map(exam => mapStudentExamCard(exam, attemptMap.get(exam.id), now));
+  return filterExamsByTagTargeting(exams, ctx.student.tags).map(exam => mapStudentExamCard(exam, attemptMap.get(exam.id), now));
 }
 
 export async function getTeachersList() {
@@ -554,7 +618,7 @@ export async function getStudentDashboardData() {
   ]);
 
   const attemptMap = new Map(attempts.map(a => [a.examId, a]));
-  const exams = examRows.map(exam => mapStudentExamCard(exam, attemptMap.get(exam.id), now));
+  const exams = filterExamsByTagTargeting(examRows, student.tags).map(exam => mapStudentExamCard(exam, attemptMap.get(exam.id), now));
 
   // Derived from the very exams the page lists, so the "Upcoming Exams" stat card and the
   // "Upcoming Exams" panel below it can never disagree. This previously counted ExamEnrollment

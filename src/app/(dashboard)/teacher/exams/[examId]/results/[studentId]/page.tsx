@@ -9,13 +9,50 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { GradingPanel } from '@/components/grading/GradingPanel';
 import { RichText } from '@/components/rich/RichText';
-import { CheckCircle2, XCircle, HelpCircle, CheckCheck } from 'lucide-react';
+import { CheckCircle2, XCircle, HelpCircle, CheckCheck, Play, FileText, Loader2 } from 'lucide-react';
 
 // Types whose stored "answer" text is the teacher-authored option label (so it may contain
 // math/chemistry and must render through the shared renderer). Free-text answers a student typed
 // are deliberately left as literal text — students don't author math, and reinterpreting their
 // input would change what the teacher sees them having written.
 const OPTION_BASED_TYPES = new Set(['mcq', 'mrq', 'true_false', 'matching', 'ordering']);
+
+// file_upload/audio_response/video_response store a storage path as their whole `response` — was
+// previously rendered as inert plain text with no way to actually open it (a real, pre-existing
+// gap that audio/video's own playback need is what finally surfaced it). Loads the signed URL
+// on demand via the same /api/evidence pattern StudentActionsModal already uses for violation
+// evidence, rather than eagerly fetching one for every file-based answer on page load.
+function FileAnswerViewer({ answerId, type }: { answerId: string; type: string }) {
+  const [state, setState] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
+  const [url, setUrl] = useState<string | null>(null);
+
+  async function load() {
+    setState('loading');
+    try {
+      const res = await fetch(`/api/evidence?answerId=${answerId}`);
+      if (!res.ok) throw new Error();
+      const { url: signedUrl } = (await res.json()) as { url: string };
+      setUrl(signedUrl);
+      setState('loaded');
+    } catch {
+      setState('error');
+    }
+  }
+
+  if (state === 'idle') {
+    return (
+      <Button type="button" variant="outline" size="sm" onClick={() => void load()} className="gap-1.5">
+        {type === 'audio_response' ? <Play className="h-3.5 w-3.5" /> : type === 'video_response' ? <Play className="h-3.5 w-3.5" /> : <FileText className="h-3.5 w-3.5" />}
+        {type === 'audio_response' ? 'Play recording' : type === 'video_response' ? 'Play video' : 'View file'}
+      </Button>
+    );
+  }
+  if (state === 'loading') return <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…</p>;
+  if (state === 'error' || !url) return <p className="text-xs text-red-600">Could not load this submission.</p>;
+  if (type === 'audio_response') return <audio src={url} controls className="w-full max-w-xs" />;
+  if (type === 'video_response') return <video src={url} controls className="w-full max-w-sm rounded-lg" />;
+  return <a href={url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline">Open submitted file</a>;
+}
 
 export default function StudentSubmissionPage() {
   const { examId, studentId } = useParams<{ examId: string; studentId: string }>();
@@ -144,7 +181,8 @@ export default function StudentSubmissionPage() {
                 // Graded (confirmed/overridden) essay/coding answers show their real
                 // mark; anything still in the grading pipeline shows Pending.
                 const gradingResolved = a.gradingStatus === 'confirmed' || a.gradingStatus === 'overridden';
-                const isPending = (a.type === 'essay' || a.type === 'coding' || a.type === 'file_upload') && !gradingResolved;
+                const isPending = (a.type === 'essay' || a.type === 'coding' || a.type === 'file_upload' || a.type === 'audio_response' || a.type === 'video_response') && !gradingResolved;
+                const isFileBasedAnswer = a.type === 'file_upload' || a.type === 'audio_response' || a.type === 'video_response';
                 const statusIcon = isPending
                   ? <HelpCircle className="h-4 w-4 text-amber-500 shrink-0" />
                   : a.isCorrect
@@ -167,7 +205,11 @@ export default function StudentSubmissionPage() {
                     <div className="grid sm:grid-cols-2 gap-3 ps-6">
                       <div>
                         <p className="text-xs font-medium text-muted-foreground mb-0.5">Student&apos;s answer</p>
-                        <p className="text-sm break-words">{OPTION_BASED_TYPES.has(a.type) ? <RichText content={a.studentAnswer} /> : a.studentAnswer}</p>
+                        {isFileBasedAnswer && a.answerId && a.studentAnswer !== '(no answer)' ? (
+                          <FileAnswerViewer answerId={a.answerId} type={a.type} />
+                        ) : (
+                          <p className="text-sm break-words">{OPTION_BASED_TYPES.has(a.type) ? <RichText content={a.studentAnswer} /> : a.studentAnswer}</p>
+                        )}
                       </div>
                       {!isPending && (
                         <div>

@@ -48,7 +48,7 @@ describe('getStudentExams — class-scoped visibility (Task 5)', () => {
         id: 'student-1',
         institutionId: 'inst-a',
         studentTeachers: [{ teacherId: TEACHER }],
-        classEnrollments: [{ classId: CLASS_A }],
+        classEnrollments: [{ classId: CLASS_A }], tags: [],
       });
 
     await getStudentExams();
@@ -73,7 +73,7 @@ describe('getStudentExams — class-scoped visibility (Task 5)', () => {
         id: 'student-1',
         institutionId: 'inst-a',
         studentTeachers: [{ teacherId: TEACHER }],
-        classEnrollments: [],
+        classEnrollments: [], tags: [],
       });
 
     await getStudentExams();

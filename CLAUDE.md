@@ -6,1306 +6,832 @@
 > `CORRECTIONS.md` and the `CLEANUP_PROGRESS.md` run log, removed by Haris afterward).
 > Current documentation lives entirely in `docs/`: `README.md` (platform intro + user
 > guide, also the GitHub repo homepage), `ARCHITECTURE.md`, and `FEATURES.md`.
+>
+> **Note (2026-08-22):** this file was recondensed (was 161k chars, well past what's useful to
+> load every session) — same content, tighter prose. Per-entry `tsc`/`lint`/`vitest`/`build`
+> verification boilerplate was dropped from the Session Log (it was nearly identical every time —
+> "clean baseline, N/N passing"); the current numbers live in **Build Status** below. What's kept
+> per entry: what shipped, the file/table names, judgment calls flagged to Haris and what was
+> decided, root causes of real bugs, and known gaps. If a future session needs the exact
+> verification trail for a specific date, `git log` on that day's commit has it.
 
 ## Session Log
 
 ### 2026-08-12 (cont'd) — Real TURN relay: Cloudflare Realtime credentials for teacher live-video ✅
 
-Follow-up to the same day's proctoring session, which shipped TURN as configurable-but-unset
-(STUN-only). Haris supplied a real Cloudflare Realtime TURN Token ID + API Token; implemented
-properly rather than as a quick env-var drop-in, since Cloudflare's credential model doesn't fit
-the static-value approach the earlier session's `NEXT_PUBLIC_TURN_*` scaffolding assumed.
+Replaced the same day's STUN-only-by-default scaffolding with a real Cloudflare Realtime TURN
+integration once Haris supplied credentials. Verified the API contract live via `curl` before
+writing code: `POST https://rtc.live.cloudflare.com/v1/turn/keys/{TOKEN_ID}/credentials/generate-ice-servers`
+returns a fresh short-lived TURN `username`/`credential` per call — there's no static value to
+drop into an env var, and the API token itself must never reach the browser (it can mint
+credentials against the whole Cloudflare account). Removed `buildIceServers()`/
+`NEXT_PUBLIC_TURN_*` entirely. New server-only `src/lib/webrtc-turn.ts` calls Cloudflare via
+`CLOUDFLARE_TURN_TOKEN_ID`/`CLOUDFLARE_TURN_API_TOKEN` (deliberately no `NEXT_PUBLIC_` prefix),
+strips `:53` URLs (Cloudflare flags that port as commonly browser-blocked), returns `null` on any
+failure. New authenticated `GET /api/webrtc/turn-credentials` exposes it; `fetchIceServers()`
+falls back to STUN-only on failure — a TURN outage degrades reliability, never blocks the call.
+Credentials are minted fresh per connection attempt (not cached) in both `WebRTCBroadcaster.tsx`
+and `useWebRTCViewer.ts`; both re-check `activeViewerId`/`viewerIdRef` after the new `await` point
+to guard a race that couldn't exist before (everything was synchronous) but can now that setup
+awaits a network round trip. 9 new tests (mocked `fetch`). Real credentials added to Vercel
+Production env, marked Sensitive. **Known gap**: no live two-browser WebRTC session run through
+the actual relay (needs a real cross-NAT network to meaningfully exercise TURN at all).
 
-- **Verified the exact API contract before writing any code** (`developers.cloudflare.com/realtime/turn/generate-credentials`) rather than guessing: `POST
-  https://rtc.live.cloudflare.com/v1/turn/keys/{TOKEN_ID}/credentials/generate-ice-servers`,
-  `Authorization: Bearer {API_TOKEN}`, body `{ttl}`, returns an `iceServers` array (STUN +
-  TURN entries, TURN carrying a freshly-minted short-lived `username`/`credential`). Confirmed
-  live against Haris's real credentials via a direct `curl` before wiring up any app code.
-- **Replaced, not extended, the earlier static-credential scaffolding** — Cloudflare mints a new
-  short-lived credential per request; there's no fixed value to put in a `NEXT_PUBLIC_TURN_*`
-  var, and doing so would also be a real secret-exposure risk (the API token can mint credentials
-  against the whole Cloudflare account, so it must never reach the browser). Removed
-  `buildIceServers()`/`NEXT_PUBLIC_TURN_URL`/`_USERNAME`/`_CREDENTIAL` entirely. New
-  `src/lib/webrtc-turn.ts` (server-only) calls Cloudflare using two **server-only** env vars
-  (`CLOUDFLARE_TURN_TOKEN_ID`/`CLOUDFLARE_TURN_API_TOKEN`, deliberately no `NEXT_PUBLIC_` prefix),
-  strips `:53` URLs (Cloudflare's own docs flag that port as commonly browser-blocked — confirmed
-  present in the real response), and returns `null` on any failure (missing config, non-OK
-  response, network error) rather than throwing. New authenticated `GET
-  /api/webrtc/turn-credentials` exposes this to the browser; `fetchIceServers()`
-  (`webrtc-signaling.ts`) calls it and falls back to `STUN_ONLY_ICE_SERVERS` on any failure — a
-  TURN outage degrades reliability, it never blocks the call outright.
-- **Credentials are minted fresh per connection attempt**, not cached/reused: both
-  `WebRTCBroadcaster.tsx` (student/offerer) and `useWebRTCViewer.ts` (teacher/answerer) now
-  `await fetchIceServers()` immediately before constructing each `RTCPeerConnection` — the one
-  in `useWebRTCViewer`'s `handleOffer` also covers the reconnect path added earlier the same
-  session, since `scheduleReconnect` re-triggers `handleOffer` rather than building its own
-  connection. Both call sites re-check `activeViewerId`/`viewerIdRef` immediately after the new
-  `await` point before touching `pc`/`pcRef` — a race that couldn't happen before (everything was
-  synchronous) but genuinely can now that connection setup awaits a network round trip; a newer
-  request superseding an older one while its credential fetch is still in flight now correctly
-  leaves the newer request's connection in place instead of two competing writers to the same ref.
-- **Verification**: `tsc` clean · `lint` at the pre-existing 3-error baseline · `vitest` 408/408
-  (9 new: `fetchIceServers`'s STUN-fallback branches, `generateTurnIceServers`'s request shape +
-  port-53 stripping + failure modes, all via mocked `fetch`) · `build` clean, 90 routes (new
-  `/api/webrtc/turn-credentials`) · the real Cloudflare credentials were exercised live via
-  `curl` (confirmed a real signed TURN username/credential comes back) and added to Vercel
-  Production env (`CLOUDFLARE_TURN_TOKEN_ID`/`CLOUDFLARE_TURN_API_TOKEN`, marked Sensitive) —
-  takes effect on the next deploy. **Known gap, not done this session**: no live two-browser
-  WebRTC session was run through the actual relay (would need a real cross-NAT network setup to
-  meaningfully exercise TURN at all, same limitation noted for the STUN-only path earlier).
+### 2026-08-12 (cont'd) — Assign/duplicate exam to another section; edit-screen schedule fields; mid-exam end-time extension ✅
 
-### 2026-08-12 (cont'd) — Assign/duplicate exam to another section; edit-screen schedule fields; mid-exam end-time extension with real-time student sync + audit trail ✅
+- **"Assign to Another Section" = clone, not link** — flagged and decided explicitly: every
+  subsystem (results, monitor, grading, eligibility) assumes one `Exam` ↔ one `Class` ↔ one
+  window; linking would need class-scoping added everywhere, cloning needs none of it. New
+  `duplicateExam()` (`src/lib/data/exams.ts`) deep-copies the Exam + `ExamSection`s + fixed
+  `Question`s (never pooled ones — `attemptId: null` filter) + `Option`s in one transaction,
+  remaps section ids, resets status/approvalStatus to new-exam defaults, requires a fresh
+  start/end time. Attempts/answers/violations/enrollments/directives are never copied.
+- **Edit-screen Start/End/Duration** — new "Schedule" card (`DateTimeField` extracted from the
+  wizard into `src/components/shared/` so both share one implementation). Restricted to
+  draft/scheduled exams client- and, since it had **no guard at all before this** (any owning
+  teacher could `PUT` new schedule fields onto a live/completed exam), server-side in
+  `PUT /api/exams/[examId]`, scoped only to requests touching `startTime`/`endTime`/`duration`.
+- **Mid-exam end-time change, real-time to students** — new `PATCH /api/exams/[examId]/end-time`
+  (the one narrow, audited exception to the block above, live-only). Requires `newEndTime > now`;
+  a value earlier than the current end time is allowed per spec but needs a second confirm click.
+  Writes an `ExamTimeChange` audit row (RLS SELECT-only) and a `time_extended` `MonitorDirective`
+  for every `in_progress` `ExamAttempt`, reusing the existing directive pipeline. Student page
+  resyncs `exam.endTime` and pushes a recomputed `initialSeconds` into `useExamTimer` (verified the
+  hook resets in either direction by reading it directly, not trusting its own comment). Already-
+  submitted attempts never receive a directive (query only touches `in_progress`), and nothing in
+  the codebase re-touches a finalized attempt on an `Exam` field change (confirmed via the
+  submit/force-finalize routes, both gate on `status === 'in_progress'`). Monitor page shows the
+  most recent change inline via `GET` on the same route.
+- **Known gap**: no live browser QA (real duplicate-and-reassign flow, real two-browser
+  teacher-extends/student-sees-it-live session).
 
-Two features, same session as the proctoring work above (separate commit).
+### 2026-08-12 — Proctoring module: ID verification removed, exam-start photo reaches the teacher, staleness fixed, gaze evidence, TURN-configurable WebRTC ✅
 
-- **"Assign to Another Section" = clone, not link** — deliberate architecture call, made and
-  flagged rather than guessed (the spec explicitly offered both and asked for a decision): every
-  subsystem here (results, live monitor, grading, status, eligibility) assumes one `Exam` ↔ one
-  `Class` ↔ one time window. Linking one exam to many classes would need class-scoping added to
-  attempts/monitor/results throughout; cloning needs none of that. New `duplicateExam()`
-  (`src/lib/data/exams.ts`) deep-copies the Exam row + `ExamSection`s + fixed `Question`s (never
-  per-attempt pooled ones, matching the established `attemptId: null` filter) + their `Option`s
-  inside one transaction, remaps section ids on the cloned questions, resets `status`/
-  `approvalStatus` to new-exam defaults (a copy isn't pre-approved), and requires its own fresh
-  start/end time. Attempts/answers/violations/enrollments/directives are never copied — a clone
-  starts exactly like a brand-new teacher-authored exam. Wired into the exam edit page as an
-  "Assign to Another Section" dialog (class picker excluding the current class, start/end time
-  fields), landing the teacher on the new copy's edit page on success.
-- **Edit-screen Start Time / End Time / Duration** — none of the three existed on the edit page
-  before (only read-only display). Added a "Schedule" card reusing the wizard's own field set
-  (Start/End via the two-field date+time picker, Duration as its own independent minutes input —
-  confirmed via the wizard's own code and copy that duration and the availability window are
-  genuinely separate concepts here, not one derived from the other). The picker itself
-  (`DateTimeField`) was pulled out of the wizard into `src/components/shared/` so both pages share
-  one implementation instead of two copies. **Restricted to upcoming exams** (draft/scheduled) —
-  enforced both client-side (fields hidden once live/completed, with an explanatory message
-  pointing at the live-monitor action or duplication instead) and, since the server had **no such
-  guard at all before this** (a real, previously-open gap: any owning teacher could `PUT` new
-  schedule fields onto a live or completed exam), server-side in `PUT /api/exams/[examId]` —
-  scoped narrowly to requests that actually touch `startTime`/`endTime`/`duration`, so the
-  existing "Go Live Now" / "End Exam" status-transition calls (which send `status` alone) are
-  completely unaffected.
-- **Mid-exam end-time change, real-time to students** — new "Extend / Change End Time" button on
-  the live monitor page (shown only while the exam is effectively live), backed by a new dedicated
-  route `PATCH /api/exams/[examId]/end-time` (deliberately separate from the general `PUT`, which
-  now blocks schedule edits on a live exam — this is the one narrow, audited exception, only
-  reachable while live, only ever touching `endTime`). Requires `newEndTime > now` (server-
-  enforced); a value earlier than the *current* end time is still allowed (per spec) but the
-  teacher-facing dialog requires an explicit second confirm click first, warning that active
-  students will lose time. On success: `Exam.endTime` updates, an `ExamTimeChange` audit row is
-  written (old/new end time, teacher, timestamp — new table, RLS SELECT-only for the exam's own
-  teacher/institution admins), and a new `time_extended` `MonitorDirective` is created for every
-  currently `in_progress` `ExamAttempt` — reusing the existing directive delivery pipeline
-  (Realtime INSERT + 20s poll fallback, `DirectiveListener`) rather than building a new transport.
-  The student's exam page resyncs `exam.endTime` and pushes a freshly recomputed `initialSeconds`
-  into `useExamTimer` (which resets to whatever it's given in either direction — verified by
-  reading the hook directly rather than trusting its own comment, which turned out to describe the
-  *reason* for a `>0` guard, not a one-directional restriction), so the visible countdown updates
-  immediately for both an extension and a reduction; a small blue banner tells the student what
-  changed and by how much. **Edge cases, both handled structurally, not by an added check**:
-  already-submitted/auto_submitted students never receive a directive at all (only `in_progress`
-  attempts are queried), and nothing anywhere in this codebase re-touches a finalized
-  `ExamAttempt` based on an `Exam` field changing (confirmed by reading the submit/force-finalize
-  routes, both gate on `status === 'in_progress'` before writing) — so a change mid-submission
-  can't corrupt anything, since the timer-resync state update never touches `answers` or the
-  submit flow. The monitor page also shows the most recent change inline ("End time changed by X,
-  9:47 → whenever, 2 minutes ago") via a small `GET` on the same route.
-- **Verification**: `tsc` clean · `lint` back to the exact pre-existing 3-error/0-warning baseline
-  (one ordering issue introduced and fixed along the way — an outer `useCallback` called directly
-  in an effect body instead of nested inside the effect's own local `load()` closure, matching the
-  pattern this file's own `refresh()` already established) · `vitest` 403/403 (no new pure-function
-  surface introduced — both features are DB/UI-driven throughout, consistent with how this
-  codebase has always verified that kind of change) · `build` clean, 89 routes (new
-  `/api/exams/[examId]/end-time`) · schema pushed live + RLS added and verified via `pg_policies`.
-  **Known gap, not done this session**: no live browser QA (real duplicate-and-reassign flow,
-  real two-browser teacher-extends/student-sees-it-live session) — flagged the same way as the
-  proctoring work above, for the same reason.
+Five-item punch list.
 
-### 2026-08-12 — Proctoring module: ID verification removed, exam-start photo now reaches the teacher, trust-score/violation staleness fixed, gaze_away evidence, TURN-configurable WebRTC ✅
-
-Five-item punch list on the proctoring module.
-
-- **ID document verification removed entirely** — the biometric gate is now a single face-only
-  capture step (`webcam → verified`, was `webcam → id → verified`). `src/lib/face-verification.ts`
-  dropped `analyzeIdPhoto`/`faceMatchDistance`/`isSamePerson`/`FACE_MATCH_THRESHOLD` and the
-  cross-matching descriptor entirely — `analyzeLiveFace` now only confirms exactly one
-  sufficiently large live face, no embedding needed. Two of the three self-hosted model weight
-  sets (`face_landmark_68`, `face_recognition`, ~6.4MB) were genuinely unused after this and
-  deleted from `public/models/face-api/`; only the SSD MobileNet detector remains. No schema
-  columns existed for ID data specifically, so there was nothing to migrate away — this was a
-  pure code/asset removal. Scrubbed stale "face/ID" wording from the `unverified_start` violation
-  description (`media-readiness.ts`) and its pinned test.
+- **ID document verification removed** — gate is now face-only (`webcam → verified`, was
+  `webcam → id → verified`). `src/lib/face-verification.ts` dropped `analyzeIdPhoto`/
+  `faceMatchDistance`/`isSamePerson`/`FACE_MATCH_THRESHOLD`; `analyzeLiveFace` only confirms one
+  sufficiently large live face. Deleted 2 of 3 self-hosted model weight sets (~6.4MB, now unused)
+  from `public/models/face-api/`.
 - **Exam-start photo now reaches the teacher** (previously captured into React state and
-  discarded on unmount — no mechanism sent it anywhere). `BiometricOnboarding` now uploads the
-  verified face capture via the existing `/api/upload` (folder `verification`) the moment it's
-  confirmed good, and hands the resulting storage path up through `onComplete`. The exam page
-  carries it in a ref (same reason `unverifiedStartRef` exists — the gate runs before any attempt
-  row exists) and includes it in `POST /api/attempts`'s body; the route persists it to new
-  `ExamAttempt.verificationPhotoUrl` only after re-verifying the path's userId segment matches
-  the caller (defense in depth — `/api/upload` already scopes paths server-side, so this can't
-  actually be forged, but costs nothing to check). `/api/evidence` gained an `attemptId` branch to
-  resolve it to a signed URL; `StudentActionsModal`'s live-monitor panel gained a "Verification
-  photo" button (available regardless of attempt status, unlike the live/snapshot actions, since a
-  teacher may want to check identity after submission). **Deliberately not purged on exam
-  finalization** like violation evidence — identity review may be needed after grading — but the
-  existing 30-day cron (`/api/cron/purge-evidence`) now also sweeps stale verification photos,
-  keyed off `startedAt` since `ExamAttempt` has no per-row evidence timestamp.
-- **Violation/trust-score staleness on the live monitor, root-caused and fixed**: `StudentActionsModal`
-  itself was already stateless w.r.t. its `student` prop — the bug was in both monitor pages
-  (`teacher/exams/[examId]/monitor` and `teacher/monitor`), which stored a **frozen snapshot**
-  object (`viewing: MonitorStudent | null`, set once via `setViewing(s)` at click time) instead of
-  just an id. The underlying `students` array kept refreshing via poll/Realtime, but `viewing`
-  never re-synced to it, so the modal's Trust/Violations tiles froze at whatever they were the
-  moment it opened — provably stale against the violations timeline below, which *did* keep
-  updating (fed from separate live `feed` state). Fixed at the root by changing both pages to hold
-  only `viewingId: string | null` and deriving `viewing = students.find(s => s.id === viewingId)`
-  at render time — one source of truth, structurally can't drift. (Traced but ruled out as the
-  cause: the write path is synchronous/awaited in all 4 call sites, `invalidateData()` is
-  same-browser-only so it couldn't apply here anyway since violations POST from the student's
-  browser, not the teacher's.)
-- **`gaze_away` evidence capture added**, mirroring the existing `no_face`/audio pattern exactly:
-  `FaceDetector.tsx`'s `handleGaze` now calls the same `captureSnapshot()` used by
-  multiple_faces/no_face/phone at episode-open, and `emitGaze` attaches the resulting path as
-  `screenshotUrl` — same upload endpoint, same bucket, same `/api/evidence` retrieval path,
-  visible on the violations timeline exactly like every other evidence-bearing violation type.
-- **WebRTC "Connection lost" on real networks — made TURN-configurable, added one automatic
-  reconnect attempt; did not silently pick a TURN provider**. Root cause confirmed: the app is
-  STUN-only (`webrtc-signaling.ts`), which only helps two peers discover each other's public
-  address — it cannot relay traffic through a blocking firewall/symmetric NAT, exactly what real
-  student networks hit that a dev machine never does. Real TURN relay is a hosting/cost decision
-  (self-hosted coturn vs. a pay-per-use provider), so per this repo's established pattern
-  (2026-07-17 live-video entry) it wasn't guessed — **asked Haris directly**; he chose "make it
-  configurable for now." `ICE_SERVERS` is now built from `NEXT_PUBLIC_TURN_URL`/`_USERNAME`/
-  `_CREDENTIAL` (all three or none — STUN-only fallback if unset, documented in `.env.example`),
-  with the building logic exported as `buildIceServers()` and unit-tested (5 new tests). Separately
-  — a real improvement independent of TURN — `useWebRTCViewer` no longer declares a dropped
-  connection dead immediately: a native `disconnected` state gets a 6s grace window to self-heal
-  (ICE's own connectivity checks often recover from a brief blip with zero action needed), and
-  either `disconnected`-past-grace or an immediate `failed` triggers one automatic reconnect (close
-  the dead `RTCPeerConnection`, re-send `request` over the still-subscribed signaling channel —
-  confirmed `WebRTCBroadcaster` already handles a re-request from the same `viewerId` correctly,
-  tearing down and renegotiating). Only one automatic retry per drop (reset on a real recovery) so
-  a persistently flaky network doesn't spam the student's browser forever.
-- **Verification**: `tsc` clean · `lint` back to the exact pre-existing 3-error/0-warning baseline
-  (one warning introduced and fixed along the way — a function left over from the ID-step removal)
-  · `vitest` 403/403 (404 baseline − 6 removed ID-matching tests + 5 new TURN-config tests) ·
-  `build` clean, 88 routes (no new routes) · schema pushed live (`prisma db push` +
-  `prisma generate`) · dev server smoke-tested post-build. **Known gap, not done this session**:
-  no live browser/camera QA (real biometric capture, real teacher↔student monitor session, real
-  cross-NAT WebRTC reconnect) — this module is camera/network-dependent in a way `tsc`/`lint`/
-  `vitest` can't honestly claim to cover; a human pass with real devices on a real network remains
-  worthwhile, especially for the TURN reconnect logic and the new verification-photo delivery path.
+  discarded). `BiometricOnboarding` uploads the verified capture via `/api/upload` (folder
+  `verification`), passed up through `onComplete`, carried in a ref (attempt row doesn't exist
+  yet), included in `POST /api/attempts`'s body, persisted to new
+  `ExamAttempt.verificationPhotoUrl` after re-verifying the path's userId matches the caller.
+  `/api/evidence` gained an `attemptId` branch; `StudentActionsModal` gained a "Verification
+  photo" button, available regardless of attempt status. Deliberately not purged on finalization
+  like violation evidence (identity review may be needed post-grading) — swept by the existing
+  30-day cron instead, keyed off `startedAt`.
+- **Violation/trust-score staleness on the live monitor, root-caused**: both monitor pages stored
+  a **frozen snapshot** (`viewing: MonitorStudent | null`, set once at click time) instead of an
+  id, so the modal's tiles froze at open-time while the violations timeline below (fed from
+  separate live `feed` state) kept updating. Fixed by holding only `viewingId` and deriving
+  `viewing` at render time from the already-refreshing `students` array — one source of truth.
+- **`gaze_away` evidence capture added**, mirroring the existing `no_face`/audio pattern exactly
+  (same `captureSnapshot()`, same upload/retrieval path).
+- **WebRTC TURN made configurable, one automatic reconnect added — did not silently pick a
+  provider**. Root cause: STUN-only can't relay through a blocking firewall/symmetric NAT,
+  exactly what real student networks hit that a dev machine never does. Asked Haris directly per
+  this repo's established pattern; he chose "make it configurable for now." `ICE_SERVERS` built
+  from `NEXT_PUBLIC_TURN_URL`/`_USERNAME`/`_CREDENTIAL` (all-or-none, STUN fallback), exported as
+  `buildIceServers()` (later replaced by the Cloudflare integration above). `useWebRTCViewer` no
+  longer declares a dropped connection dead immediately — a native `disconnected` state gets a 6s
+  grace window, then one automatic reconnect (close + re-send `request` over the still-subscribed
+  channel); only one retry per drop.
+- **Known gap**: no live browser/camera QA this module is inherently network/camera-dependent in
+  a way `tsc`/`lint`/`vitest` can't cover.
 
 ### 2026-08-10 (cont'd) — Dedicated `/super` login page; role cleanup for the platform owner's account ✅
 
-- **`/super` is now a real dedicated login page**, not just an authenticated-only view of the
-  Master Admin Panel. Previously an unauthenticated visit 307'd to the shared `/login` (middleware
-  had no exception for it); now `/super` is in `middleware.ts`'s `PUBLIC_PREFIXES`, and
-  `src/app/super/page.tsx` (converted from a client page to an async Server Component) decides
-  everything itself: no session → `SuperLoginForm` (new, `src/components/auth/SuperLoginForm.tsx`,
-  visually distinct from the institution-scoped `LoginForm`); session but `!isSuperAdmin` → a plain
-  denial message; `isSuperAdmin` → the panel (moved unchanged into new `SuperAdminPanel.tsx`, whose
-  own client-side 403 handling is kept as defense-in-depth, not the primary gate anymore).
-  **Explicitly role-based, never email-based** — the gate is the same `getAuthUser()` →
-  `User.isSuperAdmin` DB flag every `/api/super/*` route already used, so any account with that
-  flag works, not one hardcoded address.
-- **Account cleanup**: `harisjamil1616@gmail.com` had `role: 'teacher'` + `isSuperAdmin: true` —
-  per Haris's decision (offered the alternative of a real `super_admin` Role enum value + updating
-  every role-branch to match; he picked the lower-risk option), `role` is now `'admin'`, keeping
-  `isSuperAdmin: true`. **Found and fixed a real, separate staleness bug while doing this**:
-  Supabase Auth's own `user_metadata.role` (what `middleware.ts` actually reads for route gating,
-  independent of the Prisma `User.role` column) still said `"teacher"` — updated via
-  `adminSupabase.auth.admin.updateUserById`, merging so `name`/`institutionId`/`inviteTokenId` in
-  that metadata were left untouched. Flagged to Haris: his current session's JWT still carries the
-  old claim until he re-logs-in or it naturally refreshes, and the account still owns 1 exam + 1
-  class as teacher (untouched, just no longer reachable via `/teacher/*` under this login).
-- **Verification**: `tsc` clean · `lint` unchanged 3-error baseline · `vitest` 404/404 · `build`
-  clean, 88 routes. Pushed (`e0f0ee4`) and confirmed live: build logs show `/super` in the route
-  table, deployment `READY` and aliased to `exam-system-sigma.vercel.app` with no alias error, and
-  a logged-out `curl` to `/super` returns `200` (not a redirect to `/login`).
+`/super` is now a real login page, not an authenticated-only view. Added to `middleware.ts`'s
+`PUBLIC_PREFIXES`; `src/app/super/page.tsx` (async Server Component) branches: no session →
+`SuperLoginForm`; session but `!isSuperAdmin` → denial message; `isSuperAdmin` → the panel
+(`SuperAdminPanel.tsx`). **Explicitly role-based** — same `getAuthUser()` → `User.isSuperAdmin`
+DB flag every `/api/super/*` route already used, never email-based. Account cleanup: Haris's own
+account had `role: 'teacher'` + `isSuperAdmin: true`; per his call (offered a real `super_admin`
+enum value, he picked the lower-risk option) `role` → `'admin'`. **Found and fixed a separate
+staleness bug**: Supabase Auth's own `user_metadata.role` (what `middleware.ts` reads, independent
+of the Prisma column) still said `"teacher"` — updated via `adminSupabase.auth.admin.updateUserById`.
+Confirmed live: logged-out `curl` to `/super` returns 200, not a redirect.
 
 ### 2026-08-10 — Real WYSIWYG editor (Quill) replaces the lightweight markup toolbar; RTL fixed app-wide; hierarchical rubric editor ✅
 
-Two passes in one day: a 5-ticket batch (RTL on the Item Bank page, a lightweight markup-toolbar
-RTE, `dir="auto"` for exam content, a Matching-question dropdown overlap, a hierarchical rubric
-editor), then an explicit follow-up reversing the RTE decision — Haris asked for a **real** WYSIWYG
-editor instead, with the scoring/prompt/dedup fixes that choice requires. Documented together since
-the follow-up's live QA pass ended up re-verifying (and fixing) both.
+Follow-up reversing an earlier same-day RTE decision — Haris asked for a real WYSIWYG editor
+instead of the lightweight markup toolbar just shipped, with the scoring/prompt/dedup fixes that
+choice requires.
 
-- **Real Quill editor** (`src/components/rich/QuillEditor.tsx`, lazy-loaded — see `quill-loader.ts`)
-  replaces `MathTextarea`/`MathInput` for Question Stem and every answer-option-shaped field
-  (MCQ/MRQ/TF/Matching/Ordering). Explanation and fill_blank/short_answer's correct-answer field
-  deliberately stay on the old plain-markup editor (flagged: the latter is compared byte-for-byte
-  against a student's plain-typed answer — upgrading it to HTML would only add risk, no value).
-- **No schema change, no data migration** — `RichText.tsx` gained one new, narrow signal
-  (`looksLikeRichHtml`: does the content *start* with a real Quill block tag like `<p>`/`<ol>`?)
-  that distinguishes genuinely-Quill-authored content from literally everything written before
-  Quill existed (plain prose, last session's `**bold**`-style markup, AI-generated text, CSV
-  imports) — none of which can structurally produce that shape. Non-matching content renders via
-  the exact unmodified prior pipeline; matching content is sanitized (DOMPurify, lazy-loaded) and
-  rendered via `dangerouslySetInnerHTML` — the first use of that API in this codebase, previously
-  documented as never used anywhere (see `MathSegment.tsx`'s own comment, now historical).
-- **Math/Chemistry reuse the existing `MathInputDialog`** unchanged via a custom Formula blot
-  (`quill-loader.ts`) that deliberately does NOT use Quill's own stock formula module — that module
-  requires a global `window.katex` and calls `katex.render()` with no `trust`/`strict` options at
-  all, a real unpatched XSS surface in Quill's default (`\href{javascript:...}` would execute
-  in-editor). The custom blot only ever stores raw LaTeX + display-mode as data attributes and
-  shows an inert label in-editor; every render re-extracts them and re-renders through the
-  already-hardened `MathSegment`/`katex-loader.ts` (`trust: false`) instead.
-- **`img src` restricted to this app's own upload bucket** (`sanitize-html-loader.ts`) — the
-  DOMPurify tag/attribute allowlist alone doesn't restrict what a `src` value points at; a stray
-  external URL would have sanitized cleanly and silently loaded (tracking-pixel/beaconing risk,
-  not XSS). Added after Haris asked to confirm this specifically; a `uponSanitizeAttribute` hook
-  now requires the URL's origin + path to match the public `item-assets` bucket under this app's
-  own Supabase project, with 6 new tests (lookalike-host and non-http(s)-scheme cases included).
-- **Scoring/prompts/dedup made HTML-aware**: `stripHtml()` (new, `lib/rich-text.ts`) applied to
-  `scoring.ts`'s `ordering`/`matching` comparisons (both previously exact-`===`), both Claude
-  prompts in `ai/grading.ts`, the pg_trgm dedup query in `ai/generation-job.ts` (wrapped in
-  `regexp_replace` — flagged: drops GIN-index usage for that comparison, acceptable at current
-  scale), and `item-form-schema.ts`'s min-length check (`<p></p>` no longer trivially passes).
-  CSV import (`BulkImportModal.tsx`) now defensively `escapeHtml()`s imported stems. Checked for a
-  "SVG export" feature per Haris's ask — none exists anywhere in this codebase, nothing to fix.
-- **Found and fixed a real, high-impact bug during live QA, unrelated to either RTE decision**:
-  Radix UI's `Tabs`/`Select` default their own internal `dir` to `"ltr"` regardless of `html[dir]`
-  (`@radix-ui/react-direction`'s `useDirection()`) — this broke RTL app-wide, not just on the Item
-  Bank page the ticket named. Fixed with `DirectionProvider` in `layout.tsx`, plus an `npm
-  overrides` pin (`@radix-ui/react-direction: 1.1.2`) — several Radix packages hard-pin that exact
-  version rather than a caret range, so without the override npm installed a second, disconnected
-  copy and the fix was silently a no-op until diagnosed via `find node_modules -path
-  '*react-direction*'`. Verified live: breadcrumb chevrons, tab order/icons, table column order all
-  correct in Arabic after the fix.
-- **Also found and fixed live**: `QuillEditor`'s format-sync handler crashed calling
-  `quill.getFormat()` with no active selection (e.g. focus moved to the Math dialog); the Matching
-  dropdown's closed state clipped long text with no ellipsis (`text-overflow: clip`, not
-  `ellipsis`) — both are the kind of bug only live browser QA catches, not `tsc`/`lint`/tests.
-- **Hierarchical rubric editor** (`src/lib/rubric.ts` + `src/components/items/RubricEditor.tsx`)
-  for essay items — found the existing rubric UI was a fully static, disconnected table (inputs had
-  no state at all), and separately that `createItem()` never even wrote `rubric` to Prisma
-  regardless of what any caller sent (AI generation included) — fixed both. New editor supports
-  custom dimensions/columns, one level of sub-dimension nesting, real-time weight validation
-  (top-level sums to 100%, a parent's sub-dimensions sum to its own weight), and an "Enable AI
-  Auto-Grading" toggle; compiles down to the existing flat `RubricCriterion[]` shape at save time
-  so the AI grading pipeline itself needed zero changes. **Not live-verified** in a browser this
-  session — only `tsc`/`lint`/`vitest`/`build` — flagged as a gap given how much the live pass
-  turned up elsewhere.
-- Trust score formula/color-coding unified across every view (Live Monitor, per-exam monitor,
-  Students tab, results table, complete page, monitor modal) — was previously two different
-  formulas depending on whether an exam had sections, plus four different inline color-threshold
-  schemes. Per-attempt evidence (snapshots/audio) now auto-purges on exam finalization instead of
-  only via the pre-existing 30-day cron.
-- **Live QA** used this repo's own disposable-fixture pattern (`tests/fixtures/seed-tenants.ts` +
-  `teardown-tenants.ts`, gated by `guard-non-prod.ts`'s `QA_ALLOW_PROD_OVERRIDE` since no non-prod
-  Supabase project exists) against the one available (production) project, fully torn down after —
-  confirmed zero leftover rows from this session (a pre-existing, unrelated 2026-07-03 orphaned
-  fixture was noticed and flagged, not touched).
-- **Verification**: `tsc` clean · `lint` unchanged 3-error baseline · `vitest` 404/404 · `build`
-  clean, 88 routes. Pushed (`e7cbc08`) and confirmed live: Vercel auto-deploy `READY`, aliased to
-  `exam-system-sigma.vercel.app`, build logs show all 88 routes.
-- **Known residual, disclosed not fixed**: one low-severity, currently-unpatched-upstream Quill
-  advisory (its own HTML-export feature) — mitigated by DOMPurify sitting downstream of everything
-  Quill produces, but not eliminated at the source.
+- **Quill editor** (`src/components/rich/QuillEditor.tsx`, lazy-loaded) replaces
+  `MathTextarea`/`MathInput` for Question Stem and answer-option-shaped fields. Explanation and
+  fill_blank/short_answer's correct-answer field deliberately stay plain-markup (the latter is
+  compared byte-for-byte against a student's typed answer — HTML would only add risk).
+- **No schema change** — `RichText.tsx` gained `looksLikeRichHtml` (does content start with a
+  real Quill block tag?) to distinguish Quill-authored content from everything written before
+  Quill existed; non-matching renders via the unmodified prior pipeline, matching content is
+  DOMPurify-sanitized and rendered via `dangerouslySetInnerHTML` (first use in this codebase).
+- **Math/Chemistry reuse `MathInputDialog`** via a custom Formula blot that deliberately does
+  NOT use Quill's stock formula module — that module calls `katex.render()` with no `trust`
+  option, a real unpatched XSS surface (`\href{javascript:...}` would execute in-editor). The
+  custom blot stores raw LaTeX + display-mode as data attributes and re-renders through the
+  already-hardened `MathSegment`/`katex-loader.ts` (`trust: false`).
+- **`img src` restricted to this app's own upload bucket** (`sanitize-html-loader.ts`) — a
+  `uponSanitizeAttribute` hook requires the URL match the public `item-assets` bucket, closing a
+  tracking-pixel/beaconing risk the tag/attribute allowlist alone didn't cover. 6 new tests.
+- **Scoring/prompts/dedup made HTML-aware**: new `stripHtml()` applied to `scoring.ts`'s
+  ordering/matching comparisons, both Claude grading prompts, the pg_trgm dedup query (wrapped in
+  `regexp_replace` — flagged: drops GIN-index usage, acceptable at current scale), and the
+  min-length check. CSV import now `escapeHtml()`s imported stems.
+- **Real bug found during live QA, unrelated to the RTE decision**: Radix `Tabs`/`Select` default
+  their own internal `dir` to `"ltr"` regardless of `html[dir]` — broke RTL app-wide, not just the
+  Item Bank page the original ticket named. Fixed with `DirectionProvider` in `layout.tsx` + an
+  `npm overrides` pin (`@radix-ui/react-direction: 1.1.2` — several Radix packages hard-pin that
+  version, so without the override npm installed a second disconnected copy and the fix was
+  silently a no-op until diagnosed).
+- **Also found and fixed live**: `QuillEditor`'s format-sync handler crashed with no active
+  selection; the Matching dropdown clipped long text with no ellipsis.
+- **Hierarchical rubric editor** (`src/lib/rubric.ts` + `RubricEditor.tsx`) for essay items — the
+  existing UI was a fully static disconnected table, and separately `createItem()` never wrote
+  `rubric` to Prisma at all regardless of caller — both fixed. Supports custom dimensions, one
+  level of sub-dimension nesting, real-time weight validation, an AI-auto-grade toggle; compiles
+  to the existing flat `RubricCriterion[]` shape so the grading pipeline needed no changes. **Not
+  live-browser-verified** this session.
+- Trust score formula/color-coding unified across every view (was two formulas + four inline
+  color schemes). Per-attempt evidence now auto-purges on exam finalization too, not just the
+  30-day cron.
+- Live QA used the repo's disposable-fixture pattern against the only available (production)
+  Supabase project, fully torn down after.
+- **Known residual**: one low-severity unpatched-upstream Quill advisory (its own HTML-export
+  feature), mitigated by DOMPurify sitting downstream of everything Quill produces.
 
 ### 2026-08-05 — Parallel batch: upload UI, upcoming-exams fix, proctoring device gate, performance/staleness ✅
 
-Four independent workstreams run as isolated git worktrees and integrated together. Each landed as
-its own commit; the merge needed one integration fix (below).
+Four workstreams as isolated git worktrees, integrated together (one merge fix needed).
 
-- **Item-bank AI upload UI** (`671130b`, `src/components/items/AiGeneratePanel.tsx`) — upload moved
-  from a text link beside the label to a centred button in a drop-zone (drag-and-drop supported)
-  with a caption explaining what to upload and that an upload alone suffices. A single `sourceReady`
-  gate now backs both the button and `handleGenerate`, so **either** an upload **or** pasted text
-  passes — neither requires the other. Extraction failures used to be swallowed by a bare
-  `catch { setDocText('') }`, leaving Generate silently disabled with no explanation; every failure
-  now names its cause (unsupported type, empty file, extraction failed, no selectable text → a
-  scan), and the disabled button always carries a reason including the 10-char minimum that mirrors
-  the route's own `z.string().min(10)`.
-- **Student dashboard "Upcoming Exams" was empty** (`2d45444`) — **third recurrence of the roster
-  bug class**. `getStudentDashboardData` resolved the roster from `TeacherStudent` only, with no
-  `ClassEnrollment` branch and no `Exam.classId` check, so a class-invite student (who has no
-  `TeacherStudent` row) hit `{ in: [] }` and saw nothing — while the same exams listed correctly on
-  `/student/exams`, whose `getStudentExams` already had the right `OR`. The gap also leaked
-  class-scoped exams to every one of the teacher's students. Second defect on the same feature: the
+- **Item-bank AI upload UI** — upload moved to a centred drop-zone button; a single `sourceReady`
+  gate backs both the button and Generate so either an upload or pasted text suffices, neither
+  requires the other. Extraction failures now name their cause instead of a bare
+  `catch { setDocText('') }` that silently disabled Generate with no explanation.
+- **Student dashboard "Upcoming Exams" was empty — third recurrence of the roster bug class.**
+  `getStudentDashboardData` resolved the roster from `TeacherStudent` only (no `ClassEnrollment`
+  branch, no `Exam.classId` check) — a class-invite student saw nothing, while the same exams
+  listed correctly on `/student/exams` (whose `getStudentExams` already had the right `OR`). The
+  gap also leaked class-scoped exams to every one of the teacher's students. Separately, the
   "Upcoming Exams" **stat was structurally always 0** — it counted `ExamEnrollment` rows with a
-  future `startTime`, but `ExamEnrollment` is created in exactly one place (`POST /api/attempts`,
-  i.e. on *start*), and that route rejects starting before `startTime`. Fixed at the root:
-  `studentVisibleExamWhere()` in `exam-eligibility.ts` is the Prisma WHERE twin of the existing
-  `isStudentEligibleForExam()` predicate, and both read paths use it so they cannot drift again.
-  8 new tests, confirmed failing 5/5 against pre-fix source.
-- **Proctoring device gate** (`1f982fa`) — new `src/lib/proctoring/media-readiness.ts` (pure),
-  `src/hooks/useMediaReadiness.ts`, `src/components/proctoring/MediaCheckGate.tsx`. Requires camera
-  **and** mic and proves the streams are genuinely live (video dimensions non-zero *and* playback
-  position advancing; audio analyser readable), not merely permitted. Failures classified
-  specifically (denied / dismissed / no device / in use / insecure context / unsupported), each with
-  its own fix text. **Re-verifies at click time**, so revoking permission or unplugging a webcam
-  after page load is caught. Found and fixed a real pre-existing privacy bug: a **non-proctored**
-  exam still called `getUserMedia` — `setExam()` runs before an awaited questions fetch while
-  `biometricDone` is still false, so `BiometricOnboarding` mounted transiently and grabbed the
-  camera. **This invalidates the 2026-07-09 note claiming that path was verified clean.** The
-  2026-07-20 escape hatch is preserved: still exactly one `unverified_start`, legacy wording
-  byte-identical. Never gates a *running* attempt (hook switches off at `instructionsDone`), so a
-  mid-exam hiccup or resume can't strand a student.
-- **Performance / staleness** (`e5b03fa`, 53 files) — new `src/lib/session.ts`,
-  `src/lib/data-refresh.ts`, `src/hooks/useServerData.ts`, `src/lib/data/page-data.ts`.
-  *Staleness root cause*: every dashboard page is `'use client'` loading once into `useState`; the
-  data never passes through the RSC payload or `fetch()`, so `revalidatePath`/`revalidateTag`/
-  `router.refresh()`/segment config have **nothing to invalidate** — the stale copy is browser React
-  state. Fixed with a client invalidation bus (mutations call `invalidateData()`, subscribers
-  refetch; plus refocus refetch past a 15s window). *Slow-load root causes*: (1) **React serializes
-  Server Actions** — `Promise.all` of four actions issues four *sequential* POSTs, proven by request
-  timeline (650/2686/3713/4455ms, zero overlapping pairs); (2) `supabase.auth.getUser()` is a ~300ms
-  HTTPS round trip paid in middleware AND the layout AND each of 8 duplicated session helpers, each
-  plus a ~200ms Prisma lookup — replaced by local **ES256** JWT verification via `getClaims()`
-  against the cached JWKS (~1ms), memoised per request with React `cache()`; (3) two real N+1s.
-  Authorization is unchanged — `getAuthUser` still reads the live Prisma row and both `suspendedAt`
-  checks. **Negative finding: indexes are NOT the problem** — `EXPLAIN (ANALYZE, BUFFERS)` shows an
-  index scan in 0.190ms while the Prisma call takes 345ms; cost is round-trip count × latency. **No
-  index added, no live-DB schema change anywhere in this batch — nothing to revert.**
-  Local timings (`next start`, live DB, median of 3 — *local, not production cold-start*):
+  future `startTime`, but that row is only created on attempt *start*, which the route rejects
+  before `startTime`. Fixed at the root: `studentVisibleExamWhere()` is now the Prisma WHERE twin
+  of `isStudentEligibleForExam()`, both read paths use it. 8 new tests, confirmed failing 5/5
+  pre-fix.
+- **Proctoring device gate** — new `src/lib/proctoring/media-readiness.ts` (pure) +
+  `useMediaReadiness.ts` + `MediaCheckGate.tsx`. Requires camera **and** mic and proves the
+  streams are genuinely live (non-zero video dimensions + advancing playback position; readable
+  audio analyser), not merely permitted. Failures classified specifically (denied/dismissed/no
+  device/in use/insecure context/unsupported). Re-verifies at click time, so revoking permission
+  or unplugging a webcam after page load is caught. **Found and fixed a real pre-existing privacy
+  bug**: a non-proctored exam still called `getUserMedia` — `setExam()` runs before an awaited
+  questions fetch while `biometricDone` is still false, so `BiometricOnboarding` mounted
+  transiently and grabbed the camera; **this invalidates the 2026-07-09 note claiming that path
+  was verified clean**. Never gates a running attempt (switches off at `instructionsDone`).
+- **Performance/staleness** (53 files) — new `src/lib/session.ts`, `data-refresh.ts`,
+  `useServerData.ts`, `data/page-data.ts`. *Staleness root cause*: every dashboard page is
+  `'use client'` loading once into `useState` — data never passes through the RSC payload or
+  `fetch()`, so `revalidatePath`/`router.refresh()` have nothing to invalidate. Fixed with a
+  client invalidation bus (mutations call `invalidateData()`, subscribers refetch, plus a 15s
+  refocus window). *Slow-load root causes*: (1) React serializes Server Actions —
+  `Promise.all` of four actions issues four *sequential* POSTs (proven by request timeline,
+  zero overlapping pairs); (2) `supabase.auth.getUser()` (~300ms round trip) paid in middleware
+  AND layout AND 8 duplicated session helpers, each plus a ~200ms Prisma lookup — replaced by
+  local ES256 JWT verification via `getClaims()` against a cached JWKS (~1ms), memoised per
+  request; (3) two real N+1s. Authorization unchanged. **Negative finding**: indexes are NOT the
+  problem — `EXPLAIN` shows a 0.190ms index scan while the Prisma call takes 345ms; cost is
+  round-trip count × latency. Local timings (median of 3, local not prod cold-start):
   `/teacher/analytics` 5934→841ms · `/admin` 3890→1341 · `/admin/exams` 3611→839 ·
   `/admin/users` 3066→225 · `/student` 627→42.
-- **Integration fix** (`a6daf91`) — all four branches auto-merged with **zero conflicts**, but the
-  suite then failed 5 tests: the dashboard tests mock `auth.getUser` while the perf work moved
-  identity to `auth.getClaims`. Two individually-correct branches whose test files never met. A
-  clean textual merge is not proof of a working merge — verified afterwards that the merged
-  `getStudentDashboardData` still routes through `getStudentVisibilityContext` and that neither
-  broken pattern survives.
-- **Verification**: `tsc` clean · `lint` unchanged 3-error/0-warning baseline *on real source*
-  (a raw `npm run lint` also walks `.claude/worktrees/` and reports tens of thousands of findings —
-  worktree artifact, not code) · `vitest` **351/351** (320 + 8 + 23) · `build` clean, 88 routes ·
-  live DB swept clean, 0 leftovers.
-- **Known gap, explicitly accepted by Haris before deploy**: the proctoring gate was **never tested
-  on real hardware** — no physically unplugged webcam, OS-level muted track, lens shutter, real
-  competing app, or permission revoked from browser settings. Denials were simulated by throwing the
-  correct `DOMException` names; the `no_signal` / `track_muted` branches are unit-tested but never
-  fired by a genuine device. Chromium only. A real human+hardware pass on the gate remains
-  worthwhile.
+- **Integration fix** — zero merge conflicts across all four branches, but the suite then failed
+  5 tests: dashboard tests mocked `auth.getUser` while the perf work moved identity to
+  `auth.getClaims`. A clean textual merge is not proof of a working merge.
+- **Known gap, explicitly accepted by Haris before deploy**: the proctoring gate was never tested
+  on real hardware (unplugged webcam, OS-level muted track, lens shutter, real competing app,
+  revoked permission). Denials were simulated by throwing the correct `DOMException` names.
 
 ### 2026-08-04 — Math & chemistry in question content (KaTeX + mhchem + MathLive), no schema change ✅
 
-Audit first: this codebase had **no rich-text editor at all** — no TipTap/Quill/Slate/Lexical, zero
-`contentEditable`, zero `dangerouslySetInnerHTML`. Stems/options/explanations are plain `String`
-columns authored in bare shadcn `<Textarea>`/`<Input>` and rendered as React text children. So the
-brief's "migrate to TipTap" fallback was **deliberately declined and justified in writing**: TipTap
-would force `stem` to become HTML/JSON, breaking `scoring.ts`'s option-text equality, both Claude
-prompt paths in `ai/grading.ts` + `ai/claude-generator.ts` (explicitly out of scope), pg_trgm dedup,
-3 search filters, CSV import and every `line-clamp` preview — for bold/italic/lists, which is a
-different feature than "math & chemistry". Haris confirmed the lighter scope.
+Audited first: no rich-text editor existed at all (no TipTap/Quill/Slate, zero
+`dangerouslySetInnerHTML`); stems/options are plain `String` columns. **The brief's "migrate to
+TipTap" fallback was declined and justified in writing** — TipTap would force `stem` to HTML/JSON,
+breaking `scoring.ts`'s option-text equality, both Claude prompt paths, pg_trgm dedup, search
+filters, CSV import and `line-clamp` previews, for bold/italic/lists — a different feature than
+math/chemistry. Haris confirmed the lighter scope.
 
-- **Storage unchanged.** No Prisma migration, no data migration. `stem`/`text`/`explanation` stay
-  plain strings; LaTeX lives inline as `$…$` / `$$…$$` / `\(…\)` / `\[…\]`, chemistry as mhchem's
-  `\ce{...}` inside those. Every pre-existing row parses to one text segment and renders exactly
-  as before.
-- **One renderer, everywhere** — `src/components/rich/RichText.tsx` is the only place authored
-  content is rendered: student exam page (stem, MCQ/MRQ/matching/ordering options), post-submit
-  review, teacher per-student answer review, exam edit page, bank/admin/wizard list previews.
-  Fast path: content with no delimiters renders as a plain text child and never loads KaTeX.
-- **Currency is the real backward-compat hazard, and is handled**: `$…$` only opens when the next
-  char isn't whitespace and only closes when the previous char isn't whitespace *and* the next
-  isn't a digit. `"The item costs $5 and the tax is $10."` stays literal; `"Solve $2x + 1 = 7$"`
-  renders. Unterminated delimiters, blank-line spans and >5000-char expressions all fall back to
-  literal text. 23 unit tests in `tests/unit/rich-text.test.ts`.
+- **Storage unchanged** — no migration. LaTeX lives inline as `$…$`/`$$…$$`/`\(…\)`/`\[…\]`,
+  chemistry as mhchem's `\ce{...}` inside those. Every pre-existing row parses to one text
+  segment and renders exactly as before.
+- **One renderer everywhere** — `src/components/rich/RichText.tsx`. Fast path: content with no
+  delimiters renders as a plain text child, never loads KaTeX.
+- **Currency is the real backward-compat hazard, handled**: `$…$` only opens when the next char
+  isn't whitespace and only closes when the previous char isn't whitespace *and* the next isn't a
+  digit — `"costs $5 and $10"` stays literal, `"Solve $2x + 1 = 7$"` renders. 23 unit tests.
 - **Authoring** — `MathTextarea`/`MathInput` wrap the existing primitives with an insert-at-caret
-  toolbar (Σ Math / ⚗ Chemistry) plus a live preview that only appears once the field contains an
-  expression. Math mode drives a **MathLive** `<math-field>` (built imperatively, strictly typed via
-  `MathfieldElement`, no `JSX.IntrinsicElements` hack, no `any`); chemistry mode takes plain mhchem
-  notation with quick-insert glyphs and wraps it in `\ce{...}`. Per Haris's call the LaTeX source
-  stays visible and editable in both. Wired into the item builder (stem, options, matching pairs,
-  correct-answer, **plus a new Explanation field** — the column and `createItem` already persisted
-  it, the manual builder just never exposed it) and the exam edit page (Add Question + inline stem).
-- **XSS**: no new HTML-injection path exists. Text segments are React children (escaped); LaTeX goes
-  to KaTeX as a *source string* with `trust: false`, which disables `\href`/`\url`/`\includegraphics`
-  /`\html*` — the only commands that can emit URLs, attributes or markup. `dangerouslySetInnerHTML`
-  remains at zero occurrences repo-wide; KaTeX writes into a DOM node React doesn't own.
-- **Lazy loading verified against the build, not assumed**: KaTeX (296KB), MathLive (821KB) and the
-  KaTeX stylesheet each land in their own async chunk, confirmed absent from `build-manifest.json`'s
-  eager file lists. MathLive fonts self-hosted in `public/mathlive/fonts/` (20 woff2, 296KB, no
-  external calls) — no middleware change needed, `STATIC_ASSET_RE` already passes `.woff2`, the
-  generalisation added when `/models/*` was being role-redirected.
-- **Real bug found and fixed via live QA** (pre-existing, on the surface being extended): the exam
-  edit page's inline stem editor `await`ed the server round trip before updating the controlled
-  value, so every character typed while a save was in flight was echoed away by the stale prop —
-  typing `" Edited."` at a human cadence landed as `"di"`. Now updates local state immediately and
-  debounces the save per question (600ms), flushed on blur.
-- **Observed but not fixed (pre-existing, unrelated, out of scope)**: `/teacher/items/[bankId]`
-  horizontally overflows at 390px because of its action-button row (`flex-shrink-0`, 749px wide) —
-  measured with zero KaTeX nodes on the page, so not math-related; and the proctoring bundle 404s on
+  toolbar plus live preview. Math mode drives a MathLive `<math-field>`; chemistry mode wraps
+  plain mhchem notation in `\ce{...}`. LaTeX source stays visible/editable per Haris's call.
+- **XSS**: no new HTML-injection path — text segments are React children (escaped); LaTeX goes to
+  KaTeX as a source string with `trust: false` (disables `\href`/`\url`/`\includegraphics`).
+  `dangerouslySetInnerHTML` stays at zero occurrences repo-wide.
+- **Lazy loading verified against the build**: KaTeX (296KB) and MathLive (821KB) each land in
+  their own async chunk, confirmed absent from `build-manifest.json`'s eager lists.
+- **Real bug found and fixed via live QA**: the exam edit page's inline stem editor `await`ed the
+  server round trip before updating the controlled value, so every character typed while a save
+  was in flight got echoed away by the stale prop. Now updates local state immediately, debounces
+  the save (600ms), flushed on blur.
+- **Observed but not fixed (pre-existing, unrelated)**: `/teacher/items/[bankId]` overflows at
+  390px (measured with zero KaTeX nodes — not math-related); proctoring bundle 404s on
   `tfjs-backend-wasm-simd.wasm`.
-- **Verification**: `tsc` clean · `lint` unchanged 3-error/0-warning baseline · `vitest` 313/313
-  (290 baseline + 23 new) · `build` clean, 88 routes. **30/30 live checks** via a disposable,
-  self-cleaning Playwright + Prisma script against a fresh production build (`next start`, not dev)
-  and the live DB: legacy plain stem unchanged and KaTeX never loaded for it, currency prose not
-  reinterpreted, inline+display math and mhchem chemistry rendered (arrows `⟶`/`⇌` confirmed in the
-  MathML layer), options render math, editing a pre-math question saves correctly, authoring a new
-  math+chem item through both dialogs persists the LaTeX byte-exact, and rendered math stays inside
-  a 390px viewport. All QA data confirmed deleted afterward (0 leftovers).
-- **Known limitations at first pass** (all but the last two closed by the follow-up below):
-  native `<select>` options in matching couldn't render math; AI generation didn't emit LaTeX;
-  no keyboard shortcut; no print handling; the bank page's own mobile overflow. Still open:
-  students can't author math in their own free-text answers (deliberate, per Haris's scope), and
-  there is no print/PDF *export route* in this app — only browser print of existing pages.
+- **30/30 live checks** via a disposable Playwright + Prisma script against a fresh production
+  build. **Known limitations at first pass** (mostly closed by the same-day follow-up below):
+  matching `<select>` couldn't render math, AI generation didn't emit LaTeX, no keyboard shortcut,
+  no print handling, bank page mobile overflow. Still open: students can't author math in their
+  own free-text answers (deliberate scope), no print/PDF export route.
 
 ### 2026-08-04 (cont'd) — math/chem follow-ups: AI emits LaTeX, matching dropdowns render math, shortcuts, print, mobile overflow ✅
 
-The five improvements suggested at the end of the pass above, implemented and live-verified.
+- **AI generation now emits LaTeX** — `buildSystemPrompt` gained a `NOTATION_GUIDANCE` block
+  (delimiters, mhchem for chemistry rather than bare `H2SO4`, literal currency escaped as `\$`).
+  7 tests pin the guidance plus the pre-existing prompt contract.
+- **Matching dropdowns render math** — native `<select>` replaced with the app's Radix `Select`
+  (its `SelectItem` already wraps children in `ItemText`), so a math/chem choice renders
+  identically in the list and the closed trigger.
+- **Keyboard shortcuts** — `Ctrl/Cmd+M` opens the equation dialog, `+Shift+M` the chemistry one,
+  on every math-enabled field. Deliberately not platform-detected (reading `navigator` during
+  render breaks the React Compiler purity rule) — both modifiers named instead.
+- **Print** — `@media print` rules make display-math containers `overflow: visible` and wrap
+  instead of scroll, keep expressions from splitting across page breaks, force
+  `print-color-adjust: exact` on KaTeX glyphs.
+- **Mobile overflow fixed at the shared-component level**: `PageHeader` stacks below `sm` with
+  `min-w-0` on the title; `TabsList` gained `max-w-full overflow-x-auto` — fixes all four tab
+  strips in the app at once. Measured at 390px: `scrollWidth` 960 → 588 → 390 (== clientWidth).
+- **15/15 live checks** on a second disposable fixture (matching question with math/chem on both
+  sides) against a fresh production build.
 
-- **AI generation now emits LaTeX.** `buildSystemPrompt` (`ai/claude-generator.ts`, exported for
-  testability) gained a `NOTATION_GUIDANCE` block: `$…$`/`$$…$$` delimiters, mhchem `\ce{...}` for
-  chemistry rather than bare `H2SO4`, applied to stem/options/correctAnswer/explanation alike, an
-  option that is purely a formula written as exactly that expression, literal currency escaped as
-  `\$` (mirroring the renderer's own anti-currency rule), and plain text with no delimiters for
-  non-technical subjects. 7 tests in `tests/unit/generation-notation-prompt.test.ts` pin the
-  guidance plus the pre-existing prompt contract so a future edit can't silently drop it.
-- **Matching dropdowns render math.** The student exam page's native `<select>` (text-only, so a
-  math/chem choice showed raw LaTeX) is replaced by the app's existing Radix `Select`, whose
-  `SelectItem` already wraps children in `ItemText` — so a choice renders identically in the list
-  *and* in the closed trigger. `textValue={choice}` keeps keyboard typeahead working off the source
-  string; `value={selected || undefined}` respects Radix's reserved empty-string value.
-- **Keyboard shortcuts** — `Ctrl/Cmd+M` opens the equation dialog, `Ctrl/Cmd+Shift+M` the chemistry
-  one, on every math-enabled field. Advertised via `aria-keyshortcuts` + tooltips. Deliberately not
-  platform-detected: reading `navigator` during render would break the React Compiler purity rule
-  and hydrate differently than it server-rendered, so both modifiers are named.
-- **Print** — `@media print` rules in `globals.css` make display-math containers `overflow: visible`
-  and wrap instead of scroll (a scroll container silently truncates on paper), keep an expression
-  from splitting across a page break, and force `print-color-adjust: exact` on KaTeX glyphs. Screen
-  rendering untouched. There is still no print/PDF export *route* — this only makes browser print
-  of the existing review pages correct.
-- **Mobile overflow fixed at the shared-component level, in two places, both pre-existing**:
-  `PageHeader` now stacks below `sm` with `min-w-0` on the title (its non-shrinking action slot —
-  four buttons plus a badge, ~750px on the item-bank page — was forcing page-level overflow), and
-  `TabsList` gained `max-w-full overflow-x-auto` with `shrink-0` triggers so a 5-tab strip scrolls
-  inside itself instead of widening the page. The `TabsList` change fixes all four tab strips in
-  the app at once. Measured before/after at 390px: `scrollWidth` 960 → 588 (header fix) → **390 =
-  clientWidth** (tabs fix). Action rows on the item-bank and class-detail pages also now wrap.
-- **Verification**: `tsc` clean · `lint` unchanged 3-error/0-warning baseline · `vitest` 320/320
-  (313 + 7 new) · `build` clean, 88 routes. **15/15 live checks** on a second disposable fixture
-  (a matching question with math/chemistry on both sides) against a fresh production build:
-  zero native `<select>` remaining, dropdown choices and the closed trigger both rendering KaTeX
-  with no `\ce`/`$` visible, both shortcuts opening the right dialog and round-tripping an insert
-  to `$\ce{H2O}$` at the caret, plain typing unaffected, `scrollWidth === clientWidth` at 390px
-  with math still rendering, and round 1's no-KaTeX-for-plain-stems fast path intact. All QA data
-  confirmed deleted (0 leftovers).
+### 2026-07-20 (cont'd) — "Start without verification" escape hatch, teacher notified ✅
 
-### 2026-07-20 (cont'd) — "Start without verification" escape hatch on the biometric gate, teacher notified ✅
+Students can bypass the face/ID gate via an understated "Start without verification" link (also
+covers broken cameras/model-load failures — softens the fail-closed judgment call from earlier
+that day), with an explicit warning the teacher will be told. New `unverified_start`
+ViolationType. The gate can't log it directly (no attempt row exists yet) — the exam page carries
+the skip in a ref and posts one violation right after `POST /api/attempts` succeeds (best-effort,
+never blocks the start). Server-side severity always `high` (push-notification tier), trust score
+takes a one-time 12-point deduction (`base 8 × high 1.5`, structurally can't stack).
 
-Follow-up to the same day's verification work: students can now bypass the face/ID gate via a
-deliberately understated "Start without verification" link (always available — also covers
-broken cameras and model-load failures, softening the fail-closed judgment call from earlier
-today), with an explicit on-screen warning that the teacher will be told.
+### 2026-07-20 — Real face↔ID matching, auto-derived exam duration, mobile UI pass, notification cleanup ✅
 
-- New `unverified_start` ViolationType (Prisma enum value pushed live via `prisma db push`,
-  confirmed with a live `enum_range` query). The gate itself can't log it — no attempt row
-  exists yet — so the exam page carries the skip in a ref and posts one violation event right
-  after `POST /api/attempts` succeeds (best-effort, never blocks the start; reported once even
-  if the start button is retried).
-- Wired through the whole violations pipeline: server-side severity is always `high` (puts it
-  in the teacher push-notification tier), trust score takes a one-time 12-point deduction
-  (`base 8 × high 1.5 = cap 12` — structurally can't stack), and the teacher's bell panel
-  shows "**started without verification**" via the label map added earlier today. Monitor
-  timeline/violation feeds pick it up like any other violation.
-- **Verification**: `tsc` clean · `lint` unchanged 3-error baseline · `vitest` 290/290 (2 new:
-  severity + trust-score cases) · `build` clean · live DB enum confirmed via mgmt-sql.
-
-### 2026-07-20 — Real face↔ID matching in the biometric gate, auto-derived exam duration, mobile UI pass, notification-panel cleanup ✅
-
-Four-item punch list, pushed and deployed at the end.
-
-- **Biometric gate now actually verifies** (was the flagged simulated flow): new
-  `src/lib/face-verification.ts` using `@vladmandic/face-api` (SSD MobileNet detector +
-  68-landmark + 128-d FaceNet-style recognition embeddings), self-hosted in
-  `public/models/face-api/` (~12MB, copied from the npm package — no external calls, all
-  processing in-browser). The face capture must contain **exactly one** sufficiently large
-  live face (objects/two-people/ID-held-up-as-face all rejected — distinct error messages);
-  the ID capture must contain **exactly one card-photo-sized** face (a live face in the ID
-  frame is rejected by a box-height heuristic, blocking the show-your-face-twice bypass; any
-  other object simply has no face to find); and the two embeddings must match at the standard
-  0.6 threshold before "Start Exam" unlocks. **Threshold calibrated against live QA, not
-  guessed**: a first-draft 0.65 was demonstrably unsafe — a real different-person pair
-  measured 0.621 in a Chromium run against the production build's served weights (same-person
-  0.16) — so 0.6 stands. Models preload while the student reads instructions; load failure
-  fails **closed** (blocks capture with a Retry button) since an open gate would defeat the
-  feature — flagged as a judgment call. Mismatch offers retake-ID or restart-from-face. Still
-  out of scope client-side (flagged in the file header): OCR of ID text, document
-  authenticity, anti-spoof liveness. Verified via Playwright against a fresh production
-  build: weights load through the middleware (the exact `/models` 307 bug class from
-  2026-07-18 re-checked), full detect→landmark→descriptor pass runs, single-face crops
-  detected at both live and card scale, object-only frame yields zero faces. A real
-  human+camera pass under real lighting remains worthwhile.
-- **Exam duration auto-calculated** — the wizard's manual "Duration (minutes)" input is gone;
-  duration is derived from the start/end window (`src/lib/exam-duration.ts`, pure + 7 unit
-  tests), shown live in the wizard as an info box, validated ≥5 min (zod refine on both the
-  wizard schema and `POST /api/exams`), and **derived server-side in `createExam`** so a
-  client-sent value is never trusted. `duration == window length` keeps the existing
-  min(start+duration, endTime) deadline math exactly equivalent.
-- **Mobile UI pass** — the notification dropdown was a fixed 360px panel anchored to the bell
-  (overflowed/overlapped on phones; now a full-width fixed sheet under the topbar on <sm).
-  The wizard's Start/End time boxes, SectionsManager's duration/weight/threshold row, the
-  edit page's Add Question type/difficulty/marks row, AiGeneratePanel, and the curriculum CLO
-  form were all fixed-column grids that crushed/overlapped on mobile — now `grid-cols-1
-  sm:grid-cols-N`. All 9 dashboard tables without a scroll container (admin
-  institutions/users/exams/items/analytics, teacher exams/students, BlueprintPoolingPanel,
-  item-review options) got `overflow-x-auto` wrappers so wide tables scroll instead of
-  forcing page-level horizontal overflow. Student exams/results already had mobile card
-  variants; exam-taking is desktop-only by design (DesktopGuard) and was left alone.
-- **Bell notification panel** — `window_blur` violations no longer appear (low-signal
-  companion of tab_switch, was drowning the panel); violation types now render friendly
-  labels ("gaze violation (looking away)", "voice violation (background noise)", etc.)
-  instead of raw enum text.
-- **Verification**: `tsc` clean · `lint` unchanged 3-error/0-warning baseline · `vitest`
-  288/288 (275 baseline + 13 new: `exam-duration`, `face-verification`) · `build` clean ·
-  face-api smoke QA against a fresh production build as above.
+- **Biometric gate now actually verifies** (was a flagged simulated flow) — new
+  `src/lib/face-verification.ts` using `@vladmandic/face-api` (SSD MobileNet + 68-landmark +
+  128-d recognition), self-hosted in `public/models/face-api/` (~12MB, no external calls). Face
+  capture must contain exactly one sufficiently large live face; ID capture exactly one
+  card-photo-sized face (a live face in the ID frame is rejected by a box-height heuristic,
+  blocking the show-your-face-twice bypass); embeddings must match at threshold before "Start
+  Exam" unlocks. **Threshold calibrated against live QA, not guessed**: a first-draft 0.65 was
+  demonstrably unsafe — a real different-person pair measured 0.621 against the production build's
+  served weights (same-person 0.16) — so 0.6 stands. Model load failure fails **closed** (flagged
+  judgment call — an open gate would defeat the feature). Still out of scope client-side: OCR of
+  ID text, document authenticity, anti-spoof liveness.
+- **Exam duration auto-calculated** — derived from the start/end window
+  (`src/lib/exam-duration.ts`, pure, 7 tests), validated ≥5min on both client and server, **derived
+  server-side in `createExam`** so a client-sent value is never trusted.
+- **Mobile UI pass** — notification dropdown was a fixed 360px panel (now a full-width sheet under
+  the topbar on <sm); several fixed-column grids (wizard, SectionsManager, Add Question row,
+  AiGeneratePanel, CLO form) now `grid-cols-1 sm:grid-cols-N`; 9 dashboard tables without a scroll
+  container got `overflow-x-auto` wrappers.
+- **Bell panel** — `window_blur` violations no longer shown (low-signal companion of tab_switch,
+  was drowning the panel); violation types render friendly labels instead of raw enum text.
 
 ### 2026-07-18 — Proctoring system fixed: every detector now actually fires; fullscreen enforced; biometric gate shows the real camera ✅
 
-Bug report: all vision detection (face/multi-face/gaze/object) + background noise never
-produced a violation, fullscreen exit was log-only, window_blur duplicated real tab-switches,
-biometric capture never showed the person/ID. Diagnosed each root cause against a fresh
-production build before patching; full detail + per-detector concrete test table in
-`PROCTORING_FIX_PROGRESS.md`.
+Bug report: all vision detection + background noise never produced a violation, fullscreen exit
+was log-only, window_blur duplicated real tab-switches, biometric capture never showed the
+person/ID. Diagnosed each root cause against a fresh production build before patching.
 
 - **The vision killer was one line of middleware**: `/models` wasn't in `PUBLIC_PREFIXES`, so
   every authenticated in-exam fetch of the self-hosted model assets was role-redirected to
-  `/student` (HTML) — MediaPipe's wasm loader hit `SyntaxError: Unexpected token '<'`, coco-ssd
-  got HTML for `model.json`, both silent catches nulled the models, and the widget quietly sat
-  in "Basic monitoring" forever. Face/multi-face/gaze/object detection had been structurally
-  dead in every authenticated context (dev AND prod) since Phase 3 shipped — which is exactly
-  why only tab-switch (no assets) worked, and why Phase 3's "deferred live QA" never caught it.
-  Model-load failures are now `console.error`-loud instead of silent.
-- **Audio never emitted**: analyser default smoothing (0.8) stretched loudness decay past the
-  2s quiet window (episodes couldn't close — and only a close emits), plus no max-episode
-  chunking meant continuous noise emitted nothing until unmount. Fixed (smoothing 0.2, 61s
-  chunks so continuous noise lands in the `d>60 → high` tier).
+  `/student` (HTML) — MediaPipe's wasm loader threw, coco-ssd got HTML for `model.json`, both
+  silent catches nulled the models. Face/multi-face/gaze/object detection had been structurally
+  dead in every authenticated context (dev AND prod) since Phase 3 shipped — exactly why only
+  tab-switch (no assets) worked, and why Phase 3's "deferred live QA" never caught it. Model-load
+  failures are now `console.error`-loud instead of silent.
+- **Audio never emitted**: analyser smoothing (0.8) stretched loudness decay past the 2s quiet
+  window (episodes couldn't close, only a close emits), no max-episode chunking meant continuous
+  noise emitted nothing until unmount. Fixed (smoothing 0.2, 61s chunks).
 - **window_blur duplicate**: on tab return, `visibilitychange(visible)` fires before `focus`,
-  clearing `hiddenAt` so the old guard emitted a bogus window_blur atop every tab_switch. Now a
-  tab-hide owns/clears the pending blur; genuine blur-while-visible emits once via a 1s timer
-  (no longer lost if the student never refocuses).
+  clearing `hiddenAt` and letting the old guard emit a bogus blur atop every tab_switch. Fixed:
+  tab-hide owns/clears the pending blur; genuine blur-while-visible emits once via a 1s timer.
 - **Fullscreen enforced**: mount-time `requestFullscreen` (outside transient activation, often
-  rejected → false "denied" violation) replaced with best-effort auto-enter + a blocking
-  "Fullscreen Required" overlay whenever not fullscreen, whose button re-enters inside a real
-  gesture; violation only on real exits. Live-verified: auto-enter on start, one high violation
-  on exit, overlay blocks, button restores fullscreen.
-- **Biometric gate**: real `getUserMedia` live preview during face/ID capture with frozen
-  captured-frame display (verification itself still the simulated flow — no OCR/face-match
-  backend exists; unchanged scope, flagged).
-- **Bonus real bugs found & fixed during diagnosis**: `POST /api/attempts` 500'd on every
-  resume-without-client-state (P2002 fallback ran inside the Postgres-aborted transaction —
-  students couldn't re-enter an exam from a fresh browser); `/api/upload` failed 500 on every
-  evidence snapshot (user-scoped storage client vs policy-less private bucket — switched to the
-  service-role client like `/api/evidence` already used); events emitted while the tab is
-  hidden could die with the tab (background-tab timer throttling — buffer now flushes
-  immediately when emitting hidden); open `prohibited_object` episodes were dropped at unmount
-  (now finalized + 60s-chunked + real confidence); and the round-3-documented dev-only
-  StrictMode false negative is fixed at the root (`ProctoringEventBuffer.revive()` — the
-  state-held buffer came back from StrictMode's remount permanently disposed, silently
-  dropping every event in dev).
-- **Verification**: `tsc` clean · `lint` unchanged 3-error baseline · `vitest` 275/275 (two
-  mocked-Prisma attempts-route tests updated to the corrected route shape) · `build` clean ·
-  full per-detector matrix (16 rows: control/no-false-positives, no_face, multiple_faces,
-  gaze_away, phone, book, gapped + continuous audio, short/long tab-switch, sustained/brief
-  blur, fullscreen exit+re-enter, biometric preview, resume-201, dev-mode) run against a fresh
-  production build with fake-device camera/mic fed pre-validated media, checking real
-  `Violation` rows — see `PROCTORING_FIX_PROGRESS.md`. All QA data (disposable tenant, attempts,
-  violations, 11 storage evidence files) confirmed deleted afterward. A real human+camera pass
-  on detection accuracy under real lighting remains worthwhile and is flagged in the progress doc.
+  rejected) replaced with best-effort auto-enter + a blocking overlay whenever not fullscreen;
+  violation only on real exits.
+- **Biometric gate**: real `getUserMedia` live preview with frozen captured-frame display
+  (verification itself still simulated at this point — no OCR/face-match backend yet).
+- **Bonus bugs found & fixed during diagnosis**: `POST /api/attempts` 500'd on every
+  resume-without-client-state (P2002 fallback ran inside an aborted transaction); `/api/upload`
+  failed 500 on every evidence snapshot (user-scoped storage client vs. policy-less private
+  bucket — switched to service-role client); events emitted while the tab is hidden could die with
+  the tab (background-tab timer throttling — buffer now flushes immediately on hidden-emit); open
+  `prohibited_object` episodes were dropped at unmount; a dev-only StrictMode false negative
+  fixed at the root (`ProctoringEventBuffer.revive()`).
+- Full 16-row per-detector matrix run against a fresh production build with fake-device
+  camera/mic feeding pre-validated media, checking real `Violation` rows.
 
 ### 2026-07-17 (cont'd) — Exam auto-completes on the teacher side when closing time is reached ✅
 
-Follow-up bug report after the live-video work: an exam whose `endTime` had passed kept
-showing "Live" everywhere on the teacher/admin side (exams list, dashboard, cross-exam Live
-Monitor) forever, unless the teacher manually clicked "End Exam". Root cause:
-`computeEffectiveExamStatus` (added in Round 3 for `scheduled→live` auto-derivation) never had
-a symmetric `live→completed` rule for `endTime`.
-
-- `src/lib/exam-status.ts`'s `computeEffectiveExamStatus` now also takes `endTime` and derives
-  `completed` once it's passed (never touches `draft`, never un-completes an already-`completed`
-  exam). Wired through all 5 existing call sites (`mapExam` in `exams.ts`, plus 4 in
-  `analytics.ts`: recent exams, approved exams, teacher dashboard, admin dashboard).
-- Found and fixed the matching gap in the "Active Exams" dashboard stat aggregate
-  (`activeExamWhere`): it counted `status: 'live'` unconditionally with no `endTime` check, so
-  the stat card kept counting exams that had already ended.
-- 7 new unit tests; fixed one existing test's expectation to match the corrected
-  `activeExamWhere` shape.
-- **Verification**: `tsc` clean · `lint` unchanged 3-error baseline · `vitest` 275/275 · `build`
-  clean. Live-verified against a fresh production build: a disposable exam with DB status still
-  `'live'` but `endTime` one minute in the past correctly showed **"Completed"** on the teacher's
-  exams list, and was correctly excluded from the cross-exam Live Monitor's live-exam list.
+Root cause: `computeEffectiveExamStatus` (added earlier this session for `scheduled→live`) had
+no symmetric `live→completed` rule for `endTime`, so a passed exam kept showing "Live" on every
+teacher/admin surface forever unless manually ended. Now also derives `completed` once `endTime`
+passes (never touches `draft`, never un-completes). Wired through all 5 call sites. Also fixed
+the matching gap in the "Active Exams" dashboard stat, which counted `status: 'live'`
+unconditionally with no `endTime` check.
 
 ### 2026-07-17 (cont'd) — Cross-exam Live Monitor page was missing the eye button entirely ✅
 
-Follow-up bug report: "teacher still can't see the live video by pressing eye button" turned out
-not to be a WebRTC bug — the user was on `/teacher/monitor` (the cross-exam "Live Monitor"
-overview page, linked from the sidebar), which never had a "Review & Actions" eye button, snapshot
-capability, or Go Live control at all. That feature had only ever been built on the per-exam
-monitor page (`teacher/exams/[examId]/monitor`).
-
-- Extracted the shared per-student review/actions panel (snapshot, Go Live WebRTC viewer,
-  warnings, force-submit, violations timeline) out of the per-exam page into
-  `src/components/shared/StudentActionsModal.tsx`, and wired the same eye button + modal into
-  `/teacher/monitor`'s student cards.
-- Along the way, noticed (but did not fix, out of scope for this bug) a recurring pre-existing
-  React hydration mismatch (`error #418`) on both monitor pages — the same `DashboardShell`
-  localStorage-avatar issue flagged back on 2026-07-14 as "worth a follow-up pass." It didn't
-  block the live-video fix in any of this session's live tests.
-- **Verification**: `tsc` clean · `lint` unchanged 3-error baseline (one `set-state-in-effect`
-  violation introduced by the initial refactor, fixed via the same async-inner-function pattern
-  already established elsewhere in this codebase) · `vitest` 268/268 · `build` clean. Live-verified
-  against a fresh production build: eye button now appears on `/teacher/monitor`, "Go Live"
-  connects, and the video element reaches `readyState 4` (real frames) within seconds.
+"Teacher still can't see live video" turned out not to be a WebRTC bug — the teacher was on
+`/teacher/monitor` (the cross-exam overview), which never had the eye button/snapshot/Go-Live
+control at all; that only existed on the per-exam monitor page. Extracted the shared panel into
+`src/components/shared/StudentActionsModal.tsx`, wired into both. Noted but left alone (out of
+scope): a recurring React hydration mismatch on both monitor pages from the same `DashboardShell`
+localStorage-avatar issue flagged 2026-07-14.
 
 ### 2026-07-17 (cont'd) — Invitation UI polish (accept pages, invite dialogs), no logic changes ✅
 
-User-requested UI-only pass across every invitation surface, explicitly scoped to presentation —
-no `lib/data`, API route, or business logic touched.
-
-- Public accept/signup pages (`/invite/[token]`, `/invite/setup`, `/classes/join/[token]`): new
-  shared `PasswordInput` component (`src/components/ui/password-input.tsx`, show/hide toggle)
-  used on all 6 password fields across the 3 pages; spinner-based loading states instead of bare
-  text; status icons sit in tinted circles; error banners get an icon; submit buttons show a
-  spinner while pending.
-- Teacher's per-class invite Dialog (`teacher/classes/[classId]`): icon header matching the app's
-  branding pattern, icon+count on the Invitations list, send button gets an icon/spinner,
-  bulk-send results get a checkmark for successes.
-- Admin's bulk teacher-invite panel (`admin/teachers`): converted from an inline block with no
-  backdrop (pushed page content down when opened) into a real modal `Dialog` with
-  overlay/focus-trap, same purple branding and content preserved exactly.
-- **Verification**: `tsc` clean · `lint` unchanged 3-error baseline · `vitest` 268/268 · `build`
-  clean. Live-verified via screenshots against a fresh production build: loading spinner, tinted
-  status-icon circles, and the password show/hide toggle (confirmed the `type` attribute actually
-  flips `password`→`text` on click).
+Presentation-only, explicitly scoped away from `lib/data`/API/business logic. New shared
+`PasswordInput` (show/hide toggle) on all 6 password fields across the 3 public accept pages;
+spinner loading states; error banners get icons. Teacher's per-class invite dialog gets an icon
+header + spinner send button. Admin's bulk teacher-invite panel converted from an inline
+no-backdrop block into a real modal `Dialog`.
 
 ### 2026-07-17 (cont'd) — Teacher live video (student → teacher), real peer-to-peer WebRTC ✅
 
-Round 3's Task 4 investigated feasibility only and stopped for a decision (see the entry below).
-User clarified direction (student's camera to the teacher, not the old Phase-1 mock reversed)
-and gave a complete, prescriptive spec up front: one-student-at-a-time live viewing, peer-to-peer
-WebRTC signaled over Supabase Realtime, no third-party video/SFU service, no media server to run.
-Full detail in `LIVE_VIDEO_PROGRESS.md`.
+User clarified direction after the feasibility-only investigation below and gave a prescriptive
+spec: one-student-at-a-time, peer-to-peer WebRTC signaled over Supabase Realtime, no SFU, no
+media server to run.
 
-- New `src/lib/webrtc-signaling.ts` (shared types/STUN config), `WebRTCBroadcaster.tsx` (student
-  side, mounted in `ProctoringOverlay` alongside the existing detectors — reuses `FaceDetector`'s
-  already-open camera `MediaStream` via a new `streamRef` prop instead of a second
-  `getUserMedia()` call), and `useWebRTCViewer.ts` (teacher side — `start`/`stop`/`state`, wired
-  into the existing "Review & Actions" modal on the monitor page as a "Go live"/"Stop live"
-  control next to the existing on-demand-snapshot button, reusing that modal's own mount/unmount
-  lifecycle so switching students or closing the modal always tears the connection down).
-- **Signaling authorization enforced at the RLS layer, not just the UI** (spec's own explicit
-  ask): two new Supabase Realtime Broadcast Authorization policies on `realtime.messages`
-  (`webrtc_signaling_select`/`_insert`), scoped to `webrtc:{attemptId}` topics, using the same
-  student-owns-attempt-OR-teacher/admin-in-same-institution shape as the 2026-07-11 tables.
-  Live-verified: a real teacher from a different institution attempting to subscribe to a real
-  student's attempt channel gets `CHANNEL_ERROR: Unauthorized` before any SDP ever exchanges.
-- **TURN judgment call, flagged not guessed** (spec's own explicit ask on item 6): shipped
-  STUN-only. Same-machine testing can't produce a real cross-NAT signal either way; the
-  `useWebRTCViewer` hook's `failed` state ("likely a firewall/network blocking a direct
-  connection") is the real-world tell that TURN would be needed — cost/hosting implications
-  (self-hosted `coturn` vs. a pay-per-use provider, ongoing bandwidth cost unlike free STUN)
-  written up in `LIVE_VIDEO_PROGRESS.md` rather than added preemptively.
-- **Verification**: `tsc` clean · `lint` back to the exact pre-existing 3-error/0-warning baseline
-  (one stray unused import from an early draft caught and removed) · `vitest` 268/268 (no
-  regressions; this feature has no pure-function surface to unit test, verification leaned on
-  live QA) · `build` clean. Live-verified against a **fresh production build** (`next build &&
-  next start`, not dev mode — this session's own Round 3 work found a real StrictMode dev-mode
-  false negative in this exact proctoring-overlay code path, so dev mode was deliberately not
-  trusted here) via a disposable, self-cleaning Playwright + Prisma script against the real
-  Supabase project: a real student's camera stream reaches the teacher's `<video>` element
-  (`readyState` ≥ `HAVE_CURRENT_DATA`, not a mock), "Stop live" reverts the UI and leaves the
-  student's own proctoring camera stream untouched (`readyState: 'live'`), and the cross-
-  institution RLS rejection above. All QA data confirmed deleted afterward.
+- New `src/lib/webrtc-signaling.ts`, `WebRTCBroadcaster.tsx` (student — reuses `FaceDetector`'s
+  already-open camera stream via a `streamRef` prop, no second `getUserMedia()`), `useWebRTCViewer.ts`
+  (teacher — wired into the "Review & Actions" modal as a "Go live"/"Stop live" control).
+- **Signaling authorization enforced at the RLS layer, not just the UI** (spec's explicit ask):
+  two new Supabase Realtime Broadcast Authorization policies on `realtime.messages`, scoped to
+  `webrtc:{attemptId}` topics, same student-owns-attempt-OR-teacher/admin-in-institution shape as
+  the 2026-07-11 tables. Live-verified: a teacher from a different institution subscribing to a
+  real student's channel gets `CHANNEL_ERROR: Unauthorized` before any SDP exchanges.
+- **TURN judgment call, flagged not guessed**: shipped STUN-only — same-machine testing can't
+  produce a real cross-NAT signal either way; cost/hosting implications (self-hosted coturn vs.
+  pay-per-use) written up for Haris rather than added preemptively. (Superseded 2026-08-12 by
+  real Cloudflare TURN.)
+- Live-verified against a fresh production build (not dev — this session's own earlier work found
+  a real StrictMode false negative in this exact code path) via disposable Playwright + Prisma: a
+  real student camera stream reaches the teacher's `<video>` element, "Stop live" leaves the
+  student's own proctoring stream untouched, cross-institution RLS rejection confirmed.
 
 ### 2026-07-17 (cont'd) — Phase 4 fixes round 3: exam auto-start, tab-lock logging, proctoring tuning, live-video feasibility, dashboard student count ✅
 
-Five-item punch list from live/manual testing. Full detail, including a real production-vs-dev-mode
-investigation for Task 2, in `PHASE4_FIXES_ROUND3_PROGRESS.md`.
-
 - **Exam auto-start (teacher side)** — `Exam.status` never auto-transitions in the DB (no cron,
-  by design, matching this repo's established preference against automatic status-changing jobs);
-  students already saw correct live-ness via read-time `now >= startTime` checks in
-  `getStudentExams`/`getStudentDashboardData`, but every teacher/admin surface rendered the raw
-  DB column directly, so a scheduled exam whose time had passed just sat there with no Monitor
-  link. New `src/lib/exam-status.ts`'s `computeEffectiveExamStatus` (mirrors the existing
-  `deriveInviteStatus` pattern) applied at every teacher/admin exam-list read path, plus a
-  matching time-aware where-clause for the two raw `.count()` "Active Exams" aggregates.
-- **Tab lock not enforced/logged** — real regression from the Phase 3 proctoring rewrite
-  (`050d8c9`, confirmed via `git log -p`): `TabGuard.tsx` only sent a tab-switch violation to the
-  server when the student *returned* to the tab; if they never came back before the exam ended,
-  it was permanently lost, not delayed. Fixed to emit immediately on hide (matching
-  `FullscreenGuard`'s already-correct pattern), with a 16s escalation event if the absence
-  continues. Live-verifying this took real investigative work: an initial synthetic-dispatch test
-  against `npm run dev` appeared to fail, traced via temporary debug instrumentation (fully
-  reverted afterward) to React StrictMode's dev-only double-mount creating a stale, disposed
-  `ProctoringEventBuffer` closure — re-running the identical test against a real `next build &&
-  next start` production server confirmed the fix works correctly (`201` from
-  `POST /api/violations`, real `Violation` row, no return-to-tab required).
-- **AI proctoring false positives/negatives** — research found a consistent pattern: the
-  false-positive-prone signal (`multiple_faces`) had the shortest debounce and loudest,
-  duration-independent response, while the under-detecting signals (`gaze_away`,
-  `audio_detected`) had longer/zero-tolerance debounces and were structurally capped below the
-  push-notification severity tier no matter how long they persisted. Loosened `gaze.ts`'s head-
-  turn/iris-corner thresholds, shortened `gazeAway`'s required streak, lengthened and
-  confidence-floored `multiFace`'s (the actual movement-false-positive source), lowered
-  `AudioMonitor`'s energy threshold, added a `d > 60 → high` severity tier for both
-  `gaze_away`/`audio_detected` in `severity.ts` (previously capped at `medium` forever), fixed a
-  missing client-side warning toast for `gaze_away`, and closed an `AudioMonitor` unmount-flush
-  gap identical to TabGuard's (an open audio episode was silently discarded if the exam ended
-  before `QUIET_MS` of silence). Full behavioral/detection-accuracy verification flagged as
-  needing a real human+camera QA pass — not something a script can honestly claim.
+  by design); students already saw correct live-ness via read-time checks, but teacher/admin
+  surfaces rendered the raw DB column. New `src/lib/exam-status.ts`'s `computeEffectiveExamStatus`
+  applied everywhere.
+- **Tab lock not enforced/logged** — real regression from the Phase 3 rewrite: `TabGuard.tsx`
+  only sent a violation when the student *returned* to the tab; never-returning lost it
+  permanently. Fixed to emit immediately on hide, 16s escalation if absence continues.
+  Live-verifying this required real investigation: an initial dev-mode test appeared to fail,
+  traced to React StrictMode's double-mount creating a stale disposed buffer closure —
+  confirmed fixed against a real production server.
+- **AI proctoring false positives/negatives** — the false-positive-prone signal
+  (`multiple_faces`) had the shortest debounce and loudest response, while under-detecting
+  signals (`gaze_away`, `audio_detected`) had longer debounces and were capped below the
+  push-notification severity tier no matter how long they persisted. Loosened gaze thresholds,
+  shortened `gazeAway`'s streak, lengthened/confidence-floored `multiFace`'s, lowered
+  `AudioMonitor`'s energy threshold, added a `d > 60 → high` severity tier for both, fixed a
+  missing `gaze_away` warning toast, closed an `AudioMonitor` unmount-flush gap identical to
+  TabGuard's.
 - **Teacher live video — investigated, not built**, per explicit instruction to stop for a
-  decision. Confirmed definitively (no `<video>` element, no WebRTC/SFU code or dependency
-  anywhere, an explicit architecture doc naming this "out of scope for Phase 3, never started")
-  that only on-demand single-frame snapshots exist today. Three options written up (keep
-  snapshots as-is / one-student-at-a-time WebRTC via a hosted SFU like LiveKit / more frequent
-  automatic snapshots as a no-new-infra middle ground) for Haris to pick from.
-- **Dashboard student count** — same class of bug round 2 fixed in the Students tab, just not
-  caught in every location: the teacher dashboard's own separate "Total Students"/`getDashboardStats`
-  queries still counted via `TeacherStudent` only, reading 0 (looking "not displayed") for any
-  teacher whose roster is entirely class-based. Applied the same union-of-relations fix; also
-  fixed "Active Exams" in the same two functions to be time-aware (same root cause as Task 1).
-- **Tests**: ~15 new (`exam-status`, `proctoring-gaze`, an extended `proctoring-severity` case,
-  `teacher-dashboard-student-count`), covering items 1/3/5 per the explicit ask.
-- **Verification**: `tsc` clean · `lint` at the unchanged 3-error baseline · `build` clean (fresh
-  build re-run after fully reverting all temporary debug instrumentation from the Task 2
-  investigation — confirmed via `git diff`) · `vitest` 268/268.
+  decision. Confirmed only on-demand snapshots existed; 3 options written up for Haris.
+- **Dashboard student count** — same class of bug as round 2's Students-tab fix, not caught
+  everywhere: the dashboard's own separate stat queries still counted via `TeacherStudent` only.
+  Same union-of-relations fix applied; "Active Exams" made time-aware in the same two functions.
 
 ### 2026-07-17 (cont'd) — Phase 4 fixes round 2: student profile, Students tab, item builder save, CLO audit, exam-to-class scoping ✅
 
-Five-item manual-QA punch list. Full detail, including the CLO investigation report and every
-live-verification run, in `PHASE4_FIXES_ROUND2_PROGRESS.md`.
+- **Student name not saving** — same fake `onSubmit` bug already fixed on the teacher settings
+  page that day, never applied here. Now a real `PATCH /api/users/me`.
+- **Students tab** — two real bugs beyond missing columns: roster scoped via `TeacherStudent`
+  only, so a per-class-invite student was **silently absent from the roster entirely**; and
+  `getViolations()` was called with zero arguments, resolving to an **unscoped query returning
+  every violation in the entire database across every institution**. Fixed both — roster now
+  unions `TeacherStudent`/`ClassEnrollment`, violations properly scoped.
+- **Manual item builder "Save" not saving** — the Marks `<input>` lacked `valueAsNumber: true`,
+  so zod validation failed silently and Save did nothing the moment marks was touched. Also fixed
+  in the same pass: Difficulty/Review-Status `<Select>`s completely disconnected from the form
+  (always saved defaults regardless of selection), no error handling around `createItem()`
+  anywhere, `authorId` resolution silently falling through to an empty string (FK crash) instead
+  of an explicit error.
+- **CLO creation — investigated only, not changed** (too ambiguous to act on safely per the
+  task's own instruction). Full inventory written up: 3 inputs today, no PLO concept, no
+  edit/delete once created.
+- **Exams scoped to a class, not all students — highest-risk item this round.** `Exam` had zero
+  connection to `Class`; student visibility filtered only by institution + an institution-wide
+  `TeacherStudent` link. **Worse**: `POST /api/attempts` had **no eligibility check whatsoever**
+  — hiding an exam from a list was never real access control. Added nullable `Exam.classId`, a
+  class dropdown in the wizard, class-scoped filtering, and a matching eligibility gate on attempt
+  creation (shared pure rule, `src/lib/exam-eligibility.ts`). **Judgment call flagged**: `classId`
+  stays optional (required would immediately block exam creation for any teacher without a Class
+  yet). Live-verified with two students in two classes, same institution/teacher: correct student
+  sees/starts it (201), the other neither sees it nor can start it via direct API bypass (403).
 
-- **Student name not saving** — `student/settings/page.tsx` had the exact same fake `onSubmit`
-  bug already fixed on the teacher settings page the same day, just never applied here. Fixed the
-  same way: real `PATCH /api/users/me` call, `localStorage['exam_user']` sync, real error
-  surfacing. Live-verified: name change persists through Postgres and a full page reload.
-- **Students tab** — found two real bugs beyond "missing columns": `getStudents()` scoped a
-  teacher's roster via the older `TeacherStudent` table only, so any student who joined through
-  the newer per-class invite flow (`ClassEnrollment`-only, no `TeacherStudent` row) was **silently
-  absent from the roster entirely**; and the page's `getViolations()` call had zero arguments,
-  which resolves to an unscoped query returning **every violation in the entire database across
-  every institution**. Fixed both — roster now derives from the union of `TeacherStudent` and
-  `ClassEnrollment`, and `getStudents()` itself returns a properly-scoped real trust score
-  (`ExamAttempt.trustScore` average, `null`/"Not yet computed" for zero attempts, never a fake
-  placeholder) and violation count, eliminating the unscoped call.
-- **Manual item builder "Save" not saving** — root cause: the Marks `<input>` was registered
-  without `valueAsNumber: true`, so react-hook-form handed zod a string, validation failed
-  silently (no `errors.marks` was ever rendered), and the Save button just did nothing the moment
-  a teacher touched the field. Also found and fixed in the same pass: the Difficulty and Review-
-  Status `<Select>` inputs were completely disconnected from the form (always saved
-  `medium`/`draft` regardless of selection), there was no error handling around the `createItem()`
-  call at all (any failure was an unhandled rejection with zero user feedback — fixed in both the
-  manual builder and the CSV bulk-import path), and `createItem`'s `authorId` resolution silently
-  fell through to an empty string (FK-constraint crash) instead of throwing an explicit error when
-  no matching `User` row existed. Live-verified via a real browser save with non-default
-  marks/difficulty/status, confirmed correct in Postgres.
-- **CLO creation — investigated only, not changed**, per the task's own instruction (the request
-  was too ambiguous to act on safely). Full current-state inventory written to the progress file:
-  exactly 3 inputs today (free-text objective, Bloom's Level dropdown, Learning Domain dropdown),
-  no PLO concept anywhere in the schema or UI, no edit/delete capability once a CLO is created.
-  Flagged for Haris to say what's actually wrong before anyone reworks it.
-- **Exams scoped to a class, not all students** — the highest-risk item this round. Confirmed via
-  a full schema/code read: `Exam` had zero connection to `Class` at all, and student exam
-  visibility filtered only by institution + an institution-wide `TeacherStudent` link, unrelated to
-  class membership — any student linked to a teacher saw every one of that teacher's exams
-  regardless of class. Worse, and found in the same investigation: `POST /api/attempts` (the
-  actual attempt-creation endpoint) had **no eligibility check whatsoever**, not even institution
-  matching — hiding an exam from a list was never real access control. Added a nullable
-  `Exam.classId` (pushed live via `prisma db push`), a class-selection dropdown in the exam
-  wizard (optional — see the required-field judgment call below), class-scoped filtering in
-  `getStudentExams`, and a matching eligibility gate in `POST /api/attempts` (same shared pure
-  rule, `src/lib/exam-eligibility.ts`, used by both). **Judgment call flagged, not silently
-  decided**: `classId` stays optional — making it required would immediately block exam creation
-  for any teacher without a Class set up yet; unscoped exams keep their exact pre-existing
-  behavior. Live-verified with two real students in two different classes, same institution and
-  teacher: the correct student sees the exam and can start an attempt (201), the other student
-  neither sees it nor can start an attempt even via a direct API call bypassing the UI (403).
-- **Tests**: 24 new (`item-form-schema`, `exam-eligibility`, `attempts-eligibility`,
-  `get-student-exams`, `create-item-manual`, `users-me-route`), covering items 1/3/5 per the
-  explicit ask. Two pre-existing test files (`section-locking`, `attempts-pooling-concurrency`)
-  needed mock updates since the new eligibility gate now runs before their own scenarios.
-- **Verification**: `tsc` clean · `lint` at the unchanged 3-error baseline · `build` clean ·
-  `vitest` 253/253 (229 baseline + 24 new).
+### 2026-07-17 (cont'd) — Phase 4 fixes: invite flow cleanup, cross-institution block, teacher profile/dashboard, joined-teacher visibility ✅
 
-### 2026-07-17 (cont'd) — Phase 4 fixes: invite flow cleanup, cross-institution block, teacher profile/dashboard mock-data removal, joined-teacher visibility ✅
-
-Six-item manual-review punch list on top of the completed Phase 4 work (password reset,
-multi-class management, bulk student invites, role-scoped removal). Full detail — including the
-schema check for item 4's scope question, both live-DB verification rounds, and manual
-click-through notes — in `PHASE4_FIXES_PROGRESS.md`.
-
-- **Link-based invites removed** — the `/register?institution=<id>` "shareable link" UI on
-  `admin/teachers` and the 3-tab (`Share Link`/`By Email`/`Bulk Upload`) invite modal on
-  `teacher/students` are gone. That link was also a **real, previously-undiscovered bug**:
-  `/register` never read the `institution` query param, so using it always created a brand-new
-  institution instead of joining the inviting one — not just a UI cleanup, a dead end being removed.
-- **Admin bulk teacher invite** — new `createBulkTeacherInvites()` (`src/lib/data/invites.ts`)
-  mirrors `createClassInvites`'s dedup/cap/structured-outcome/rollback-on-send-failure shape,
-  with paste and CSV/XLSX upload tabs on `admin/teachers`. The CSV parser was extracted to
-  `src/lib/bulk-email-file-parse.ts` since it's now shared with the per-class invite dialog.
-- **Student invites consolidated to Classes tab** — `teacher/students` has zero invite UI now;
-  `teacher/classes/[classId]`'s existing per-class dialog is the only place, and gained the CSV
-  upload option so nothing was lost in the move. Found and fixed a real related leftover via live
-  Playwright QA: the teacher dashboard's "Invite Students" quick-action card still linked to the
-  now-invite-less Students page (`teacher/page.tsx:30`) — repointed to `/teacher/classes`.
+- **Link-based invites removed** — the shareable `/register?institution=<id>` link was also a
+  **real, previously-undiscovered bug**: `/register` never read the `institution` param, so using
+  it always created a brand-new institution instead of joining the inviting one.
+- **Admin bulk teacher invite** — new `createBulkTeacherInvites()` mirrors the existing
+  class-invite dedup/cap/rollback shape; CSV parser extracted to
+  `src/lib/bulk-email-file-parse.ts` and shared with the per-class dialog.
+- **Student invites consolidated to Classes tab** — found a related leftover via live QA: the
+  teacher dashboard's "Invite Students" quick-action still linked to the now-invite-less Students
+  page — repointed to `/teacher/classes`.
 - **Cross-institution invite block** — schema confirmed `User.institutionId` is a single scalar
-  FK with no membership table (`User.email` is globally unique), so per the task's own default the
-  block applies to both teachers and students. One pure decision function
-  (`src/lib/invite-accept-decision.ts`'s `resolveAcceptInviteAssignment`) is the single source of
-  truth — blocks an *active* member of a different institution, allows a *suspended* one through
-  (and only then clears the old suspension). Wired into all 4 invite-creation/acceptance paths
-  server-side. Found and fixed two real related gaps along the way: `POST /api/invites`'s
-  "already a student, just link them" shortcut had **zero institution scoping** at all, and the
-  class-invite accept route's existing-student lookup was scoped only to the class's own
-  institution, so a different-institution email could silently get enrolled once Supabase account
-  resolution fell through to the "existing account" branch.
-- **Teacher profile fixed** — `onSubmit` on `teacher/settings` took no arguments and never called
-  any API; a real `PATCH /api/users/me` already existed and was simply never wired up. Now
-  PATCHes it, surfaces real errors, and syncs the `localStorage`-cached session. The
-  hardcoded `{Exams: 8, Students: 142, Trust: 91}` stat block is replaced with
-  `getTeacherDashboardData()`'s already-real, already-teacher-scoped aggregates. Password-change
-  form has the identical fake-success bug but was left flagged, not fixed — out of the stated
-  scope ("the broken Edit option") and needs its own re-auth design decision. The identical
-  hardcoded stat block on `student/settings` was confirmed out of scope and left alone too.
-- **Joined teachers now show up in the admin panel** — root cause was `POST
-  /api/invites/accept/[token]`'s upsert: the `update` branch (fires whenever the invitee's
-  Supabase account already existed for any reason) only ever wrote `name`, never `role` or
-  `institutionId`, so an accepted invite could leave the User row without ever actually joining
-  the inviting institution. `getTeachersList()`'s own query was already correct and not the bug —
-  confirmed by both a direct live-DB query and a full Playwright session.
-- **Tests**: 41 new (`invite-accept-decision`, `invite-guards`, `bulk-teacher-invites`,
-  `create-class-invites`, `teachers-list`, `bulk-email-file-parse`), covering items 1/2/4/6 per
-  the explicit ask.
-- **Live-verified** against Supabase (`rlbtdpnmdnaxlccelxdr`) two ways: a disposable direct-DB
-  script (cross-institution blocking, suspended-elsewhere-allowed, teacher-list query shape) and
-  three disposable real-browser Playwright sessions (admin teacher invite UI, the classes-tab
-  invite dialog, and the full settings-page edit→persist→reload round trip) — all self-cleaning,
-  confirmed zero leftover rows from this session afterward. Noticed but did not touch: 4
-  pre-existing "QA Golden Path Institution" rows in the live DB unrelated to this session.
-- **Verification**: `tsc` clean · `lint` at the pre-existing 3-error baseline (one pre-existing
-  dead-import warning in `api/invites/route.ts` cleaned up as a drive-by, since that exact file
-  was already being edited) · `build` clean · `vitest` 229/229 (188 baseline + 41 new).
+  FK (`User.email` globally unique), so per the task's own default the block applies to both
+  teachers and students. One pure decision function (`resolveAcceptInviteAssignment`) is the
+  single source of truth — blocks an active member of a different institution, allows a suspended
+  one through (clearing the old suspension). Found and fixed two related gaps: `POST /api/invites`'s
+  "already a student, just link them" shortcut had **zero institution scoping**; the class-invite
+  accept route's existing-student lookup was scoped only to the class's own institution, so a
+  different-institution email could silently enroll via the fallback branch.
+- **Teacher profile fixed** — identical fake `onSubmit` bug to the round-2 student-settings fix.
+  Hardcoded `{Exams: 8, Students: 142, Trust: 91}` stat block replaced with real aggregates.
+- **Joined teachers now show up in the admin panel** — root cause: `POST /api/invites/accept/[token]`'s
+  upsert `update` branch only ever wrote `name`, never `role`/`institutionId`, so an accepted
+  invite could leave the User row without ever actually joining the institution.
+- Live-verified via disposable direct-DB scripts + 3 real Playwright sessions, all self-cleaning.
 
-### 2026-07-17 (cont'd) — Phase 7.1: fixed 3 frontend error-handling bugs found while writing manual QA doc ✅
+### 2026-07-17 (cont'd) — Phase 7.1: 3 frontend error-handling bugs found while writing manual QA doc ✅
 
-Writing `MANUAL_QA_PHASE_5-7.md` surfaced three real frontend bugs by cross-referencing the UI
-code against what the backend now actually returns — none of them were catchable by any of the
-prior API-level live verification, since that always hit `fetch()` directly rather than the real
-browser UI. Backend logic/schema/scoring untouched throughout; all three fixes are purely in how
-the frontend consumes already-correct, already-tested backend responses.
+Cross-referencing the UI against what the backend now actually returns surfaced three bugs no
+prior API-level verification caught (that always hit `fetch()` directly, not the real UI).
 
-- **`handleStartExam` never checked `res.ok`** — every rejection from `POST /api/attempts`
-  (`not_started`, `exam_ended`, Phase 6's `insufficient_pool`, Phase 7's
-  `invalid_section_weights`) fell through silently, writing a corrupt session and — for a
-  sectioned exam — stranding the student on a permanently dead "Start Section" button with zero
-  feedback. Fixed via a new pure classifier (`src/lib/exam-start-errors.ts`'s
-  `classifyStartExamResponse`) that the handler now branches on before any state write; the
-  student sees a clear, case-specific message (never the raw shortfall/weight-sum internals),
-  the Start button stays retriable, and the corrupt-session write is structurally unreachable on
-  any failure branch.
-- **`handleStartSection` swallowed its 403 silently** — fixed with the same file's
-  `classifySectionStartResponse`; the student now sees the lock message and a Reload button that
-  reuses the exam page's existing waiting-room-timeout recovery pattern
-  (`window.location.reload()`) to resync to the correct section.
-- **`GradingPanel` had no UI path to a permitted backend state** — the panel collapsed
-  `confirmed` and `overridden` into one `resolved` gate, hiding the override control for both,
-  even though Phase 7's grading fix deliberately still permits re-overriding an
-  `overridden`-not-yet-`confirmed` answer. Fixed with `src/lib/grading-status.ts`'s
-  `isGradingFinalized`/`canOverrideGrading` (only `confirmed` is truly terminal); the override
-  button now reappears (relabeled "Change override") for `overridden` answers.
-- **Scope decision, flagged explicitly**: this repo has no existing React-component test
-  pattern (no RTL, no jsdom environment) — every other decision-logic file in this codebase is a
-  pure function tested via plain vitest instead. Rather than introduce a new testing toolchain
-  for a 3-bug scoped fix, all three bugs were closed by extracting the actual decision logic into
-  pure functions and wiring components to branch on them; the "no corrupt session on failure" /
-  "override visible exactly when permitted" guarantees follow structurally from those functions'
-  return shapes, not from component-render assertions.
-- **Explicitly not built**: a real backend mechanism to notify an instructor about
-  `insufficient_pool`/`invalid_section_weights` — the frontend now logs the detail
-  (`console.error`) but there's no actual notification endpoint to send it to; flagged rather
-  than added, since that would be backend work outside this session's stated scope.
-- **Verification**: `tsc` clean · `lint` at the unchanged 3-error/1-warning baseline · `build`
-  clean · `vitest` 201/201 (188 baseline + 13 new: 9 `exam-start-errors` + 4 `grading-status`).
-- `MANUAL_QA_PHASE_5-7.md` was written against the pre-fix behavior — its three 🔴-flagged
-  findings and Section C5's override-reachability step should now all show the fixed behavior,
-  not the bugs; full detail in `PHASE_7_1_PROGRESS.md`.
+- **`handleStartExam` never checked `res.ok`** — every rejection from `POST /api/attempts` fell
+  through silently, writing a corrupt session and, for sectioned exams, stranding the student on a
+  dead button. Fixed via a pure classifier (`src/lib/exam-start-errors.ts`) branched on before any
+  state write.
+- **`handleStartSection` swallowed its 403 silently** — fixed with the same file's second
+  classifier; student now sees the lock message + a reload-to-resync button.
+- **`GradingPanel` had no UI path to a permitted backend state** — it collapsed `confirmed` and
+  `overridden` into one terminal gate, hiding the override control the backend still permits for
+  `overridden`-not-yet-`confirmed` answers. Fixed with pure `isGradingFinalized`/
+  `canOverrideGrading` helpers.
+- **Scope decision, flagged**: this repo has no React-component test pattern (no RTL/jsdom); all
+  three bugs were closed by extracting decision logic into pure functions (tested via plain
+  vitest) rather than introducing a new toolchain for a 3-bug fix.
 
 ### 2026-07-17 (cont'd) — Phase 7: multi-section locking + grading bulk-approve, closed real server-enforcement gaps ✅
 
-Phase 7's Task 1 (Multi-Section Exam Architecture) duplicates the 2026-07-09 session's "item 9"
-almost entirely — `ExamSection`/`SectionAttempt`/`isSectionSequential`/`isItemSequential`/
-composite scoring were all already built. Audited first, same as Phase 5/6, before writing
-anything. Found and fixed two real server-side enforcement holes in Task 1, and built the
-genuinely-missing bulk-approve endpoint plus a real enforcement gap in Task 2.
+Phase 7's Task 1 duplicated the 2026-07-09 session's item 9 almost entirely (already built) —
+found and fixed two real server-side enforcement holes instead:
 
-- [x] Task 1 — two real gaps closed:
-  1. **Section-weight-sums-to-100% was never enforced server-side** — only a non-blocking UI
-     warning existed. `POST /api/attempts` now rejects starting a brand-new attempt on a
-     sectioned exam whose `sectionWeight`s don't sum to 100% (400, clear message), never blocks
-     resuming an existing attempt, deliberately not auto-normalized.
-  2. **`isItemSequential` had zero server enforcement surface** — the exam-taking architecture
-     has no per-question autosave at all (every answer lands server-side once, via one bulk
-     submit; this is the same reason dead attempts can only force-finalize to 0, per the Phase 5
-     progress note). Added a new, narrowly-scoped `ItemLock` table + `POST
-     /api/attempts/[attemptId]/items/[questionId]/lock` — the client calls it once per question
-     on advance; a second call for the same question is rejected (403), which is the literal
-     server-side test of "can't re-edit a past-answered item." Both submit routes now honor any
-     locked value over whatever the client's bulk payload claims for that question (defense in
-     depth). Scoped to `isItemSequential` exams only — every other exam is completely
-     unaffected, and the "no autosave" property everything else relies on is unchanged for them.
-  - Live-verified end-to-end via a real Playwright student session: section-sequential lock
-    (403 starting section 2 early), item lock (403 re-locking), defense-in-depth (tampered bulk
-    submit still scored using the locked value), section resubmit rejected (409), and the
-    composite-scoring threshold-override case against a real seeded 2-section exam (100%/50%
-    scores, 60/40 weights, 50/90 thresholds → 80% composite but `failed: true`, matching the
-    spec's own worked example, live not just unit-tested).
-- [x] Task 2 — bulk-approve built from scratch (didn't exist at all); finalized-answer
-  re-override gap closed:
-  - New `POST /api/grading/attempts/[attemptId]/bulk-approve` — transitions every `ai_suggested`
-    answer in one attempt to `confirmed` in a single transaction + one `recomputeAttemptScore`
-    call. **Flagged judgment call**: already-`overridden` answers are counted in the response
-    but left untouched (not rewritten to `confirmed` with the AI's original suggestion,
-    discarding the teacher's own explicit mark — that would be the exact double-processing the
-    spec warns against); `pending_ai` answers report as not-ready. New "Approve All (N)" button
-    on the per-student results page.
-  - `POST /api/grading/answers/[answerId]` previously had no check at all for an already-
-    `confirmed` answer — a second override/confirm/regrade would silently overwrite marks and
-    append another audit log row. Now returns 409 once `confirmed`. **Narrower interpretation
-    taken deliberately**: only `confirmed` blocks further mutation; an `overridden`-but-not-yet-
-    finalized answer is still adjustable (a teacher changing their mind before finalizing is a
-    reasonable workflow the spec doesn't ask to block). No reopen flow was built — flagged as a
-    UX gap per the spec's own explicit instruction.
-- RLS added to the new `ItemLock` table (SELECT-only `authenticated`, scoped to the attempt's
-  own student or a teacher/admin in the exam's institution), live-verified with 3 real
-  cross-institution/cross-user queries via `SET ROLE authenticated` + `SET request.jwt.claims`.
-  `ExamSection`/`SectionAttempt` confirmed via live query to still lack RLS — they predate this
-  phase (2026-07-09), so per the guardrail ("any **new** table needs RLS") weren't brought into
-  scope; same pre-existing SEC-08 accepted risk, now confirmed live rather than assumed.
-- Did not touch the Phase 5 auto-finalize decision or any Phase 6 item-bank ambiguity, per
-  explicit instruction.
-- Full detail, including both flagged judgment calls with the defaults taken, in
-  `PHASE_7_PROGRESS.md`.
-- **Verification**: `tsc` clean · `lint` at the unchanged 3-error/1-warning baseline · `build`
-  passes with both new routes registered · `vitest` 188/188 (156 baseline + 32 new).
+1. **Section-weight-sums-to-100% was never enforced server-side**, only a non-blocking UI
+   warning. `POST /api/attempts` now rejects starting a *new* attempt on a sectioned exam whose
+   weights don't sum to 100% (never blocks resuming).
+2. **`isItemSequential` had zero server enforcement surface** — no per-question autosave exists
+   at all (one bulk submit only). New `ItemLock` table +
+   `POST /api/attempts/[attemptId]/items/[questionId]/lock`: a second lock call for the same
+   question is rejected (403); both submit routes honor any locked value over the client's bulk
+   payload as defense in depth. Scoped only to `isItemSequential` exams.
+
+Task 2: bulk-approve didn't exist at all — new
+`POST /api/grading/attempts/[attemptId]/bulk-approve` transitions every `ai_suggested` answer to
+`confirmed` in one transaction. **Flagged**: already-`overridden` answers are counted but left
+untouched (not silently rewritten with the AI's original suggestion). Also closed a gap where
+`POST /api/grading/answers/[answerId]` had **no check at all** for an already-`confirmed` answer
+— a second override could silently overwrite marks; now returns 409. RLS added to `ItemLock`
+(SELECT-only, live-verified with 3 cross-institution queries).
 
 ### 2026-07-17 — Phase 6: item bank RBAC/pooling audit, closed real pooling concurrency + insufficient-pool bugs ✅
 
-A "Phase 6" spec landed with 4 tasks (Item Bank RBAC, decouple AI generation from the wizard,
-CLO-aware batch generation, stratified dynamic pooling) — same pattern as Phase 5: tasks 1–3 are
-near-verbatim restatements of the 2026-07-09 session's spec items 5–7, already fully implemented
-in prod. Audited each task against the current code (4 parallel research passes) before writing
-anything, per this repo's established practice of verifying rather than re-implementing.
+Tasks 1–3 were near-verbatim restatements of 2026-07-09's items 5–7, already implemented —
+audited (4 parallel research passes) rather than re-implemented. **Real gap found in Task 1**:
+`ItemBank`/`ItemBankAccess` had RLS disabled — enabled with SELECT-only policies, hit and fixed a
+genuine infinite-recursion bug from the two tables' policies mutually referencing each other
+(fixed with `SECURITY DEFINER` helper functions).
 
-- [x] Task 1 — Item Bank RBAC. Already implemented (`ItemBank`/`ItemBankAccess`,
-      `resolveBankPermission`, collaborator endpoints, 3-tab dashboard). Both "flag-don't-guess"
-      questions were already resolved matching the spec's own stated defaults. **Real gap
-      found and closed**: `ItemBank`/`ItemBankAccess` had RLS disabled (confirmed live via
-      `pg_class.relrowsecurity = false`) — enabled it with SELECT-only `authenticated` policies,
-      hit and fixed a genuine infinite-recursion bug from the two tables' policies mutually
-      referencing each other (fixed with `SECURITY DEFINER` helper functions), and live-verified
-      with real cross-user/cross-institution queries. Added `tests/unit/item-bank-data.test.ts`
-      (11 tests, first mocked-Prisma test file in this repo) for the spec's 4 required scenarios,
-      previously only covered by manual/live QA.
-- [x] Task 2 — Decouple AI generation from the wizard. Already implemented, confirmed via
-      full-codebase grep that no dead `examId`-based path remains anywhere. Added
-      `tests/unit/generate-questions-route.test.ts` (first route-handler-level test in this repo).
-- [x] Task 3 — CLO-aware batch generation. Already implemented (`MAX_BATCH_SIZE`, server-side
-      enforcement, CLO resolution + institution check, prompt injection, FK stamping). Added the
-      3 previously-missing tests: server-side over-limit rejection bypassing the client, every
-      item in a batch getting `learningObjectiveId` stamped (`tests/unit/generation-job.test.ts`),
-      invalid/nonexistent CLO_ID rejected clearly.
-- [x] Task 4 — Stratified dynamic pooling. **Two real, previously-unaddressed bugs found and
-      fixed**, exactly matching the spec's own "highest-risk" callouts:
-      1. **Insufficient pool at runtime was silently swallowed** — `materializePooledQuestions`
-         drew `ORDER BY RANDOM() LIMIT count` with no check that `count` rows actually existed;
-         a shrunk pool (item deleted/unapproved after the blueprint was saved) silently served a
-         shorter exam with zero signal to anyone. Fixed: the actual approved count per CLO is
-         checked before drawing anything; a shortfall throws `InsufficientPoolError` (new
-         `src/lib/data/pooling-errors.ts`, kept separate from `pooling.ts` because that file is
-         `'use server'` and a thrown Error class isn't a valid Server Action export — a first
-         draft that exported it from `pooling.ts` broke the Next build with "module has no
-         exports at all"). `POST /api/attempts` now returns 409 with per-CLO shortfall detail.
-      2. **Concurrent exam-start could double-materialize a pooled exam** — the old code read
-         `existing` via a separate query, then `upsert`ed the attempt, then materialized pooled
-         questions `if (!existing)`; two near-simultaneous requests for the same student+exam
-         could both observe `existing === null` and both draw their own private question set for
-         the same attempt. Fixed: attempt creation + materialization now run inside one
-         `prisma.$transaction` using `create` (not `upsert`) — the DB's unique constraint on
-         `(examId, studentId)` is the sole arbiter, the losing concurrent call catches the P2002
-         violation and never materializes, and an `InsufficientPoolError` rolls back the whole
-         transaction (no orphaned half-created attempt).
-      - **Product decision flagged, not made silently**: chose to block the exam-start attempt
-        entirely on insufficient pool (safest — never serve a mis-scoped exam unnoticed) rather
-        than auto-adjust the draw count down. Auto-adjust is more student-friendly but changes
-        what the exam measures without instructor sign-off — left for Haris's call, with the
-        code path noted for how small the swap would be if preferred.
-      - Added `tests/unit/pooling.test.ts` (4 tests) and, per the spec's explicit ask,
-        `tests/unit/attempts-pooling-concurrency.test.ts` (3 tests) including a real concurrent
-        `Promise.all` double-`POST /api/attempts` test confirming exactly one materialization
-        call and one attempt id.
-- **Live-verified against Supabase** (`rlbtdpnmdnaxlccelxdr`) via a disposable, self-cleaning
-  Playwright + Prisma script (real browser login/session, direct Postgres egress was reachable
-  this session): RLS cross-tenant behavior (4 real query attempts, all correct), the JIT
-  assembler on a healthy pool (exactly 3/3 questions materialized), the JIT assembler on an
-  insufficient pool (409, zero orphaned attempt rows — the transaction rollback is real, not
-  just unit-tested), and the batch-size cap (`count: 50` direct POST → 400, zero jobs created).
-  All fixtures confirmed deleted afterward.
-- Did not touch the Phase 5 auto-finalize-dead-attempts decision, per explicit instruction —
-  no cron job added.
-- Full detail, including the "flag, don't guess" defaults and the ES-module-import-hoisting
-  gotcha that broke the first live-QA script attempt, in `PHASE_6_PROGRESS.md`.
-- **Verification**: `tsc` clean · `lint` at the unchanged 3-error/1-warning baseline · `build` 74
-  routes (unchanged — no new pages/routes, two small production-code fixes plus tests) ·
-  `vitest` 156/156 (127 baseline + 29 new).
+Task 4 (pooling) had two real, previously-unaddressed bugs, matching the spec's own
+highest-risk callouts:
+1. **Insufficient pool at runtime was silently swallowed** — `materializePooledQuestions` drew
+   `ORDER BY RANDOM() LIMIT count` with no check the rows existed; a shrunk pool (item deleted
+   after the blueprint was saved) silently served a shorter exam with zero signal. Fixed: actual
+   approved count is checked before drawing; a shortfall throws `InsufficientPoolError`
+   (`src/lib/data/pooling-errors.ts` — kept separate from `pooling.ts` since that file is
+   `'use server'` and a thrown Error class isn't a valid Server Action export). `POST /api/attempts`
+   returns 409 with per-CLO shortfall detail.
+2. **Concurrent exam-start could double-materialize a pooled exam** — attempt creation +
+   materialization now run inside one `$transaction` using `create` (not `upsert`); the DB's
+   unique constraint is the sole arbiter, the losing concurrent call catches P2002 and never
+   materializes, `InsufficientPoolError` rolls back the whole transaction.
+
+**Product decision flagged, not made silently**: blocks the exam-start attempt entirely on
+insufficient pool (safest — never serve a mis-scoped exam unnoticed) rather than auto-adjusting
+the draw count down, left for Haris's call. Live-verified: RLS cross-tenant (4 queries), JIT
+assembler on a healthy pool (3/3 materialized) and an insufficient one (409, zero orphaned
+rows — the rollback is real, not just unit-tested), batch-size cap enforcement.
 
 ### 2026-07-16 — Phase 5 spec audit: found already-complete, closed one test gap ✅
 
 A "Phase 5" spec landed asking for pre-exam instructions, availability-vs-duration auto-submit,
-per-item timers, and an optional proctoring toggle — nearly verbatim the 2026-07-09 session's spec
-items 1–4. Verified rather than assumed: read the schema, the student exam page, the submit route,
-and the wizard/edit UI, and confirmed live against Supabase (`rlbtdpnmdnaxlccelxdr`) that every
-field (`Exam.instructions`/`isProctoringEnabled`/`startTime`/`endTime`/`duration`,
-`Question.timeLimitSeconds`, `Item.timeLimitSeconds`) already exists in prod and the code paths
-described in the 2026-07-09 entry are all real. No feature code changed.
-
-- Closed the one genuine gap: the deadline math (whichever of duration-from-start or `endTime` comes
-  first) lived only as inline route code, exercised by manual QA, never as a directly unit-tested
-  function. Extracted to `src/lib/exam-deadline.ts` (`computeSubmissionDeadline`/`isPastDeadline`,
-  pure refactor, no behavior change) with 7 new tests covering both trigger paths independently —
-  including the spec's own worked example (60-min duration, closes 12:00, starts 11:30 → deadline
-  12:00, not 12:30).
-- **Explicitly declined, not overlooked**: adding a cron to proactively force-submit attempts whose
-  client died mid-exam. `POST /api/monitor/force-finalize` already exists for this and its own
-  comment states the design intent — dead attempts have no server-side answer record (no autosave;
-  answers live client-side until the final submit POST), so auto-finalizing can only score 0.
-  Automating that would reverse a deliberate Phase 3 decision ("a second, explicit teacher action,
-  never automatic"), not fix a bug — left for Haris to decide, not made unilaterally.
-- Live-verified the two auto-submit trigger paths against the real `submit` route (not just the
-  extracted unit) via a disposable Prisma + real-browser-login Playwright script: duration-expires-
-  first, endTime-expires-first (the spec's example), and neither-expired — all three matched
-  expected `submitted`/`auto_submitted` status. All QA rows confirmed deleted afterward.
-- Confirmed `Exam`/`Question`/`Item` still have `rowsecurity = false`, zero policies — consistent
-  with the standing SEC-08 accepted risk; nothing to add since no new tables/fields this pass.
-- Full detail in `PHASE_5_PROGRESS.md`.
-- **Verification**: `tsc` clean · `lint` at the unchanged 3-error/1-warning baseline · `build` 74
-  routes · `vitest` 127/127 (120 baseline + 7 new).
+per-item timers, and an optional proctoring toggle — nearly verbatim 2026-07-09's items 1–4.
+Verified rather than assumed: confirmed live against Supabase that every field already exists in
+prod and the code paths are real. Closed the one genuine gap: the deadline math lived only as
+inline route code — extracted to `src/lib/exam-deadline.ts` (pure), 7 new tests including the
+spec's own worked example. **Explicitly declined**: a cron to force-submit dead-client attempts —
+`POST /api/monitor/force-finalize` already exists for this by design (no autosave, so
+auto-finalizing can only score 0 — automating it would reverse a deliberate Phase 3 decision).
 
 ### 2026-07-14 — Password reset rework, Classes/ClassInvite/ClassEnrollment, admin deactivation ✅
 
-Four-part spec, each area independently verified against the live prod DB (schema DDL + RLS applied via `scripts/mgmt-sql.sh` — `DIRECT_URL`:5432 is blocked again this session, but `DATABASE_URL`:6543/pgBouncer is reachable, **a new finding**: the app itself (`lib/prisma.ts`) always connects via `DATABASE_URL`, so `npm run dev` works fully against the live DB even when direct Prisma CLI calls need the pooler override — unblocks real Playwright-driven QA that prior sessions couldn't do). 120/120 vitest green (29 new).
+Four-part spec, each independently verified against live prod DB. **New finding**: the app
+connects via `DATABASE_URL` (pgBouncer, always reachable) even when direct Prisma CLI calls need
+the `DIRECT_URL` override — unblocks real Playwright QA prior sessions couldn't do.
 
-- **Password reset** — moved off the earlier same-session `/forgot-password`+`/reset-password` pages to `/auth/forgot-password` + `/auth/reset-password` per spec (both under a new `src/app/auth/layout.tsx`, harmless for the sibling `/auth/callback` route handler). New `PasswordResetAttempt` log + `POST /api/auth/forgot-password` enforces per-email rate limiting (3/15min, `isRateLimited` in `class-permissions.ts`) before calling `resetPasswordForEmail` server-side (moved off the client to make the limit enforceable). `/auth/callback` now honors a same-site-only `next` param and redirects a failed/expired code-exchange to `/auth/reset-password?error=expired` instead of the generic login error, so `reset-password`'s server component can render a clear expired/invalid state distinct from the working form.
-- **Class / ClassInvite / ClassEnrollment** (new models) — one teacher → many `Class` rows; invite/accept deliberately reuses the *existing* `InviteToken`/`/invite/[token]` pattern's proven shape (token → public validate route → accept route creates-or-links the Supabase+Prisma account) rather than a new mechanism, layered as its own self-contained model per spec. Bulk invite (`parseBulkEmails` — comma/newline, deduped, invalid dropped) branches per email: an existing student in the same institution gets enrolled only once already authenticated as that exact account (`/classes/join/[token]`'s `needs_login` state sends them to `/login?redirect=...` instead of ever resetting their password); a brand-new email gets the same Supabase-admin-createUser signup form `/invite/[token]` already uses. `teacher/classes` (list+create) and `teacher/classes/[classId]` (roster, invite dialog, invite-status list) are new pages; nav + i18n (`nav.classes`) added.
-- **Removal / deactivation RBAC** — `src/lib/class-permissions.ts` (pure, mirrors `item-bank-permissions.ts`): `canManageClass`/`canRemoveEnrollment` (teacher-owns-class OR institution admin, cross-tenant hard-denied), `canDeactivateUser` (institution admin only, never another admin, never a super admin, never self — separate from and narrower than the Super Admin panel's own `/api/super/suspend`, same `User.suspendedAt` flag). Teacher roster removal deletes only the `ClassEnrollment` row (`window.confirm`, matching this codebase's existing delete-confirmation convention — no new dialog component). Admin deactivation (`setUserSuspension` in `lib/data/users.ts`, wired into `admin/teachers` and `admin/users`) cascades by archiving (not deleting) the teacher's classes; enrollment history and exams are untouched.
-- **RLS** — `Class`/`ClassInvite`/`ClassEnrollment` get the same SELECT-only, `authenticated`-role policy shape as the 4 tables from 2026-07-11 (narrows SEC-08 further; confirmed live via `pg_policies`).
-- **Bug found via live QA, fixed (not scope creep — this is the exact mechanism the deactivation feature depends on)**: `GET/PATCH /api/users/me` reimplemented its own auth check with a bare `supabase.auth.getUser()` instead of `getAuthUser()`, so a just-deactivated user's session-bootstrap call kept succeeding — the suspension had no effect on the one endpoint every login calls first. Fixed by routing both handlers through `getAuthUser()`.
-- **Known pre-existing, unrelated bug surfaced (not fixed, out of scope)**: `DashboardShell`'s avatar-initials computation reads `localStorage` client-side, causing a real SSR/client hydration mismatch on every dashboard page (not introduced this session — confirmed via `git stash`). It doesn't corrupt any mutation (server actions still complete correctly, verified via direct API calls alongside the UI-driven ones in QA), but it does cause React to discard and remount the page's component tree after the mismatch, which made pure UI-click-only QA assertions flaky. Worth a follow-up pass.
-- **Verification**: `tsc`/`lint` (3-error/1-warning baseline, unchanged) / `build` (74 routes) all clean · `vitest` 120/120 · disposable, self-cleaning Playwright + Prisma script against the live dev server + live DB (two throwaway institutions, admin/2 teachers/2 students) covering class creation, bulk invite → both accept paths, enrollment removal (teacher-owned and cross-tenant-denied), admin deactivation cascade, and the rate-limit 429 boundary — all passed, all QA data cleaned up afterward.
+- **Password reset** — moved to `/auth/forgot-password`+`/auth/reset-password`. New
+  `PasswordResetAttempt` log + rate limiting (3/15min per email) before calling
+  `resetPasswordForEmail` server-side (moved off the client to make the limit enforceable).
+  `/auth/callback` honors a same-site-only `next` param, redirects a failed exchange to a clear
+  expired/invalid state.
+- **Class / ClassInvite / ClassEnrollment** — one teacher → many `Class` rows; invite/accept
+  deliberately reuses the *existing* `InviteToken`/`/invite/[token]` pattern rather than a new
+  mechanism. Bulk invite branches per email: existing same-institution student gets enrolled only
+  while already signed in as that account; new email gets the same admin-createUser signup form.
+- **Removal/deactivation RBAC** — `src/lib/class-permissions.ts` (pure): `canManageClass`,
+  `canDeactivateUser` (institution admin only, never another admin, never super admin, never
+  self). Admin deactivation cascades by archiving (not deleting) the teacher's classes.
+- **RLS** — same SELECT-only shape as the 2026-07-11 tables, applied to the 3 new tables.
+- **Bug found via live QA, fixed (not scope creep — it's the exact mechanism deactivation depends
+  on)**: `GET/PATCH /api/users/me` reimplemented its own auth with a bare `supabase.auth.getUser()`
+  instead of `getAuthUser()`, so a just-deactivated user's session-bootstrap call kept succeeding.
+- **Known pre-existing, unrelated bug surfaced (not fixed)**: `DashboardShell`'s avatar-initials
+  computation reads `localStorage` client-side, a real SSR/client hydration mismatch on every
+  dashboard page (confirmed pre-existing via `git stash`).
 
 ### 2026-07-12 — Phase 3 follow-up: hosted Judge0, Vercel Python psychometrics, Master Admin Panel ✅
 
-Three follow-up tasks (progress: `docs/phase3/FOLLOWUP_PROGRESS.md`), each committed separately, 91/91 vitest + 10/10 pytest green throughout:
-- **Hosted Judge0** — self-hosted docker-compose removed; client targets the pay-per-use Shared Cloud API via `JUDGE0_API_URL`+`JUDGE0_API_KEY` (sends both `Authorization: Bearer` and `X-Auth-Token`, provider-agnostic). New `JudgeUsageLog` (one row per coding-answer grading event, `submissionCount` = test cases run = billing unit) is the per-institution cost attribution; per-institution monthly submission counter (`judgeMonthlyQuota`/`judgeUsageCount`, default 1000) reuses the AI-quota mechanism with a shared month rollover — quota hit means the answer is held for manual grading, never a failed exam.
-- **Psychometrics inside Vercel** — the standalone FastAPI service is gone; `api/psychometrics/compute.py` is a Vercel Python Function (auto-detected via root `requirements.txt`, stateless, well under the duration cap), stats module moved unchanged (`_stats.py`), client calls it internally; `PSYCHOMETRICS_URL` removed (supersedes the 2026-07-11 entry's deployment notes).
-- **Master Admin Panel** — new platform tier ABOVE institution admins: `User.isSuperAdmin` (deliberately not a `Role` value; own `getSuperAdmin()` gate, set manually via SQL: `UPDATE "User" SET "isSuperAdmin" = true WHERE email = '...'`). `/super` page + `/api/super/*`: all institutions with teacher/student/active-exam counts, monthly Judge0 + Claude usage with env-tunable cost estimates (`JUDGE0_COST_PER_SUBMISSION` default $0.0005, `AI_COST_PER_CALL` default $0.02), and suspend/unsuspend for institutions and users. Suspension is a soft `suspendedAt` flag enforced in `getAuthUser` (suspended user, or any non-super user of a suspended institution, is treated as unauthenticated); super admins can't suspend each other from the panel. Middleware lets authenticated users reach `/super`; the DB flag on every API route is the actual gate.
+- **Hosted Judge0** — self-hosted docker-compose removed; client targets the pay-per-use Shared
+  Cloud API via `JUDGE0_API_URL`/`JUDGE0_API_KEY`. New `JudgeUsageLog` is the per-institution cost
+  attribution; a monthly submission counter (default 1000, shared month-rollover mechanism with
+  the AI quota) means quota-hit holds an answer for manual grading, never fails an exam.
+- **Psychometrics inside Vercel** — the standalone FastAPI service is gone; `api/psychometrics/compute.py`
+  is a Vercel Python Function (auto-detected via root `requirements.txt`), stats module moved
+  unchanged; `PSYCHOMETRICS_URL` removed.
+- **Master Admin Panel** — new tier above institution admins: `User.isSuperAdmin` (deliberately
+  not a `Role` value, set manually via SQL). `/super` + `/api/super/*`: all institutions with
+  counts, monthly Judge0 + Claude usage with env-tunable cost estimates, suspend/unsuspend for
+  institutions and users. Suspension is a soft `suspendedAt` flag enforced in `getAuthUser`.
 
-### 2026-07-11 — Phase 3 implementation ✅ (all 5 areas; architecture docs in `docs/phase3/`, progress log in `docs/phase3/IMPLEMENTATION_PROGRESS.md`)
+### 2026-07-11 — Phase 3 implementation ✅ (all 5 areas)
 
-Implemented per the 6 architecture docs written earlier the same day (`docs/phase3/01–06`) under Haris's autonomous-kickoff prompt with 12 locked decisions. 8 commits, each independently verified (tsc / lint baseline / build / vitest — now 91 tests — plus 10 pytest fixtures for the stats service). **Live-server QA was impossible this session**: the local network blocks outbound Postgres ports (5432/6543), so the dev server can't reach the DB. All DDL was applied and row-level verified over HTTPS via the Supabase Management API (`scripts/mgmt-sql.sh`, reusable helper, CLI keychain token). A deferred live-QA checklist is in IMPLEMENTATION_PROGRESS.md — run it when pg egress returns.
+Implemented per 6 architecture docs written the same day under an autonomous-kickoff prompt with
+12 locked decisions. **Live-server QA was impossible this session** — local network blocked
+outbound Postgres ports; all DDL applied and row-verified over HTTPS via the Supabase Management
+API (`scripts/mgmt-sql.sh`).
 
-- **Proctoring (doc 01)**: real client-side detection replaces every mock — MediaPipe Face Landmarker (face count + coarse gaze via nose-cheek ratio + both-irises heuristic; adaptation: one runtime instead of face-api.js + MediaPipe), COCO-SSD phone/book/laptop on sampled frames, sustained-episode audio VAD; all models self-hosted in `public/models/` (~23MB, no external calls). `ProctoringEventBuffer` batches events (10s/20-event/immediate-high) to a batched `POST /api/violations` with server-side severity re-derivation, clientSeq idempotency, and a 30s heartbeat (`ProctoringHeartbeat`) that makes detector suppression visible. Trust score v2 (severity/duration/confidence-weighted, per-type caps) recomputed live on every ingest. Evidence per decision 1: snapshot only on multi-face/phone/sustained-no-face, private storage path, visible capture indicator (decision 3), 30-day purge cron, consent line on the instructions screen. Also fixed a pre-existing hole: students could write violations against other students' attemptIds (no ownership check).
-- **Live monitoring (doc 04)**: per-exam monitor now runs on Supabase Realtime (debounced refresh triggers; polling retained as fallback — 10s down/60s live, with a Live/Polling badge). Roster gains heartbeat-staleness "Disconnected" state, needs-attention sort, trust<60/high-severity flagging. The Phase-1 fake "live feed" (teacher's own camera!) is replaced by on-demand snapshots via a new `MonitorDirective` table (snapshot/warning/force_submit — one mechanism, doubles as the audit log of teacher actions). Force-submit: directive for live clients, `/api/monitor/force-finalize` for dead ones (finally closes the browser-died-mid-exam gap). Browser `Notification` for high-severity when tab hidden (decision 12; Web Push infra deferred per doc 04's scope valve).
-- **AI generation (doc 02)**: now async — 202 + `GenerationJob` row + Vercel background work (`after()`), polled via `/api/ai/jobs/[jobId]` with a 5-min staleness sweep. Real Claude call (`claude-sonnet-5` per doc 02 via one `AI_MODEL` env-overridable constant, structured output, zod-validated, retry≤2, injection-hardened source framing) with **mock fallback when `ANTHROPIC_API_KEY` is absent** — job records `model: 'mock'`. Dup detection both layers: 30 recent stems in-prompt + pg_trgm >0.6 → `ai-possible-duplicate` tag + badge. Decision 5: `Institution.aiMonthlyQuota` (default 1000) with atomic monthly counter and hard 429.
-- **AI grading (doc 03)**: two-stage completion — essay/coding answers enter `Answer.gradingStatus = pending_ai` at submit (both normal and sectioned routes), AI suggestions run in background, and **only teacher confirm/override ever writes marks** (decision 4, no auto-confirm). Append-only `AnswerGrading` log with per-event `rubricSnapshot` = the dispute trail (adaptation: JSON rubric on the question + snapshots, instead of a separate versioned Rubric entity; `gradingStatus` is the state machine instead of a GradingJob table). Essay: per-criterion scores with quoted evidence + injection flags. Coding: self-hosted Judge0 (`judge0/docker-compose.yml`, decision 7, `JUDGE0_URL` env) runs test cases, Claude reviews quality, combined 70/30 (per-question override); marks never awarded when the sandbox is unavailable. GradingPanel on the TCH-03 per-student page; minimal rubric editor (name | points | description lines) in Add Question for essays. AI unavailable in any way → answers stay pending for manual grading.
-- **Psychometrics (doc 05)**: `ItemAdministrationStat` (upsert per administration) + `ExamReliabilityStat` + `Question.sourceItemId` (stamped by both materialization paths — item-8 pooling and wizard fixed selection). New `psychometrics/` FastAPI service (decision 8; adaptation: pure-Python formulas, each validated against hand-computed pytest fixtures — no numpy needed at this scale): partial-credit facility index, pooled-aware corrected point-biserial, alpha/KR-20 (NULL for sparse pooled matrices, honestly), distractor quartiles, insufficientN<10 (decision 10), no IRT (decision 11). Triggers: nightly cron sweep + teacher on-demand recompute; both no-op without `PSYCHOMETRICS_URL`. The bank's FI%/DI% columns finally show real data.
-- **SEC-08 annotation (decision 2 — narrows, does not erase, the 2026-07-06 sign-off)**: RLS is now ENABLED on exactly 4 tables — `Violation`, `ExamAttempt`, `ProctoringHeartbeat`, `MonitorDirective` — with SELECT-only policies for `authenticated` (students see own rows, teachers/admins their institution), added to gate Supabase Realtime reads. No write policies (side effect: direct PostgREST writes to these 4 tables, previously possible under default grants, are now denied). Prisma is unaffected (connects as table owner; non-FORCE RLS). **The rest of the schema remains app-layer-only enforcement — SEC-08 otherwise stands as accepted.**
-- **New services to deploy when wanted** (app degrades gracefully without them): Judge0 (Docker, own host) and the psychometrics FastAPI container; plus env vars below.
-- **Known deferred items**: live end-to-end QA (network blocker; checklist in IMPLEMENTATION_PROGRESS.md), grading-queue badges on the results table, per-administration stats drill-down UI, `Item.reviewedById` stamping on approve, Web Push, cross-exam `teacher/monitor` overview page still polls.
+- **Proctoring**: real client-side detection replaces every mock — MediaPipe Face Landmarker
+  (face count + coarse gaze) + COCO-SSD (phone/book/laptop on sampled frames) + sustained-episode
+  audio VAD, all self-hosted (~23MB, no external calls). `ProctoringEventBuffer` batches events to
+  a batched `POST /api/violations` with server-side severity re-derivation, clientSeq idempotency,
+  a 30s heartbeat making detector suppression visible. Trust score v2 recomputed live per ingest.
+  Evidence: snapshot only on multi-face/phone/sustained-no-face, private storage, visible capture
+  indicator, 30-day purge cron, consent line on instructions. Also fixed a pre-existing hole:
+  students could write violations against other students' attemptIds.
+- **Live monitoring**: per-exam monitor runs on Supabase Realtime (polling retained as fallback).
+  Roster gains heartbeat-staleness "Disconnected" state, needs-attention sort. The Phase-1 fake
+  "live feed" (teacher's own camera!) replaced by on-demand snapshots via new `MonitorDirective`
+  (snapshot/warning/force_submit — doubles as the teacher-action audit log). Force-submit:
+  directive for live clients, `/api/monitor/force-finalize` for dead ones.
+- **AI generation**: async — 202 + `GenerationJob` row + Vercel background work, polled with a
+  5-min staleness sweep. Real Claude call, structured output, zod-validated, retry≤2,
+  injection-hardened, **mock fallback when `ANTHROPIC_API_KEY` is absent**. Dup detection:
+  30 recent stems in-prompt + pg_trgm >0.6. `Institution.aiMonthlyQuota` (default 1000) with
+  atomic monthly counter and hard 429.
+- **AI grading**: two-stage — essay/coding answers enter `pending_ai` at submit, AI suggestions
+  run in background, **only teacher confirm/override ever writes marks** (no auto-confirm).
+  Append-only `AnswerGrading` log doubles as the dispute trail. Essay: per-criterion scores with
+  quoted evidence + injection flags. Coding: self-hosted Judge0 runs test cases, Claude reviews
+  quality, combined 70/30. Marks never awarded when the sandbox is unavailable.
+- **Psychometrics**: `ItemAdministrationStat` + `ExamReliabilityStat` + `Question.sourceItemId`.
+  New FastAPI service, pure-Python formulas validated against hand-computed pytest fixtures:
+  partial-credit facility index, pooled-aware corrected point-biserial, alpha/KR-20 (NULL for
+  sparse pooled matrices, honestly), distractor quartiles, insufficient-N<10, no IRT.
+- **SEC-08 narrowed**: RLS enabled on exactly 4 tables — `Violation`, `ExamAttempt`,
+  `ProctoringHeartbeat`, `MonitorDirective` — SELECT-only for `authenticated`. No write policies
+  (direct PostgREST writes to these 4, previously possible under default grants, now denied).
+  Prisma unaffected (connects as table owner). **The rest of the schema remains app-layer-only —
+  SEC-08 otherwise stands as accepted.**
+- **Known deferred**: live end-to-end QA (network blocker), grading-queue badges, per-admin stats
+  drill-down UI, `Item.reviewedById` stamping, Web Push, `teacher/monitor` still polls.
 
-### 2026-07-09 (cont'd) — Multi-section exam architecture (spec item 9) ✅ (final item — all 9 spec items now complete)
+### 2026-07-09 (cont'd) — Multi-section exam architecture (spec item 9) ✅ (final item — all 9 spec items complete)
 
-The largest, most invasive item in the whole pass — touches the schema, the exam builder, the entire student exam-taking page, scoring, and both teacher-facing results pages. Built 100% additively on top of the existing non-sectioned flow: a normal exam has zero `ExamSection` rows and is unaffected end-to-end (same JSX, same `useExamTimer`, same question-locking mechanism), gated everywhere behind `isSectioned = sections.length > 0`.
+Largest, most invasive item — built 100% additively: a normal exam has zero `ExamSection` rows
+and is unaffected end-to-end, gated behind `isSectioned = sections.length > 0`.
 
-- Schema: `ExamSection` (title, instructions, optional `durationMinutes`, `orderIndex`, `sectionWeight`, optional `passingThreshold`) and `SectionAttempt` (one per student per section — status/startedAt/submittedAt/score/totalMarks/scorePercentage/passed, `@@unique([attemptId, sectionId])`). `Question.sectionId` nullable FK — null means "no section" (default, fully backward-compatible), matching the same nullable-FK pattern already used for `Question.attemptId` in item 8.
-- Teacher exam editor: new `SectionsManager` (full CRUD, weight-sums-to-100% validator, "Lock Completed Sections" / "Lock Answered Questions" toggles), plus a section `<Select>` in the Add Question form and per-question reassignment.
-- Student exam page: generalizes item 1's single instructions-screen into a per-section loop — Section N instructions → Start Section N (seeds that section's own isolated timer, independent of the overall attempt) → answer → Submit Section → Section N+1 instructions... A header progress indicator (numbered circles, green check once a section is submitted) makes multi-section progress visible at a glance. Section deadline is `min(sectionStart + section.durationMinutes, exam.endTime)` — same "whichever is sooner" rule item 2 already established at the exam level, just re-scoped per section.
-- Scoring (`lib/scoring.ts`'s new `computeSectionScores`): groups answers by `question.sectionId`, computes raw/scaled score per section, applies `sectionWeight` for a weighted composite, and evaluates each section's own `passingThreshold` independently — a section can fail its threshold and flag the whole attempt `Failed` even when the composite score alone would read as a clean pass. The last section's submit call triggers this and finalizes the parent `ExamAttempt`.
-- **Judgment call flagged explicitly (this is the one the user asked about specifically)**: a section-threshold failure is a real, silent trap for a teacher skimming a results table by percentage alone — a student can score 75% overall and still have failed the exam. Rather than leave this implicit, added a `sectionsFailed` flag (derived from `SectionAttempt.passed === false`, no schema change needed) threaded through `getStudentResults()` into the results table's Pass/Fail badge (renders **"Fail (section)"**, not a plain "Pass", even when the raw percentage alone would clear the bar) and through the student's own `complete` page (the score card and headline text now read "Section threshold not met" instead of a contradictory "Pass" sitting right above the section-breakdown card's own failure banner).
-- Per-student teacher review page (TCH-03, extended not rebuilt): answers are now grouped by section with a section-breakdown summary card above them; each question already carried the right data because `getStudentSubmissionDetail()`'s question query was already attempt-scoped from item 8's audit (`OR: [{attemptId: null}, {attemptId: thisAttempt}]`) — sections and pooling compose correctly together with no extra work.
-- Cleanup: removed a genuinely-dead `sectionAttemptStartedAt` state variable (setter called at 3 sites, value never read — local closures already had what was needed at each call site) and gave `submittedSectionIds` a real purpose (the header progress indicator) instead of leaving it set-but-unread.
-- **Verification**: 10 new unit tests (`tests/unit/section-scoring.test.ts` — weighted composite math, per-section threshold override, unsectioned-exam pass-through). Fresh `tsc --noEmit` clean · `eslint` back to the exact pre-existing 3-error/1-warning baseline (one stale `eslint-disable-line` from before this item existed turned out to be silently masking nothing once cleaned up, and got removed) · `next build` passes (51 routes) · `vitest` 63/63. Extensive live QA against the real dev server + live DB: built a disposable 2-section exam (Section A: easy, 50% weight, 50% threshold; Section B: hard, 50% weight, 90% threshold — deliberately designed so a student could pass the composite but fail Section B), drove an actual browser through the full student flow via Playwright (login → instructions → Section A start/answer/submit → Section B start/answer/submit → complete page), and independently confirmed at the DB level that both `SectionAttempt` rows and the finalized `ExamAttempt` (6/8, 75%) matched exactly. Confirmed both teacher-facing consequences live: the results table showed "Fail (section)" despite 75%, and the per-student page correctly grouped Section A / Section B answers with the right per-section pass/fail badges. All QA data (exam, sections, questions, attempt) cleaned up afterward.
+- Schema: `ExamSection` (title, instructions, optional duration/orderIndex/sectionWeight/passingThreshold)
+  and `SectionAttempt` (one per student per section). `Question.sectionId` nullable — null means
+  no section, same pattern as `Question.attemptId`.
+- Student page generalizes the single instructions-screen into a per-section loop, each section
+  seeding its own isolated timer. Section deadline is `min(sectionStart + duration, exam.endTime)`.
+- Scoring (`computeSectionScores`): weighted composite by `sectionWeight`, each section's own
+  `passingThreshold` evaluated independently — a section can fail its threshold and flag the whole
+  attempt Failed even when the composite alone would read as a pass.
+- **Judgment call flagged explicitly (the one Haris asked about specifically)**: a section-
+  threshold failure is a silent trap for a teacher skimming by percentage alone. Added a
+  `sectionsFailed` flag threaded into the results table ("Fail (section)", not a plain "Pass")
+  and the student's own complete page.
+- Live-verified end-to-end via Playwright + DB check: a deliberately-designed 2-section exam
+  (60/40 weights, 50/90 thresholds → 80% composite but `failed: true`) matched the worked example
+  exactly, live not just unit-tested.
 
 ### 2026-07-09 (cont'd) — Stratified dynamic pooling & test blueprint (spec item 8) ✅
 
-The most architecturally significant item this session — every student can now get a genuinely different, randomly-drawn question set for the same exam, which meant auditing and fixing every place in the codebase that assumed "one shared Question list per exam."
+Most architecturally significant item this session — every student can now get a genuinely
+different randomly-drawn question set for the same exam, requiring an audit of every place that
+assumed "one shared Question list per exam."
 
-- `Question.attemptId` (nullable FK, `onDelete: Cascade`) added: `null` = the exam's normal fixed/shared question (unchanged default), set = privately materialized for exactly one attempt. **Every query that lists "this exam's questions" had to be audited** — a bare `{ examId }` filter would otherwise mix every student's individually-drawn pooled questions together. Fixed: `getQuestions()` (teacher's fixed-question editor, now `attemptId: null` only), new `getQuestionsForAttempt()` (fixed + this-one-attempt's-pooled, used by the student exam page and the submit/scoring route), and `getStudentSubmissionDetail()` (teacher's per-student review pane, now attempt-scoped instead of exam-wide). Confirmed already-safe by inspection: the results/complete page and `getQuestionDifficulty()` were already driven from `Answer` rows (attempt-scoped by construction), not from `Question.findMany({examId})`.
-- Wizard Settings step: the old inert "Dynamic Question Pooling" stub (poolSize/questionLimit, never wired to anything, explicitly labeled "Phase 2 feature") is replaced with a real Blueprint Matrix (`BlueprintPoolingPanel`) — bank multi-select, then a table of every distinct CLO across those banks with its available approved-item count and a target-draw input (clamped to available), total exam length derived live as the sum of draws. Stored as `settings.dynamicPoolingBankIds` + `settings.dynamicPoolingBlueprint: { [cloId]: count }`.
-- JIT stratified sampling (`lib/data/pooling.ts`'s `materializePooledQuestions`): on a brand-new attempt only (never re-drawn on resume), for each CLO draws `count` approved items via `ORDER BY RANDOM()` from the configured banks, concatenates every CLO's draw, shuffles once more, and copies the result into that attempt's private `Question` rows. Re-verifies every bankId actually belongs to the exam's own institution independently (the caller here is a student, who has no "accessible banks" permission concept to lean on the way the teacher-facing `getCloPoolCounts`/`getBanksForBlueprint` do via `getAccessibleBankIds()`).
-- Student exam page: the pre-attempt instructions screen shows "Your question set is generated when you start" instead of a question count for a pooled exam (there's nothing to preview yet), and no longer disables the Start Exam button on `questions.length === 0` for that case. Right after the attempt is created, it re-fetches with the now-known `attemptId` — the first moment a pooled exam's real per-student set exists.
-- Teacher-facing judgment call, called out explicitly since a teacher reviewing a pooled exam sees something structurally different than before: the exam editor now labels the list "Fixed Questions" and shows a banner explaining pooled questions aren't managed there; the results page shows a similar banner above the difficulty chart, pointing to the already-existing per-student "View answers" page (TCH-03) for any one student's exact questions, since there is no longer one shared "the exam's questions" to show question-by-question stats against.
-- Also fixed a real IDOR while auditing `lib/data/questions.ts`: `createQuestion()` had **zero ownership check** — any authenticated user could inject a question into any exam by ID. Added the same institution+teacher-ownership check `updateQuestion`/`deleteQuestion` already had.
-- **Verification**: fresh `tsc --noEmit` clean · `eslint` at the same pre-existing 3-error/2-warning baseline (one new violation introduced and fixed during this pass — a `setState` called synchronously in an effect body in the new `BlueprintPoolingPanel`, fixed by matching this codebase's established inner-async-function pattern from `CurriculumPicker`) · `next build` passes · `vitest` 53/53 (unchanged — this item's logic is DB-query-driven throughout, not pure-function-testable, so verification leaned on live QA instead) · extensive live QA: built a real blueprint (2 CLOs × 2 items each) across a disposable bank, ran two different students through the same pooled exam end-to-end via the actual UI, and independently confirmed at the DB level that their 8 total `Question` rows split cleanly 4-and-4 by `attemptId` with zero overlap, each attempt scored 8/8 correctly, and the teacher's per-student review page showed exactly — and only — each student's own actual questions. All QA data (bank, items, exam, second student) cleaned up afterward.
-- **Known scope-limited gap, left for a future pass**: there is no facility-index/discrimination-index calculator that ties back to the source `Item` for pooled exams (per-item psychometrics across "the 4 people who happened to draw this specific item" would need a new aggregate, not something that existed before this item either — `Item.facilityIndex`/`discriminationIndex` fields exist in the schema but no calculator populates them anywhere in the codebase, pooled or not).
+- `Question.attemptId` (nullable, cascade delete): null = the exam's fixed/shared question, set =
+  privately materialized for one attempt. Audited and fixed every "list this exam's questions"
+  query to respect the split (`getQuestions()` now `attemptId: null` only; new
+  `getQuestionsForAttempt()`; `getStudentSubmissionDetail()` now attempt-scoped).
+- Wizard's old inert pooling stub replaced with a real Blueprint Matrix (bank multi-select → table
+  of every distinct CLO with available-item count + target-draw input, clamped, total derived
+  live).
+- JIT stratified sampling (`materializePooledQuestions`): on a brand-new attempt only, draws
+  `count` approved items per CLO via `ORDER BY RANDOM()`, shuffles, copies into private `Question`
+  rows. Independently re-verifies bank ownership (the caller is a student, no bank-permission
+  concept to lean on).
+- **Also fixed a real IDOR while auditing**: `createQuestion()` had zero ownership check — any
+  authenticated user could inject a question into any exam by ID.
+- Live QA: built a real blueprint across a disposable bank, ran two students through the same
+  pooled exam, confirmed 8 total `Question` rows split cleanly 4-and-4 by `attemptId` with zero
+  overlap, each attempt scored correctly, teacher's per-student page showed exactly each
+  student's own questions.
+- **Known scope-limited gap**: no facility/discrimination-index calculator ties back to the
+  source `Item` for pooled exams (the fields exist in the schema, no calculator populates them
+  anywhere, pooled or not).
 
-### 2026-07-09 (cont'd) — CLO-aware, batch-controlled AI generation (spec item 7) ✅ (items 8-9 next)
+### 2026-07-09 (cont'd) — CLO-aware, batch-controlled AI generation (spec item 7) ✅
 
-- `MAX_BATCH_SIZE = 15` (`src/lib/ai/constants.ts`) shared between client (quantity input cap + reactive "Generate {n} Questions" label) and server (hard `zod` `.max()` rejection with a structured 400 — never reaches generation/persistence).
-- `AiGeneratePanel` gained a `CurriculumPicker` (reused from `items/new`, Course → Topic → CLO cascading selects) and a quantity `Input`; client-side blocks submission outside `[1, MAX_BATCH_SIZE]` with a visible error, mirroring the server check.
-- Server resolves `learningObjectiveId` → CLO text before generating, **and verifies the CLO's course belongs to the caller's own institution** — `LearningObjective` has no institution scoping of its own in the schema (only inherited via `topic → course → institutionId`), so this was a real, previously-unguarded cross-tenant read path (a teacher could otherwise have pulled another institution's CLO text into a generation prompt). Confirmed blocked (400) via a disposable throwaway second-institution CLO.
-- The mock generator (`lib/ai/question-generator.ts`) now honors the actual requested `count` instead of silently capping at 5 — cycles its canned pool with a `(variant N)` suffix once exhausted so a batch of, say, 12 returns 12 distinguishable items — and folds the resolved CLO text into each item's `explanation` as `[Aligned to CLO: ...]`, so CLO-awareness is observable end-to-end even without a real LLM call yet. The real-prompt-injection directive string from the spec is written into the route as a ready-to-activate comment, gated behind the same `Phase 3: call Anthropic API here` marker used elsewhere in this codebase.
-- Every generated item gets `learningObjectiveId` stamped on creation.
-- **Bug found and fixed during QA, not just added tests around**: the batch-creation `prisma.$transaction([...])` call hit Prisma's default 5s interactive-transaction timeout once real network latency was involved — reproduced live as a hard 500 on a batch of 8 against the remote dev DB. Fixed by dropping the transaction wrapper in favor of `Promise.all` of independent creates (no cross-row invariant needs atomicity here; a partially-succeeded batch of drafts is harmless, the teacher just reviews what landed).
-- **Verification**: 6 new unit tests (`tests/unit/question-generator.test.ts` — count honored exactly, no duplicate stems under cycling, CLO text folded correctly) · fresh `tsc --noEmit` clean · `eslint` at the same pre-existing 3-error/2-warning baseline · `next build` passes · `vitest` 53/53 · live QA: server-side batch-size rejection (count=20 → 400), server-side cross-tenant CLO rejection (400), and the full happy path (quantity=8 + CLO selected through the real cascading picker → 8 items land in the bank, each correctly stamped and explanation-tagged) — verified directly against Postgres, not just the UI. All QA data (bank, items, throwaway institution) cleaned up afterward.
+`MAX_BATCH_SIZE = 15` shared client/server (server-side hard rejection). Server resolves
+`learningObjectiveId` → CLO text and **verifies the CLO's course belongs to the caller's own
+institution** — `LearningObjective` had no institution scoping of its own, a real previously-
+unguarded cross-tenant read path. Every generated item gets `learningObjectiveId` stamped.
+**Bug found and fixed during QA**: the batch-creation `$transaction` hit Prisma's 5s interactive
+timeout under real network latency (reproduced live as a 500 on a batch of 8) — fixed by dropping
+the transaction for independent `Promise.all` creates (no cross-row invariant needs atomicity
+here; a partial batch is harmless).
 
-### 2026-07-09 (cont'd) — Item Bank RBAC + AI-generation decoupling (spec items 5–6) ✅ (in progress overall — items 7–9 next)
+### 2026-07-09 (cont'd) — Item Bank RBAC + AI-generation decoupling (spec items 5–6) ✅
 
-Continuation of the same day's spec work — items 1–4 shipped first (see entry below), then items 5–9 tackled in dependency order (5 → 6 → 7 → 8 → 9, per `requirements.md`'s own phasing). This entry covers 5 and 6; 7–9 will get their own entries as they land.
+**Item 5**: New `ItemBank`/`ItemBankAccess` (`bankLevel: institutional|personal`,
+`permissionRole: owner|editor|viewer`); `Item.bankId` backfilled — every pre-existing item
+assigned to a new per-institution "Legacy Items" bank. Single permission function
+(`resolveBankPermission`) is the sole gate everywhere — cross-tenant is a hard deny before any
+role logic. **Deliberate design call**: institution admins get implicit owner on every bank in
+their institution (including personal ones), matching the existing admin-authority pattern for
+exams/questions. **Fixed a real pre-existing IDOR** along the way: `updateItem`/`getItemById` had
+zero auth or institution checks at all. `teacher/items` reworked into a 3-tab bank dashboard →
+bank detail → "Manage Access" modal.
 
-**Item 5 — Multi-Tiered Item Bank & RBAC:**
-- New `ItemBank` / `ItemBankAccess` models (`bankLevel: institutional|personal`, `permissionRole: owner|editor|viewer`); `Item.bankId` added (nullable, backfilled — `scripts/backfill-item-banks.ts` — every pre-existing item got assigned to a new per-institution "Legacy Items" institutional bank so nothing was orphaned).
-- Single permission function (`src/lib/item-bank-permissions.ts`'s `resolveBankPermission`) is the one and only place bank access is decided — every route/data function goes through it. Cross-tenant is a hard, unconditional deny before any role/ownership logic runs. **Deliberate design call**: institution admins get implicit `owner` on every bank in their own institution (including personal ones) — this matches the admin-authority pattern already established for exams/questions (SEC-01..04) and was required to avoid regressing the pre-existing admin item-review workflow, which has always seen every item in the institution regardless of author.
-- Along the way, fixed a real pre-existing IDOR: `updateItem`/`getItemById` in `lib/data/items.ts` had **zero auth or institution checks** — any authenticated user could read or mutate any item by ID, institution-blind. Now fully permission-checked.
-- `teacher/items` reworked into a 3-tab bank dashboard (Institution / My Private / Shared with Me) → bank detail page (`teacher/items/[bankId]`) → "Manage Access" modal for inviting colleagues (institution-scoped search, EDITOR/VIEWER roles). Admin gets a parallel `admin/item-banks` page to create institutional banks and assign teacher editors (can't reuse the teacher route — middleware blocks admins from `/teacher/*`).
-- **Verification**: unit tests added (`tests/unit/item-bank-permissions.test.ts`, 14 tests covering every branch of the permission function including adversarial cross-tenant cases) + a live cross-tenant Playwright pass against a disposable second institution — confirmed the dashboard never leaks another tenant's banks, direct URL navigation to another tenant's bank is denied, a self-grant attack (POST collaborators as an outsider) returns 403, and a legitimate owner attempting to grant access to a user from a different institution is also blocked. Also drove the full legitimate same-institution collaboration path end-to-end (owner invites colleague → colleague sees it under "Shared with Me" → colleague has editor rights, no "Manage Access"). All QA data created and cleaned up via disposable scripts, same as every prior session's pattern.
-
-**Item 6 — Decouple AI Generation from Exam Wizard:**
-- Exam wizard's "AI Generation" step removed entirely; stepper is now Basic Info → Select Questions (cross-bank picker, backed by item 5's `getAccessibleBankIds()`) → Settings.
-- `/api/ai/generate-questions` now takes `itemBankId` (permission-checked, editor+) and saves generated questions **directly to the `Item` table** as drafts, returning the created rows — previously it was stateless (returned JSON only) and the wizard persisted client-side.
-- New "Generate with AI" button + panel on the bank detail page (editor+ only), alongside "Add Question"/"Import CSV".
-- **Verification**: live Playwright pass confirmed the wizard stepper no longer mentions AI Generation, generation from the bank page creates exactly the requested items scoped to that bank with `status: draft`, and they appear immediately in the bank's item list — checked against the DB directly, not just the UI (this dev environment's remote-DB latency produced several false "not working" readings from fixed-timeout screenshots during testing; each was confirmed a timing artifact, not a real bug, by querying Postgres directly).
-
-**Fresh verification before commit** (per explicit request, not reusing earlier results): `npx tsc --noEmit` clean · `npm run lint` → 3 errors/2 warnings, all pre-existing baseline (unchanged from before this session) · `npm run build` passes · `npm run test:unit` → 47/47 passing.
-
-**Known gap, not addressed yet**: the full Playwright e2e suite (`npm run test:e2e`) requires a second, fully separate Supabase project (`tests/README.md`) whose credentials are not configured in this environment — could not be run. All verification above was either `vitest` unit tests (env-independent) or manual live-DB QA via disposable, self-cleaning scripts, matching this repo's established pattern for sessions without e2e credentials.
+**Item 6**: Wizard's "AI Generation" step removed entirely (stepper now Basic Info → Select
+Questions → Settings). `/api/ai/generate-questions` now takes `itemBankId` and saves generated
+questions directly to `Item` as drafts (previously stateless). New "Generate with AI" panel on the
+bank detail page.
 
 ### 2026-07-09 — Student UI & Time Controls (spec items 1–4) ✅
 
-A 9-item spec ("Student UI & Time Controls Updates") came in. Full gap analysis against the actual codebase written to `requirements.md` first — items 1–4 (pre-exam instructions, availability-vs-duration auto-submit, per-item time limits, optional AI proctoring toggle) are additive and were implemented + QA'd this pass. Items 5–9 (multi-tiered Item Bank RBAC, decoupling AI generation from the exam wizard, CLO-aware batch AI generation, stratified dynamic pooling, multi-section exam architecture) are each a ground-up schema/architecture addition — scoped out to a dedicated follow-up session per user decision; full plan for each remains in `requirements.md`.
+A 9-item spec landed; full gap analysis written to `requirements.md` first. Items 1–4 shipped
+this pass (additive); items 5–9 scoped to follow-up sessions (all completed in later entries
+above).
 
-**Shipped this pass:**
-- **Pre-exam instructions screen** — `Exam.instructions` (String?) added to schema. Exam wizard Step 1 and the exam edit page now have an instructions textarea. Student exam flow (`exam/[examId]/page.tsx`) inserts an Instructions screen with a "Start Exam" button between the biometric gate and the exam UI; the duration timer is not computed/started until that button is clicked (`handleStartExam`), never on page load.
-- **Availability window vs. duration auto-submit** — `Exam.startTime`/`endTime`/`duration` already existed as separate fields (just needed correct wiring, no schema change). Client now seeds the countdown from `min(startedAt + duration*60s, endTime)` computed at Start-Exam click, not from `endTime` alone as before. Server (`/api/attempts/[attemptId]/submit`) independently recomputes the same deadline and now writes `status: 'auto_submitted'` vs `'submitted'` based on whether the request landed at/after it — this also makes real use of the previously-dead `auto_submitted` enum value.
-- **Per-item time limits** — `Question.timeLimitSeconds` / `Item.timeLimitSeconds` (Int?, optional) added. Exam edit page and "Add Question" form expose it per question. Student exam page renders a mini countdown (`ItemCountdownBadge`, remounts via `key={question.id}` to reset cleanly without a setState-in-effect anti-pattern) that auto-advances to the next question on expiry and permanently locks "Previous"/sidebar navigation back to any expired question index.
-- **Optional AI proctoring toggle** — `Exam.isProctoringEnabled` (Boolean, default true) added. Wizard Settings step and the exam edit page have an "Enable AI Proctoring" toggle. When off, the student exam page skips the biometric onboarding gate entirely and never mounts `<ProctoringOverlay>` (no camera/mic `getUserMedia`, no tab/fullscreen/audio/face monitors) — verified via a headless-browser QA pass that no `<video>` element is ever created when the toggle is off, and that the biometric gate still renders correctly when proctoring is on + `strict`.
-
-**Verification**: `npx tsc --noEmit` clean · `npm run lint` → 3 errors/2 warnings, all pre-existing baseline (confirmed via `git stash` diff — actually one fewer warning than the prior 3-warning baseline, since `serverOffset` is now used) · `npm run build` → passes, 51 routes. Manually driven end-to-end against the live dev server + prod DB with a disposable, self-cleaning Playwright + Prisma script (two throwaway exams, deleted after): confirmed the instructions screen blocks the timer until clicked, the per-item timer auto-advances and locks `Previous` at expiry, and the proctoring toggle correctly gates the biometric gate + camera widget in both directions.
-
-**Known residual gap, not addressed this pass**: there is still no background job that force-submits an attempt if the student's own browser tab dies before the client-side timer fires (e.g. crash, closed tab, lost network) — the server-side deadline check in the submit route only labels a late submission correctly, it doesn't independently force one to happen. Would need a cron/scheduled task; out of scope for this pass, noted for Phase 3 planning.
+- **Pre-exam instructions screen** — `Exam.instructions` added; a Start-Exam gate inserted
+  between the biometric gate and the exam UI; the duration timer only starts on click, never on
+  page load.
+- **Availability window vs. duration auto-submit** — client seeds the countdown from
+  `min(startedAt + duration*60s, endTime)`; the submit route independently recomputes the same
+  deadline and writes `auto_submitted` vs `submitted` accordingly — the first real use of the
+  previously-dead `auto_submitted` enum value.
+- **Per-item time limits** — `Question.timeLimitSeconds`/`Item.timeLimitSeconds` added; a mini
+  countdown auto-advances to the next question on expiry and permanently locks navigation back.
+- **Optional AI proctoring toggle** — `Exam.isProctoringEnabled` (default true); when off, the
+  student page skips biometric onboarding entirely and never mounts the proctoring overlay (no
+  `getUserMedia` at all).
+- **Known residual gap, not addressed this pass**: no background job force-submits an attempt if
+  the client tab dies before the timer fires — the server-side deadline check only labels a late
+  submission correctly, it doesn't force one. Noted for Phase 3 planning.
 
 ### 2026-07-06 — QA_RESULTS.md Priority Fix Pass ✅
 
-Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority order. Each fix: implemented → typecheck/lint/build clean → verified against live prod DB (`rlbtdpnmdnaxlccelxdr`) with a disposable, self-cleaning script → committed and pushed individually.
+Worked the 2026-07-03 QA audit's P0/P1 findings in priority order, each independently verified
+against live prod DB with a disposable script.
 
-**Fixed and verified this pass:**
-- **SEC-04** (`251f0f1`) — `PUT`/`DELETE /api/exams/[examId]` and `updateQuestion`/`deleteQuestion` (`lib/data/questions.ts`) skipped ownership checks entirely for `role === 'admin'`, letting any institution's admin mutate/delete another institution's exams and questions. Added institution scoping matching the SEC-01/02/03 pattern.
-- **SCR-05** (`397be86`) — `Answer.marksAwarded` / `ExamAttempt.score` were `Int`, silently truncating fractional partial credit on matching/ordering questions (e.g. 8÷3×1 = 2.667 → stored as 2, no error). Changed both to `Float`, applied live via `prisma db push` (no migrations dir in this project — datasource URL comes from `prisma.config.ts`, not the schema file).
-- **SEC-07 / STU-01 / TIME-02** (`82c6bd5`) — `POST /api/attempts` had no server-side `startTime`/`endTime` check at all. Added enforcement that gates only brand-new attempts (existing attempts always resumable); before-start is blocked unless the teacher manually went live early (`status === 'live'`), after-end is always blocked.
-- **ERR-01 / ERR-02** (`63c2d19`) — all 15 mutating routes crashed with a bare non-JSON response on malformed JSON or wrong Content-Type. Added `withErrorHandling()` in `src/lib/api-auth.ts` and applied it to every mutating handler; malformed input now returns structured 4xx JSON.
-- **SEC-03 PUT half + DAT-02** (`3ae2d16`, docs only) — both were already safe (PUT institution check landed with the GET fix in `cde294b`; `deleteExam`'s FK-safe transaction already handles cascade correctly) but had never been independently exercised. Verified live, no code change needed; closed out in `QA_MANUAL.md`.
-
-**Round 2 — DAT-01 correction + remaining scope cleanup, same day, after user sign-off:**
-- **DAT-01** (`a7d6fe4`) — per explicit user decision, recalculated and corrected the 2 flagged production `Answer` rows (both belonged to the same `ExamAttempt`, exam "MIDTERM"): `isCorrect` false→true and `marksAwarded` 0→4 on each, parent attempt `score`/`scorePercentage` recomputed 0/0%→8/67%. A 3rd answer in the same attempt was independently checked and confirmed genuinely wrong (left untouched). Full before/after values and root cause logged in new `CORRECTIONS.md`. Re-ran the read-only audit afterward: 0 rows now flagged (down from 2).
-- **STU-03** (`5f55451`) — per-question breakdown was read once from `sessionStorage` then deleted, so a hard reload of `/exam/[examId]/complete` lost it permanently. Moved the source of truth server-side: `GET /api/attempts/[attemptId]` now returns a `perQuestion` array; the exam page passes `attemptId` in the redirect URL instead of stashing data in `sessionStorage`, so the completion page re-fetches fresh on every load.
-- **resultsPublishedAt** (`58f60e1`) — `mapExam()` used `?.toISOString()` with no `?? null` fallback, so `JSON.stringify` silently dropped the key for unpublished exams instead of sending `null`. One-line fix + widened the `Exam` type.
-- **TCH-03** (`16feb07`) — added the missing per-student answer review pane: new `getStudentSubmissionDetail()` in `lib/data/students.ts` (all 10 question types, resolves option IDs to readable text, mirrors `scoring.ts`'s matching/ordering index alignment) backing a new `teacher/exams/[examId]/results/[studentId]` page, linked from a new "View answers" column on the results table. Scoped with the same institution/ownership pattern as this session's other IDOR fixes.
-
-**Camera-widget/Submit-button overlap** — user will check this themselves in a real browser per `QA_MANUAL.md`'s steps; not blocking, not further action needed from here.
-
-**Known Accepted Risk (user sign-off, revisit after Phase 3's shape settles):**
-- **SEC-08 — no database-level RLS.** All authorization is enforced at the application layer (API routes / `lib/data` functions) — there is no Postgres RLS backstop on `Question`, `ExamAttempt`, `Answer`, or `Exam`. App-layer checks are now solid everywhere touched this session, but a future route/function that forgets a check has no defense-in-depth. Accepted as a known risk for now rather than a blocking gap.
-
-**Build status (final, both rounds)**: `npm run build` → PASSES (0 errors, 51 routes) · `npm run lint` → 6 pre-existing baseline problems (down from 7 — one incidentally resolved by the STU-03 fix; confirmed via `git stash` diff that none were introduced by this session) · `npx tsc --noEmit` → clean.
+- **SEC-04** — admin role bypassed institution ownership checks entirely on exam/question
+  mutate/delete, letting any institution's admin touch another institution's data.
+- **SCR-05** — `Answer.marksAwarded`/`ExamAttempt.score` were `Int`, silently truncating
+  fractional partial credit (8÷3×1 = 2.667 stored as 2). Changed to `Float`.
+- **SEC-07/STU-01/TIME-02** — `POST /api/attempts` had no server-side start/end time check at
+  all; added enforcement (only gates brand-new attempts, existing ones always resumable).
+- **ERR-01/02** — all 15 mutating routes crashed non-JSON on malformed input; added
+  `withErrorHandling()` uniformly.
+- **DAT-01 (round 2, after explicit user sign-off)** — recalculated 2 flagged production `Answer`
+  rows affected by the pre-06-25 scoring bug; a 3rd answer in the same attempt was checked and
+  confirmed genuinely wrong (left untouched). Full before/after logged, re-audit afterward showed
+  0 rows flagged.
+- **STU-03** — per-question breakdown lived only in `sessionStorage`, lost on hard reload. Moved
+  server-side: `GET /api/attempts/[id]` now returns `perQuestion`.
+- **TCH-03** — added the missing per-student answer review pane
+  (`teacher/exams/[id]/results/[studentId]`), all 10 question types.
+- **Known Accepted Risk (user sign-off)**: **SEC-08 — no database-level RLS.** All authorization
+  is app-layer only; a future route/function that forgets a check has no defense-in-depth.
+  Accepted for now, narrowed table-by-table in later sessions (see 2026-07-11 onward).
 
 ### 2026-06-25 — Destructive QA Audit + 7 Critical Fixes ✅
 
-**CLAUDE.md**: Refactored from 902 lines to ~150 lines (compressed all session logs).
+CLAUDE.md refactored from 902 lines to ~150 (first compression pass — this file periodically gets
+recondensed as the session log grows).
 
-**Security Fixes (CRITICAL)**
-- C1: `GET /api/questions` — students now get `getQuestionsForStudent()` (strips correctAnswer, explanation, isCorrect). Was serving full question data to students.
-- C2: Admin approve/reject buttons — now call `PUT /api/exams/[id]` before updating local state. Were fake UI-only state changes.
-- C3: `POST /api/attempts/[id]/submit` — trustScore removed from schema (was accepted from client body). Now calculated server-side: `Math.max(0, 100 - violationCount * 15)`.
-- C4: `PUT /api/attempts/[id]` — students blocked from PUT (could manipulate their own trustScore/violationCount).
-- C5: Submit route — examId in body now verified against attempt.examId.
-
-**Security Fixes (HIGH)**
-- H1: `POST /api/attempts` — added role check, only students may create attempts.
-- H2: `GET /api/violations` — students scoped to own ID; teachers scoped to institution boundary.
-- H3: `deleteQuestion` / `updateQuestion` — ownership check added (only exam's teacher or admin may mutate).
-- H4: All 3 settings pages + admin/page.tsx — replaced hardcoded "University of Technology" with real `getMyInstitution()` call.
-
-**Scoring Fix (CRITICAL)**
-- MCQ/true_false answers were **always scored wrong**: student sends option ID but scoring compared vs option text. Fixed: now checks `option.isCorrect` flag by ID lookup.
-- MRQ: now compares selected option IDs against correct option IDs (not texts).
-- Ordering: maps student option IDs to texts before comparing against `correctAnswer` texts.
-
-**Feature Fixes**
-- FIX 1 — Notifications: Added `GET /api/notifications` (derives from real DB: violations, pending exams, accepted invites). DashboardShell now polls every 30s instead of showing hardcoded mock data.
-- FIX 2 — File uploads: Added `.doc` and `.md` to `ALLOWED_EXTENSIONS`; default allowed types updated to include all 5 requested types.
-- FIX 3 — Scoring engine: See above (critical scoring bug).
-- FIX 4 — Teacher results auto-refresh: Results page now polls every 15s.
-- FIX 5 — FaceDetector: Changed `end-4` to `right-4` for explicit bottom-right positioning.
-- FIX 6 — Eye button detail panel: Full violations timeline with severity badges + scrollable list.
-- FIX 7 — DB gaps: Removed all hardcoded `inst-1`/`teacher-1` IDs from app pages; wired exam share modal `sendBulk`/`sendIndividual` to `POST /api/invites`.
-- Missing import: `forbidden` added to `api/attempts/[id]/route.ts` import.
-
-**Build status**: `npm run build` → PASSES (0 errors, 50 routes) · `npm run lint` → PASSES (0 errors, 0 warnings)
+- **Security (critical)**: students were served full question data including `correctAnswer` via
+  `GET /api/questions` (fixed with `getQuestionsForStudent()`); admin approve/reject buttons were
+  fake UI-only state changes; `trustScore` was accepted from the client body on submit (now
+  server-calculated); students could PUT their own attempt to manipulate trustScore/violationCount
+  (now blocked); submit route didn't verify `examId` in the body against the attempt.
+- **Security (high)**: `POST /api/attempts` had no role check (any role could create attempts);
+  `GET /api/violations` was unscoped; `deleteQuestion`/`updateQuestion` had no ownership check;
+  3 settings pages + admin had a hardcoded fake institution name.
+- **Scoring (critical)**: MCQ/true_false answers were **always scored wrong** — student sends
+  option ID but scoring compared against option *text*. MRQ and ordering had matching bugs. All
+  three fixed to compare correctly.
+- **Feature fixes**: real notifications (was hardcoded mock data), `.doc`/`.md` upload support,
+  15s results-table polling, FaceDetector positioning, violations-timeline detail panel, removed
+  hardcoded `inst-1`/`teacher-1` IDs app-wide.
 
 ---
 
 ## Current Status
-- **Dedicated `/super` login page** ✅ **COMPLETE** (2026-08-10) — reachable while logged out, own purpose-built login form, server-side `isSuperAdmin`-flag gate (never email-based). See the Session Log.
-- **Real WYSIWYG editor (Quill) for stem/answer options** ✅ **COMPLETE** (2026-08-10) — replaces the prior lightweight markup toolbar; no schema change/data migration; scoring/AI-prompt/dedup made HTML-aware; `img src` restricted to this app's own upload bucket. Also fixed a real, app-wide RTL bug (Radix `Tabs`/`Select` defaulting to `ltr` internally) found via live QA. See the Session Log.
-- **Hierarchical rubric editor for essay items** ✅ **COMPLETE** (2026-08-10) — the prior rubric UI was fully static/disconnected, and `createItem()` never persisted `rubric` at all; both fixed. Not yet live-browser-verified (only `tsc`/`lint`/`vitest`/`build`). See the Session Log.
-- **Proctoring system fixed end-to-end** ✅ **COMPLETE** (2026-07-18) — all 7 detection types (face, multi-face, tab-switch, fullscreen exit, background noise, abnormal gaze, prohibited object) now reliably produce correctly-typed, correctly-severitied, non-duplicated violations, verified per-detector against a fresh production build with real DB rows; fullscreen is now enforced (blocking overlay + re-enter button), the biometric gate shows the real camera feed with captured-frame display, evidence snapshot uploads work (were 100% failing on storage RLS), exam resume from a fresh browser works (was a 500), and the dev-mode StrictMode event-loss false negative is fixed at the root. Root cause of all dead vision detection: the auth middleware was redirecting `/models/*` asset fetches to HTML. See `PROCTORING_FIX_PROGRESS.md` and the Session Log.
-- **Exam auto-completes on the teacher side when closing time is reached** ✅ **COMPLETE** (2026-07-17) — `computeEffectiveExamStatus` now derives `completed` once `endTime` has passed (symmetric with the existing `scheduled→live` rule), fixing exams list/dashboard/cross-exam Live Monitor all showing a stale "Live" badge forever past the actual close time; also fixed the matching "Active Exams" stat aggregate, which had the identical gap. See the Session Log.
-- **Cross-exam Live Monitor page (`/teacher/monitor`) now has the eye button/live video too** ✅ **COMPLETE** (2026-07-17) — the "Go Live"/snapshot/actions panel only ever existed on the per-exam monitor page; extracted it to a shared `StudentActionsModal` component and wired it into both. See the Session Log.
-- **Invitation UI polish** ✅ **COMPLETE** (2026-07-17) — presentation-only pass across all public accept pages and internal invite-sending dialogs (new shared `PasswordInput` show/hide toggle, spinner loading states, admin's invite panel converted to a real modal). No backend/logic changes. See the Session Log.
-- **Teacher live video (student → teacher, peer-to-peer WebRTC)** ✅ **COMPLETE** (2026-07-17) — one-student-at-a-time live camera viewing for teachers via direct browser-to-browser WebRTC, signaled over a private, RLS-authorized Supabase Realtime Broadcast channel (no third-party video/SFU service, no media server). Student side reuses the proctoring camera stream already open (no second permission prompt); teacher side is a "Go live"/"Stop live" control in the existing per-student monitor modal. Cross-institution access is denied at the signaling/RLS layer itself, live-verified. STUN-only (no TURN) shipped deliberately — see `LIVE_VIDEO_PROGRESS.md` for the flagged cost/reliability judgment call. See the Session Log.
-- **Phase 4 fixes round 3 (exam auto-start, tab-lock logging, proctoring tuning, live-video feasibility, dashboard student count)** ✅ **COMPLETE** (2026-07-17) — added read-time "effective status" for teacher/admin exam surfaces (students already had this; a scheduled exam past its startTime now correctly shows Live without a cron), fixed a real Phase-3-era regression where a tab-switch violation was permanently lost if the student never returned to the tab (verified against a production build after dev-mode React StrictMode double-mounting initially masked the fix), tuned AI proctoring thresholds (loosened gaze detection, tightened the movement-false-positive-prone multi-face detector, added a high-severity escalation tier for sustained gaze/audio violations that were previously capped below the push-notification threshold forever), confirmed teacher live video was never built (three options written up, nothing implemented pending Haris's decision), and fixed the same TeacherStudent-only under-counting bug round 2 fixed in the Students tab, this time in the dashboard's own separate stat queries. See `PHASE4_FIXES_ROUND3_PROGRESS.md` and the Session Log.
-- **Phase 4 fixes round 2 (student profile, Students tab, item builder save, CLO audit, exam-to-class scoping)** ✅ **COMPLETE** (2026-07-17) — fixed the student settings page's identical fake-save bug, closed a real roster-completeness gap + an unscoped-violations-query leak on the Students tab, fixed the manual item builder's silent save failure (marks type coercion, disconnected Select inputs, no error surfacing), investigated but deliberately did not change CLO creation (too ambiguous — full inventory in the progress file for Haris to react to), and added real class-scoping for exams (new nullable `Exam.classId`, wizard class selector, class-scoped student visibility, and a previously-nonexistent eligibility gate on `POST /api/attempts` that closed a real "any student can start any exam by guessing its id" hole). See `PHASE4_FIXES_ROUND2_PROGRESS.md` and the Session Log.
-- **Phase 4 fixes (invite flow cleanup, cross-institution block, teacher profile/dashboard, joined-teacher visibility)** ✅ **COMPLETE** (2026-07-17) — removed both link-based invite UIs (one was silently broken — it never joined the inviting institution at all), added admin bulk teacher invite, consolidated student invites into the Classes tab only, added a server-side cross-institution invite block (applies to both teachers and students per the schema's single-institution-per-user model), fixed the teacher profile's fake "Save Changes" and its hardcoded stat block, and fixed the real accept-invite upsert bug that kept joined teachers from ever showing up in the admin panel. See `PHASE4_FIXES_PROGRESS.md` and the Session Log.
-- **Phase 7 (Multi-Section Exam Architecture, AI Grading Override & Bulk-Approve)** ✅ **COMPLETE** (2026-07-17) — Task 1 duplicated 2026-07-09's "item 9" almost entirely; closed two real server-enforcement gaps instead (section-weight-sum-to-100% wasn't checked at exam start; `isItemSequential` had zero server enforcement surface — new `ItemLock` table + lock endpoint closes it, scoped only to exams that opt in). Task 2 built the missing bulk-approve endpoint and closed a real gap where finalized (`confirmed`) grades could be silently re-overridden. RLS added to the new `ItemLock` table, live-verified. See `PHASE_7_PROGRESS.md` and the Session Log.
-- **Phase 6 (Item Bank RBAC, decouple AI generation, CLO-aware batch generation, stratified dynamic pooling)** ✅ **COMPLETE** (2026-07-17) — tasks 1–3 duplicated the 2026-07-09 session's items 5–7 almost verbatim and were already implemented; closed the test-coverage gap on all three. Task 4 (pooling) had two real bugs closed this pass: insufficient-pool-at-runtime now fails gracefully (409) instead of silently under-drawing, and a genuine concurrent-exam-start double-materialization race is fixed via a transaction. RLS enabled on `ItemBank`/`ItemBankAccess` (previously missing), live-verified. See `PHASE_6_PROGRESS.md` and the Session Log.
-- **Phase 5 (pre-exam instructions, availability/duration auto-submit, per-item timers, proctoring toggle)** ✅ **ALREADY COMPLETE** — this spec duplicated 2026-07-09's items 1–4 almost verbatim; audited and confirmed live against Supabase 2026-07-16, one test gap closed (`src/lib/exam-deadline.ts` + unit tests). See `PHASE_5_PROGRESS.md` and the Session Log.
-- **Classes + password-reset rework + admin deactivation** ✅ **COMPLETE** (2026-07-14) — `Class`/`ClassInvite`/`ClassEnrollment` models with per-class bulk student invites (reusing the existing `InviteToken` accept-flow pattern), teacher roster removal, institution-admin account deactivation (cascades to archiving the teacher's classes), RLS on all 3 new tables, and password reset moved to `/auth/forgot-password`+`/auth/reset-password` with per-email rate limiting and explicit expired-link states. See Session Log for the `/api/users/me` suspension-bypass bug found and fixed along the way.
-- **Phase 1** ✅ — Full mock UI across all 3 dashboards (2026-06-21)
-- **Phase 2** ✅ — Supabase Auth + Prisma DB + all API routes wired to real data (2026-06-25, commit `1cfda61`)
-- **Phase 2 hardening** ✅ **COMPLETE** — every P0/P1 finding from the 2026-07-03 QA audit is now fixed, independently verified against live prod DB, and either shipped or explicitly resolved with user sign-off (2026-07-06, see Session Log, both rounds). Cross-tenant IDOR gaps closed (SEC-01–04), exam time-window enforced server-side (SEC-07/STU-01/TIME-02), silent score truncation fixed (SCR-05), all mutating routes return clean JSON on malformed input (ERR-01/02), the 2 real production rows affected by the pre-06-25 scoring bug were recalculated and logged in `CORRECTIONS.md` (DAT-01), the per-question-marks-lost-on-reload bug is fixed (STU-03), a full per-student answer review pane now exists for teachers (TCH-03), and the `resultsPublishedAt` API-contract nit is fixed. Nothing from that audit remains open except the camera-widget overlap (user checking it themselves in a real browser — not code) and RLS/SEC-08 (accepted as a known risk, see below).
-- **Phase 3** ✅ **IMPLEMENTED** (2026-07-11) — real proctoring signals (MediaPipe/COCO-SSD/VAD, events-only), Realtime live monitoring with teacher actions, async AI item generation, AI-assisted grading with mandatory teacher confirmation (Judge0 for code), and real psychometrics (Python service). See the 2026-07-11 Session Log entry and `docs/phase3/IMPLEMENTATION_PROGRESS.md`. Live end-to-end QA deferred (session network blocked pg egress); deploy steps: set `ANTHROPIC_API_KEY` on Vercel, optionally stand up Judge0 + the psychometrics service.
-- **Post-Phase-2 gap-analysis pass (`requirements.md`'s 9 items)** ✅ **COMPLETE** (2026-07-09) — Student UI & time controls (items 1–4: pre-exam instructions, availability-vs-duration auto-submit, per-item timers, proctoring toggle), Item Bank RBAC + AI-generation decoupling (items 5–6), CLO-aware batch AI generation (item 7), stratified dynamic pooling (item 8), and multi-section exam architecture (item 9) are all implemented, unit-tested, and independently live-QA'd against the real dev server + live DB. See Session Log for full detail on each item, including the judgment calls made where the spec was silent (especially item 9's teacher-facing section-threshold-failure display and item 8's teacher-facing pooled-question review).
 
-**Pending manual action**: Supabase dashboard → Authentication → URL Configuration → set Site URL to `https://exam-system-sigma.vercel.app` and add it to Additional Redirect URLs (without this, invite emails redirect to localhost).
+Everything through 2026-08-12 above is shipped and live. Highlights of what's currently true:
 
-**Known Accepted Risk**: no database-level RLS (SEC-08) — app-layer checks are the sole enforcement mechanism on most tables. Accepted by the user 2026-07-06; revisit after Phase 3's shape settles. Narrowed further 2026-07-17 (RLS added to `ItemBank`/`ItemBankAccess`, then `ItemLock`, both live-verified). `ExamSection`/`SectionAttempt` confirmed live (2026-07-17) to still lack RLS — predate the tables-with-RLS narrowing, not brought into scope since they aren't new this phase. See Session Log for detail.
+- **`/super`** is a real dedicated login page, role-flag-gated, never email-based.
+- **Quill WYSIWYG** for stem/answer-option fields (no schema change); RTL fixed app-wide (Radix
+  `Tabs`/`Select` `DirectionProvider` fix); hierarchical rubric editor for essay items (not yet
+  live-browser-verified).
+- **Proctoring**: face-only biometric gate (ID verification removed), exam-start photo delivered
+  to the teacher, trust-score/violation staleness fixed on both monitor pages, `gaze_away`
+  evidence capture, real Cloudflare TURN relay for teacher live-video (student→teacher WebRTC).
+  **Not done on real hardware**: no physically unplugged webcam / muted OS track / lens shutter /
+  revoked permission pass; no live two-browser session through the actual TURN relay.
+  **Not done on real math/chem UI**: rubric editor browser QA.
+- **Exam scheduling**: duplicate-to-another-section (clone, not link), edit-screen schedule
+  fields (blocked once live/completed, server-enforced), mid-exam end-time extension with
+  real-time student sync + audit trail (`ExamTimeChange`). No live browser QA on these three this
+  session.
+- **Math & chemistry** (KaTeX/mhchem/MathLive) in stem/options/explanation, AI generation emits
+  LaTeX, matching dropdowns render math, keyboard shortcuts, print CSS, mobile overflow fixed —
+  all live-verified (30/30 then 15/15 checks). Students still can't author math in free-text
+  answers (deliberate scope); no print/PDF export route.
+- **Multi-section exams, dynamic pooling, Item Bank RBAC, AI grading bulk-approve/override,
+  Classes/ClassInvite/ClassEnrollment, admin deactivation, password-reset rework** — all complete,
+  see Session Log for the specific judgment calls and gaps on each.
+- **Phase 3** (real proctoring signals, async AI generation, two-stage AI grading with mandatory
+  teacher confirm, real psychometrics, Supabase-Realtime live monitoring) — implemented
+  2026-07-11, see that entry.
+
+**Pending manual action**: Supabase dashboard → Authentication → URL Configuration → confirm Site
+URL is `https://exam-system-sigma.vercel.app` (was a known gap as of the 2026-07-11 entry).
+
+**Known Accepted Risk**: no database-level RLS (SEC-08) on most tables — app-layer checks are the
+sole enforcement. Accepted by the user 2026-07-06. Narrowed table-by-table since: RLS now enabled
+(SELECT-only, `authenticated`) on `Violation`, `ExamAttempt`, `ProctoringHeartbeat`,
+`MonitorDirective`, `ItemBank`, `ItemBankAccess`, `ItemLock`, `Class`, `ClassInvite`,
+`ClassEnrollment`, `ExamTimeChange`. `ExamSection`/`SectionAttempt` confirmed still lacking RLS
+(predate the narrowing, not brought into scope since not new).
 
 ---
 
 ## Build Status
 - `npm run build` → **PASSES** (0 errors, 90 routes)
-- `npm run lint` → 3 pre-existing baseline errors (`useExamTimer.ts`, `invite/[token]/page.tsx`, `exam/[examId]/page.tsx` — predate this session, confirmed via `git stash` diff), 0 warnings
+- `npm run lint` → 3 pre-existing baseline errors (`useExamTimer.ts`, `invite/[token]/page.tsx`,
+  `exam/[examId]/page.tsx` — predate the current session lineage, reconfirmed via `git stash`
+  each time they're touched), 0 warnings
 - `npx tsc --noEmit` → clean
 - `npx vitest run` → 408/408 passing (+ `pytest` 10/10 in `psychometrics/`)
-- Last verified: 2026-08-12 (real Cloudflare TURN relay for teacher live-video — replaces the earlier STUN-only-by-default scaffolding with live, working credentials; see Session Log)
-- Last verified: 2026-08-12 (assign/duplicate exam to another section, edit-screen schedule fields, mid-exam end-time extension with real-time student sync + audit trail; no live browser QA this session — see Session Log)
-- Last verified: 2026-08-12 (proctoring module — ID verification removed, exam-start photo delivered to teacher, trust-score/violation staleness fixed, gaze_away evidence capture, TURN-configurable WebRTC; no live camera/network QA this session — see Session Log)
-- Last verified: 2026-08-10 (dedicated `/super` login page + account role cleanup; pushed `e0f0ee4`, confirmed live)
-- Last verified: 2026-08-10 (real Quill WYSIWYG editor, app-wide RTL fix, rubric editor, img-src allowlist hardening; pushed `e7cbc08`, confirmed live)
-- Last verified: 2026-08-05 (parallel batch — upload UI, upcoming-exams fix, proctoring device gate, performance/staleness; see the Session Log for the accepted real-hardware gap on the gate)
-- Last verified: 2026-08-04 (math/chem follow-ups — AI LaTeX guidance, matching dropdowns, shortcuts, print CSS, mobile overflow; 15/15 live checks)
-- Last verified: 2026-08-04 (math & chemistry in question content — KaTeX/mhchem/MathLive, 30/30 live checks against a fresh production build)
-- Last verified: 2026-07-20 (start-without-verification escape hatch + real face↔ID matching, auto-derived duration, mobile UI pass, notification-panel cleanup)
-- Last verified: 2026-07-18 (proctoring system fix — per-detector live verification against a fresh production build, see `PROCTORING_FIX_PROGRESS.md`)
-- Last verified: 2026-07-17 (exam auto-completes on the teacher side when closing time is reached)
-- Last verified: 2026-07-17 (cross-exam Live Monitor eye button/live video fix)
-- Last verified: 2026-07-17 (invitation UI polish — presentation-only)
-- Last verified: 2026-07-17 (Teacher live video — peer-to-peer WebRTC, verified against a fresh production build + live two-browser Playwright session, see `LIVE_VIDEO_PROGRESS.md`)
-- Last verified: 2026-07-17 (Phase 4 fixes round 3 — exam auto-start, tab-lock logging, proctoring tuning, live-video feasibility, dashboard student count; tab-lock fix specifically verified against a production build, not just dev mode)
-- Last verified: 2026-07-17 (Phase 4 fixes round 2 — student profile, Students tab, item builder save, CLO audit, exam-to-class scoping)
-- Last verified: 2026-07-17 (Phase 4 fixes — invite flow cleanup, cross-institution block, teacher profile/dashboard, joined-teacher visibility)
-- Last verified: 2026-07-17 (Phase 7 — multi-section locking + grading bulk-approve)
-- Last verified: 2026-07-17 (Phase 6 — item bank RBAC/pooling audit, closed pooling concurrency + insufficient-pool bugs)
-- Last verified: 2026-07-16 (Phase 5 spec audit — confirmed already-complete, closed one test gap)
-- Last verified: 2026-07-14 (Classes/ClassInvite/ClassEnrollment, password-reset rework, admin deactivation)
-- Last verified: 2026-07-11 (Phase 3 implementation, all tracks)
-- Last verified: 2026-07-09 (multi-section exam architecture, item 9, final item of the gap-analysis pass)
-- Last verified: 2026-07-06 (QA_RESULTS.md priority fix pass, both rounds)
+- Last verified: 2026-08-12 (real Cloudflare TURN relay; assign/duplicate exam + schedule editing
+  + mid-exam end-time extension; proctoring ID-removal/photo-delivery/staleness/gaze-evidence —
+  see Session Log for the "no live browser/hardware QA" gaps flagged on each)
 - Live: https://exam-system-sigma.vercel.app
+- Every session in the log above follows the same verification convention: `tsc --noEmit` clean,
+  `eslint` back to whatever the pre-existing baseline was that day (confirmed via `git stash` when
+  ambiguous), `next build` clean, `vitest` green, plus either a disposable self-cleaning
+  Playwright+Prisma script against the live DB or an explicitly-flagged gap when that wasn't
+  possible (network-blocked pg egress, camera/hardware dependency, etc.). Assume that pattern held
+  for any entry above that doesn't call out an exception.
 
 ---
 
@@ -1369,6 +895,7 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 | `/auth/forgot-password` | Request a password reset email |
 | `/auth/reset-password` | Set a new password (valid recovery session only) |
 | `/classes/join/[token]` | Class invite acceptance page |
+| `/super` | Master admin login/panel (public shell, role-gated content) |
 
 ### Exam-Taking (no dashboard shell, desktop-only)
 | Route | Description |
@@ -1377,10 +904,16 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 | `/exam/[examId]/complete` | Submission confirmation + trust score |
 
 ### Admin (`/admin/*`)
-`/admin` · `/admin/teachers` · `/admin/exams` · `/admin/items` · `/admin/analytics` · `/admin/settings` · `/admin/institutions` · `/admin/users` · `/admin/curriculum`
+`/admin` · `/admin/teachers` · `/admin/exams` · `/admin/items` · `/admin/item-banks` ·
+`/admin/analytics` · `/admin/settings` · `/admin/institutions` · `/admin/users` ·
+`/admin/curriculum`
 
 ### Teacher (`/teacher/*`)
-`/teacher` · `/teacher/exams` · `/teacher/exams/new` · `/teacher/exams/[id]/edit` · `/teacher/exams/[id]/monitor` · `/teacher/exams/[id]/results` · `/teacher/items` · `/teacher/items/new` · `/teacher/classes` · `/teacher/classes/[id]` · `/teacher/monitor` · `/teacher/students` · `/teacher/analytics` · `/teacher/settings`
+`/teacher` · `/teacher/exams` · `/teacher/exams/new` · `/teacher/exams/[id]/edit` ·
+`/teacher/exams/[id]/monitor` · `/teacher/exams/[id]/results` ·
+`/teacher/exams/[id]/results/[studentId]` · `/teacher/items` · `/teacher/items/[bankId]` ·
+`/teacher/items/new` · `/teacher/classes` · `/teacher/classes/[id]` · `/teacher/monitor` ·
+`/teacher/students` · `/teacher/analytics` · `/teacher/settings`
 
 ### Student (`/student/*`)
 `/student` · `/student/exams` · `/student/results` · `/student/settings`
@@ -1391,55 +924,44 @@ Worked `QA_RESULTS.md`'s P0/P1 findings from the 2026-07-03 QA audit in priority
 | `/api/exams` | GET, POST | List / create exams |
 | `/api/exams/[id]` | GET, PUT, DELETE | Single exam CRUD; PUT blocks startTime/endTime/duration edits once effectively live/completed |
 | `/api/exams/[id]/publish-results` | PATCH | Set `resultsPublishedAt` |
-| `/api/exams/[id]/end-time` | GET, PATCH | Mid-exam endTime change (live only) + its audit log; notifies active students via `MonitorDirective` |
+| `/api/exams/[id]/end-time` | GET, PATCH | Mid-exam endTime change (live only) + audit log; notifies active students via `MonitorDirective` |
 | `/api/questions` | GET, POST | List / create; students get sanitized via `getQuestionsForStudent()` |
 | `/api/attempts` | GET, POST | Start / resume attempt (students only for POST) |
 | `/api/attempts/[id]` | GET, PUT | Single attempt; PUT blocked for students |
 | `/api/attempts/[id]/submit` | POST | Score + persist all answers; trustScore calculated server-side |
-| `/api/attempts/[id]/sections/[sectionId]/start` | POST | Start (or resume) one section's isolated timer; server-enforced section-sequential lock |
-| `/api/attempts/[id]/sections/[sectionId]/submit` | POST | Score + persist one section's answers; finalizes the whole attempt if it's the last section |
-| `/api/attempts/[id]/items/[questionId]/lock` | POST | Server enforcement for `isItemSequential` — locks one question's answer; a second call is rejected |
+| `/api/attempts/[id]/sections/[sectionId]/start` | POST | Start/resume one section's isolated timer; server-enforced section-sequential lock |
+| `/api/attempts/[id]/sections/[sectionId]/submit` | POST | Score + persist one section's answers; finalizes the attempt if last section |
+| `/api/attempts/[id]/items/[questionId]/lock` | POST | Server enforcement for `isItemSequential`; a second lock call is rejected |
 | `/api/violations` | GET, POST | Log / fetch violations; scoped to institution |
 | `/api/analytics` | GET | Analytics data |
-| `/api/notifications` | GET | Real notifications derived from DB (violations, pending exams, invites); polled every 30s |
+| `/api/notifications` | GET | Real notifications derived from DB; polled every 30s |
 | `/api/invites` | POST | Send Supabase invite email |
 | `/api/invites/token/[token]` | GET | Validate invite token (public) |
 | `/api/auth/forgot-password` | POST | Request password reset (rate-limited per email, public) |
-| `/api/classes` | GET, POST | List / create classes (teacher; admin sees institution-wide) |
+| `/api/classes` | GET, POST | List / create classes |
 | `/api/classes/[classId]` | GET, PATCH | Single class; rename / archive |
 | `/api/classes/[classId]/enrollments` | GET | List a class's roster |
-| `/api/classes/[classId]/enrollments/[studentId]` | DELETE | Remove a student from a class (enrollment only, not the account) |
+| `/api/classes/[classId]/enrollments/[studentId]` | DELETE | Remove a student from a class |
 | `/api/classes/[classId]/invites` | GET, POST | List / bulk-send class invites |
 | `/api/class-invites/token/[token]` | GET | Validate a class invite token (public) |
-| `/api/class-invites/accept/[token]` | POST | Accept a class invite — creates the account if new, else requires the caller already be signed in as that account (public) |
-| `/api/users/[userId]` | PATCH | Admin deactivate/reactivate a teacher or student in their own institution |
+| `/api/class-invites/accept/[token]` | POST | Accept a class invite (public) |
+| `/api/users/[userId]` | PATCH | Admin deactivate/reactivate a teacher or student |
 | `/api/users/me` | GET, PATCH | Current user profile |
-| `/api/upload` | POST | Supabase Storage upload (bucket: `exam-uploads`); accepts pdf, doc, docx, md, txt, etc. |
-| `/api/ai/generate-questions` | POST | Async AI generation → 202 {jobId}, scoped to `itemBankId` (real Claude or mock fallback) |
+| `/api/upload` | POST | Supabase Storage upload (bucket: `exam-uploads`) |
+| `/api/ai/generate-questions` | POST | Async AI generation → 202 {jobId}, scoped to `itemBankId` |
 | `/api/ai/jobs/[jobId]` | GET | Generation job status polling |
-| `/api/item-banks/[bankId]/collaborators` | GET, POST | List / grant EDITOR-VIEWER access on a bank (owner/admin only, same-institution only) |
+| `/api/item-banks/[bankId]/collaborators` | GET, POST | List / grant EDITOR-VIEWER access on a bank |
 | `/api/item-banks/[bankId]/collaborators/[userId]` | PATCH, DELETE | Change / revoke a collaborator's role |
-| `/api/grading/answers/[answerId]` | POST | Teacher confirm/override/regrade an AI-graded answer; rejects further mutation once `confirmed` |
-| `/api/grading/attempts/[attemptId]/bulk-approve` | POST | "Approve All" — finalizes every unmodified AI-suggested answer in one attempt |
+| `/api/grading/answers/[answerId]` | POST | Teacher confirm/override/regrade; rejects further mutation once `confirmed` |
+| `/api/grading/attempts/[attemptId]/bulk-approve` | POST | Finalize every unmodified AI-suggested answer in one attempt |
 | `/api/monitor/directives` | GET, POST | Teacher monitor actions (snapshot/warning/force-submit) + student fallback poll |
 | `/api/monitor/directives/[id]` | PATCH | Student fulfils a directive |
 | `/api/monitor/force-finalize` | POST | Server-side finalization of a dead attempt |
-| `/api/evidence` | GET | Signed URL for violation/directive evidence (teacher-scoped) |
+| `/api/evidence` | GET | Signed URL for violation/directive/verification evidence (teacher-scoped) |
+| `/api/webrtc/turn-credentials` | GET | Fresh Cloudflare TURN credentials for one WebRTC connection attempt |
 | `/api/psychometrics/recompute` | POST | On-demand stat run for one exam |
 | `/api/cron/purge-evidence` | GET | Daily 30-day evidence retention purge |
 | `/api/cron/psychometrics` | GET | Nightly stats sweep |
-
----
-
-## Phase 3 Status — IMPLEMENTED 2026-07-11 ✅
-All five areas from Haris's kickoff list are implemented (see the 2026-07-11 Session Log entry and `docs/phase3/IMPLEMENTATION_PROGRESS.md`):
-- **AI creation of exam** → async, quota-capped, dedup-checked item generation into banks (real Claude when `ANTHROPIC_API_KEY` set, mock fallback otherwise)
-- **AI grading of essay/coding by Claude** → suggestion + mandatory teacher confirmation; Judge0 sandbox for code execution
-- **Face / double-face / tab-switch / background-noise / abnormal-gaze / prohibited-object detection** → real client-side models (MediaPipe + COCO-SSD + VAD), episode-based, events-only (no raw media)
-- **Live real-time monitoring by teacher** → Supabase Realtime + on-demand snapshots + warnings + force-submit
-- **Real psychometric stats** → `psychometrics/` FastAPI service, per-administration versioned stats, real FI/DI in the bank
-
-Deferred (tracked in IMPLEMENTATION_PROGRESS.md): live end-to-end QA (network blocked pg egress this session), grading-queue badges on results table, per-administration stats drill-down UI, Web Push, camera-widget overlap human check (`QA_MANUAL.md`).
 
 ---
 
@@ -1451,12 +973,57 @@ SUPABASE_SECRET_KEY
 NEXT_PUBLIC_APP_URL=https://exam-system-sigma.vercel.app
 DATABASE_URL          # pgBouncer — port 6543
 DIRECT_URL            # direct connection — port 5432 (used by prisma db push)
-ANTHROPIC_API_KEY     # Phase 3 — enables real AI generation + grading (mock/manual fallback without it)
+ANTHROPIC_API_KEY     # enables real AI generation + grading (mock/manual fallback without it)
 AI_MODEL              # optional — overrides the default claude-sonnet-5 for generation/grading
 CRON_SECRET           # optional — protects /api/cron/* routes (Vercel sends it automatically when set)
-JUDGE0_API_URL        # hosted pay-per-use Judge0 (judge0.com Shared Cloud, e.g. https://judge0-ce.p.sulu.sh); unset = coding graded manually
+JUDGE0_API_URL        # hosted pay-per-use Judge0 (e.g. judge0-ce.p.sulu.sh); unset = coding graded manually
 JUDGE0_API_KEY        # key for the hosted Judge0 API
 PSYCHOMETRICS_SECRET  # optional shared secret for the internal psychometrics function (X-Service-Key)
 CLOUDFLARE_TURN_TOKEN_ID   # Cloudflare Realtime TURN key id — server-only, never NEXT_PUBLIC_; unset = STUN-only live-video
 CLOUDFLARE_TURN_API_TOKEN  # Cloudflare Realtime TURN API token — server-only; set on Vercel (Sensitive), not just .env.local
 ```
+
+---
+
+## Conclusion
+
+This project has gone through roughly forty session-log entries across two months (2026-06-21
+Phase 1 mock UI through 2026-08-12) without ever losing forward momentum to rework — the pattern
+worth keeping in mind for future sessions is visible in the log itself:
+
+1. **Audit before implementing.** More than a third of the entries above ("Phase 5", "Phase 6",
+   "Phase 4 round 2/3") turned out to duplicate work that already shipped in an earlier session
+   under a different name. Each was caught by reading the actual schema/code/live DB first
+   instead of trusting the spec's own framing — and each audit found at least one *real* gap the
+   original implementation had missed (an unenforced weight-sum, a missing RLS policy, an
+   under-scoped roster query), which is a better use of a session than reimplementing something
+   that already works.
+2. **Flag judgment calls, don't guess them.** TURN provider choice, clone-vs-link for exam
+   duplication, `classId` optional-vs-required, fail-open-vs-closed on biometric model load,
+   auto-adjust-vs-block on insufficient pool — every one of these got written up with the
+   trade-off and either put to Haris directly or decided with the reasoning stated inline. None
+   were silently picked.
+3. **Root-cause, don't patch symptoms.** The `/models` middleware bug that killed every vision
+   detector, the frozen-snapshot staleness bug on the monitor pages, the `TeacherStudent`-only
+   roster query that recurred three separate times before the union-of-relations fix finally
+   stuck — each got traced to its actual cause rather than special-cased where it was noticed.
+4. **Live-DB QA is the norm, not the exception, for anything DB/network/RLS-shaped.** Pure
+   functions get unit tests; anything touching Postgres, Supabase Realtime, RLS, or a real browser
+   gets a disposable, self-cleaning script against the live project (no dev DB exists) — and every
+   session confirms the cleanup afterward rather than assuming it.
+5. **Known gaps get written down, not hidden.** Camera/hardware-dependent proctoring paths,
+   cross-NAT WebRTC/TURN behavior, and a handful of "not live-browser-verified" UI features are
+   named explicitly in the Session Log and **Current Status** above rather than folded into a
+   blanket "done." Treat anything flagged that way as still needing a real pass before it's fully
+   trusted, even though `tsc`/`lint`/`vitest`/`build` are clean on all of it.
+
+The one standing structural risk carried across the whole project is **SEC-08** (see **Current
+Status**): most tables still have no database-level RLS, so a future route or `lib/data` function
+that forgets an ownership/institution check has no backstop. It's been narrowed table-by-table
+every time a new table touches Realtime or otherwise needs it, and accepted as a known risk
+everywhere else — that stance hasn't changed and shouldn't be silently reversed either way.
+
+When this file needs recondensing again (it will — the Session Log grows every session), keep the
+per-entry judgment calls, root causes, and known gaps; the per-entry `tsc`/`lint`/`vitest`/`build`
+lines are safe to drop again, since the **Build Status** section's "every session follows this
+pattern" note already covers what they'd otherwise repeat forty more times.

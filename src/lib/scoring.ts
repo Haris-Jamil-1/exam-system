@@ -1,5 +1,11 @@
-import type { Question, ExamSection } from '@/types';
+import type { Question, ExamSection, QuestionType } from '@/types';
 import { stripHtml } from '@/lib/rich-text';
+
+// Single source of truth for "this question type is never auto-scored" — must match the case
+// labels in scoreAnswers' own switch below exactly. Both submit routes use this to decide which
+// answers enter the pending_ai grading state machine (doc 03) instead of getting an immediate
+// deterministic score.
+export const MANUALLY_GRADED_TYPES: QuestionType[] = ['essay', 'coding', 'file_upload', 'audio_response', 'video_response'];
 
 export type PerQuestion = {
   questionId: string;
@@ -114,7 +120,11 @@ export function scoreAnswers(questions: Question[], answers: Record<string, stri
       case 'essay':
       case 'coding':
       case 'file_upload':
-        // Manual / async grading
+      case 'audio_response':
+      case 'video_response':
+        // Manual / async grading — audio/video are graded manually only (decided 2026-08-22,
+        // same structural path as file_upload: gradeEssayAnswer/gradeCodingAnswer's own type
+        // gating means the AI pipeline never touches these).
         correct = false;
         marksAwarded = 0;
         break;

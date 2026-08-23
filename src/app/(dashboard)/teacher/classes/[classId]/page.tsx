@@ -4,10 +4,12 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   getClassPageData, updateClass, archiveClass, removeEnrollment, createClassInvites,
+  getClassCollaborators, addClassCollaborator, removeClassCollaborator,
 } from '@/lib/data';
 import { invalidateData } from '@/lib/data-refresh';
 import { parseBulkEmails } from '@/lib/class-permissions';
 import { parseEmailsFromBuffer } from '@/lib/bulk-email-file-parse';
+import { ManageAccessDialog } from '@/components/shared/ManageAccessDialog';
 import type { ClassSummary, ClassEnrollmentSummary, ClassInviteSummary } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,7 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { ChevronRight, Users2, UserPlus, Archive, ArchiveRestore, X, Upload, FileSpreadsheet, AlertCircle, Mail, Send, Loader2, Check } from 'lucide-react';
+import { ChevronRight, Users2, UserPlus, Archive, ArchiveRestore, X, Upload, FileSpreadsheet, AlertCircle, Mail, Send, Loader2, Check, Users } from 'lucide-react';
 import { PageHeader } from '@/components/shared/PageHeader';
 
 const OUTCOME_LABEL: Record<string, string> = {
@@ -41,6 +43,7 @@ export default function TeacherClassDetailPage() {
   const [invites, setInvites] = useState<ClassInviteSummary[]>([]);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
+  const [accessOpen, setAccessOpen] = useState(false);
   const [name, setName] = useState('');
   const [bulkText, setBulkText] = useState('');
   const [sending, setSending] = useState(false);
@@ -168,11 +171,19 @@ export default function TeacherClassDetailPage() {
         action={
           <div className="flex flex-wrap items-center gap-2">
             {cls.archivedAt && <Badge variant="secondary">Archived</Badge>}
-            <Button variant="outline" onClick={() => setRenameOpen(true)}>Rename</Button>
-            <Button variant="outline" onClick={handleToggleArchive} className="gap-2">
-              {cls.archivedAt ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
-              {cls.archivedAt ? 'Unarchive' : 'Archive'}
-            </Button>
+            {cls.myRole && <Badge variant="outline" className="capitalize">{cls.myRole}</Badge>}
+            {cls.myRole === 'owner' && (
+              <>
+                <Button variant="outline" onClick={() => setRenameOpen(true)}>Rename</Button>
+                <Button variant="outline" onClick={handleToggleArchive} className="gap-2">
+                  {cls.archivedAt ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+                  {cls.archivedAt ? 'Unarchive' : 'Archive'}
+                </Button>
+                <Button variant="outline" onClick={() => setAccessOpen(true)} className="gap-2">
+                  <Users className="h-4 w-4" /> Manage Access
+                </Button>
+              </>
+            )}
             <Button onClick={() => { setSendResults(null); setInviteOpen(true); }} className="gap-2 bg-[#1E88E5] hover:bg-[#1976D2]">
               <UserPlus className="h-4 w-4" /> Invite Students
             </Button>
@@ -328,6 +339,18 @@ export default function TeacherClassDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {cls.myRole === 'owner' && (
+        <ManageAccessDialog
+          resourceId={classId}
+          resourceOwnerId={cls.ownerId}
+          open={accessOpen}
+          onClose={() => setAccessOpen(false)}
+          fetchCollaborators={getClassCollaborators}
+          onAdd={addClassCollaborator}
+          onRemove={removeClassCollaborator}
+        />
+      )}
     </div>
   );
 }

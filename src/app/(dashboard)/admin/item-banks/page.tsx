@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { getInstitutionBanks, createItemBank } from '@/lib/data';
+import { getInstitutionBanks, createItemBank, getCollaborators, addCollaborator, removeCollaborator } from '@/lib/data';
 import { useServerData } from '@/hooks/useServerData';
 import { invalidateData } from '@/lib/data-refresh';
 import type { ItemBank } from '@/types';
@@ -100,10 +100,13 @@ export default function AdminItemBanksPage() {
 
       {accessBank && (
         <ManageAccessDialog
-          bankId={accessBank.id}
-          bankOwnerId={accessBank.ownerId}
+          resourceId={accessBank.id}
+          resourceOwnerId={accessBank.ownerId}
           open={!!accessBank}
           onClose={() => setAccessBank(null)}
+          fetchCollaborators={getCollaborators}
+          onAdd={addCollaborator}
+          onRemove={removeCollaborator}
         />
       )}
     </div>

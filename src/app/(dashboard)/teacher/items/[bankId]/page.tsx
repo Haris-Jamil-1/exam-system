@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { getItemBankPageData, updateItem, deleteItem } from '@/lib/data';
+import { getItemBankPageData, updateItem, deleteItem, getCollaborators, addCollaborator, removeCollaborator } from '@/lib/data';
 import { invalidateData } from '@/lib/data-refresh';
 import type { Item, ItemBank, ItemStatus, QuestionType } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -28,7 +28,7 @@ const STATUS_STYLES: Record<ItemStatus, 'outline' | 'warning' | 'success' | 'sec
 const TYPE_LABELS: Record<QuestionType, string> = {
   mcq: 'MCQ', mrq: 'MRQ', true_false: 'T/F', short_answer: 'Short',
   essay: 'Essay', fill_blank: 'Fill', matching: 'Match', ordering: 'Order',
-  coding: 'Code', file_upload: 'File',
+  coding: 'Code', file_upload: 'File', audio_response: 'Audio', video_response: 'Video', composite_case: 'Case Study',
 };
 
 const DIFF_STYLES: Record<string, 'success' | 'warning' | 'danger'> = {
@@ -502,7 +502,17 @@ export default function ItemBankDetailPage() {
       </Card>
 
       <BulkImportModal bankId={bankId} open={importOpen} onClose={() => setImportOpen(false)} onImported={refreshItems} />
-      {canManage && <ManageAccessDialog bankId={bankId} bankOwnerId={bank.ownerId} open={accessOpen} onClose={() => setAccessOpen(false)} />}
+      {canManage && (
+        <ManageAccessDialog
+          resourceId={bankId}
+          resourceOwnerId={bank.ownerId}
+          open={accessOpen}
+          onClose={() => setAccessOpen(false)}
+          fetchCollaborators={getCollaborators}
+          onAdd={addCollaborator}
+          onRemove={removeCollaborator}
+        />
+      )}
     </div>
   );
 }

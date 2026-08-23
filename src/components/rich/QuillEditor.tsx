@@ -83,6 +83,11 @@ export function QuillEditor({ value, onValueChange, placeholder, disabled, compa
           modules: { toolbar: false },
           placeholder,
         });
+        // Auto-detect direction from what's actually typed, independent of the surrounding UI's
+        // language — matches RichText.tsx's read-side `dir="auto"` (see that file's doc comment).
+        // Must be set on quill.root itself, not an ancestor: `dir="auto"`'s per-element Unicode
+        // Bidi detection doesn't cascade as "auto" to children, only the resolved ltr/rtl does.
+        quill.root.setAttribute('dir', 'auto');
         quill.root.innerHTML = value;
         quill.on('text-change', () => {
           if (quill) onChangeRef.current(quill.root.innerHTML);

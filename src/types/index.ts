@@ -81,6 +81,10 @@ export interface Exam {
   // behavior); set means "visible only to this class's enrolled students". See
   // PHASE4_FIXES_ROUND2_PROGRESS.md for the "should this be required" judgment call.
   classId?: string | null;
+  // Feature 2: profile-tag targeting alongside classId. Empty/unset targetTags = no tag
+  // restriction — see exam-eligibility.ts for the full AND/OR-vs-classId composition rule.
+  targetTags?: string[];
+  targetTagsOperator?: 'AND' | 'OR';
   maxViolations: number;
   settings: ExamSettings;
   createdAt: string;
@@ -103,7 +107,21 @@ export type QuestionType =
   | 'matching'
   | 'ordering'
   | 'coding'
-  | 'file_upload';
+  | 'file_upload'
+  | 'audio_response'
+  | 'video_response'
+  | 'composite_case';
+
+// Advanced Item Types (notes.pdf): recording constraints for audio_response/video_response.
+// Unused by every other question type.
+export interface MediaSettings {
+  minDurationSeconds?: number;
+  maxDurationSeconds: number;
+  prepTimeSeconds?: number;
+  /** video_response only. */
+  allowScreenShare?: boolean;
+  maxRetries?: number;
+}
 
 export interface Option {
   id: string;
@@ -124,6 +142,9 @@ export interface RubricCriterion {
   name: string;
   description?: string;
   maxPoints: number;
+  // Zero-Anchor / Veto criterion — see rubric.ts's RubricRow.isVeto doc comment for the full
+  // rationale. A zero AI score on this criterion nullifies the whole item's suggested score.
+  isVeto?: boolean;
 }
 
 export interface Question {
@@ -147,6 +168,8 @@ export interface Question {
   // file_upload type
   allowedFileTypes?: string[];
   maxFileSizeMB?: number;
+  // audio_response / video_response type
+  mediaSettings?: MediaSettings;
   // Optional per-question countdown; on expiry, response auto-saves and the student auto-advances
   timeLimitSeconds?: number;
   // Phase 3 (doc 03): essay/coding grading rubric + coding score weights.
@@ -219,6 +242,8 @@ export interface Item {
   // file_upload type
   allowedFileTypes?: string[];
   maxFileSizeMB?: number;
+  // audio_response / video_response type
+  mediaSettings?: MediaSettings;
   timeLimitSeconds?: number;
   // Phase 3 (doc 03): essay/coding grading rubric + coding score weights.
   rubric?: RubricCriterion[];
@@ -263,14 +288,32 @@ export interface ItemBankCollaborator {
 
 export type ClassInviteStatus = 'pending' | 'accepted' | 'expired';
 
+export type ClassLevel = 'institutional' | 'personal';
+export type ClassPermissionRole = 'owner' | 'editor' | 'viewer';
+
 export interface ClassSummary {
   id: string;
   name: string;
   teacherId: string;
   institutionId: string;
+  classLevel: ClassLevel;
+  ownerId: string;
   createdAt: string;
   archivedAt?: string;
   studentCount: number;
+  // The caller's own permission on this class — resolved server-side, never trust a client value.
+  myRole?: ClassPermissionRole;
+}
+
+export interface ClassCollaborator {
+  id: string;
+  classId: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  permissionRole: ClassPermissionRole;
+  assignedById: string;
+  createdAt: string;
 }
 
 export interface ClassEnrollmentSummary {
@@ -414,11 +457,29 @@ export type BloomsLevel =
   | 'Evaluate'
   | 'Create';
 
+export type CourseLevel = 'institutional' | 'personal';
+export type CoursePermissionRole = 'owner' | 'editor' | 'viewer';
+
 export interface Course {
   id: string;
   code: string;           // e.g. CS101
   title: string;          // e.g. Introduction to Computer Science
   institutionId: string;
+  courseLevel: CourseLevel;
+  ownerId: string;
+  createdAt: string;
+  // The caller's own permission on this course tree — resolved server-side, never trust a client value.
+  myRole?: CoursePermissionRole;
+}
+
+export interface CourseCollaborator {
+  id: string;
+  courseId: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  permissionRole: CoursePermissionRole;
+  assignedById: string;
   createdAt: string;
 }
 

@@ -6,6 +6,7 @@ import { consumeAiQuota, consumeJudgeQuota, AiQuotaExceededError } from './quota
 import { runTestCases } from './judge0';
 import { computeSectionScores, type PerQuestion } from '@/lib/scoring';
 import { stripHtml } from '@/lib/rich-text';
+import { computeEssaySuggestedScore } from './essay-scoring';
 import type { Question, ExamSection } from '@/types';
 
 // AI-assisted grading engine (Phase 3, doc 03). Runs as Vercel background work
@@ -21,6 +22,7 @@ export interface RubricCriterion {
   name: string;
   description: string;
   maxPoints: number;
+  isVeto?: boolean;
 }
 
 const criterionScoreSchema = z.object({
@@ -126,6 +128,7 @@ async function gradeEssayAnswer(args: {
 }): Promise<void> {
   await consumeAiQuota(args.institutionId, 1);
   const client = new Anthropic();
+  const startedAt = Date.now();
   const response = await client.messages.create({
     model: AI_MODEL,
     max_tokens: 4096,
@@ -135,20 +138,13 @@ async function gradeEssayAnswer(args: {
       { role: 'user', content: `<student_answer>\n${args.responseText}\n</student_answer>` },
     ],
   });
+  const latencyMs = Date.now() - startedAt;
   if (response.stop_reason === 'refusal') throw new Error('Grader declined');
   const text = response.content.find(b => b.type === 'text');
   if (!text || text.type !== 'text') throw new Error('No grader output');
   const parsed = essaySuggestionSchema.parse(JSON.parse(text.text));
 
-  // Scale rubric points to the question's marks.
-  const rubricMax = args.rubric.reduce((s, c) => s + c.maxPoints, 0);
-  const awarded = parsed.criterionScores.reduce((s, c) => {
-    const criterion = args.rubric.find(rc => rc.name === c.name);
-    return s + Math.min(c.points, criterion?.maxPoints ?? 0);
-  }, 0);
-  const suggested = rubricMax > 0
-    ? Number(((awarded / rubricMax) * args.maxMarks).toFixed(2))
-    : 0;
+  const { suggested, vetoTriggered } = computeEssaySuggestedScore(args.rubric, parsed.criterionScores, args.maxMarks);
 
   await prisma.$transaction([
     prisma.answerGrading.create({
@@ -160,10 +156,11 @@ async function gradeEssayAnswer(args: {
         criterionScores: parsed.criterionScores,
         totalScore: suggested,
         feedback: parsed.feedback,
-        rationale: { flags: parsed.flags },
+        rationale: vetoTriggered ? { flags: parsed.flags, vetoTriggered: true } : { flags: parsed.flags },
         model: AI_MODEL,
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
+        latencyMs,
       },
     }),
     prisma.answer.update({
@@ -246,9 +243,11 @@ async function gradeCodingAnswer(args: {
   // Quality review needs Claude; test correctness alone works without it.
   let quality: z.infer<typeof codingReviewSchema> | null = null;
   let usage: { input_tokens: number; output_tokens: number } | null = null;
+  let latencyMs: number | null = null;
   if (process.env.ANTHROPIC_API_KEY) {
     await consumeAiQuota(args.institutionId, 1);
     const client = new Anthropic();
+    const startedAt = Date.now();
     const response = await client.messages.create({
       model: AI_MODEL,
       max_tokens: 4096,
@@ -266,6 +265,7 @@ async function gradeCodingAnswer(args: {
         { role: 'user', content: `<student_code>\n${args.sourceCode}\n</student_code>` },
       ],
     });
+    latencyMs = Date.now() - startedAt;
     if (response.stop_reason !== 'refusal') {
       const text = response.content.find(b => b.type === 'text');
       if (text && text.type === 'text') {
@@ -298,7 +298,7 @@ async function gradeCodingAnswer(args: {
           : { note: 'Test execution only (no AI quality review available)', weights: args.weights },
         executionResult: execution as unknown as object,
         ...(quality && usage
-          ? { model: AI_MODEL, inputTokens: usage.input_tokens, outputTokens: usage.output_tokens }
+          ? { model: AI_MODEL, inputTokens: usage.input_tokens, outputTokens: usage.output_tokens, latencyMs }
           : {}),
       },
     }),

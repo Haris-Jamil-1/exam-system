@@ -21,6 +21,7 @@ import {
 } from '@/lib/proctoring/media-readiness';
 import { CodeQuestion } from '@/components/exam/CodeQuestion';
 import { FileUploadQuestion } from '@/components/exam/FileUploadQuestion';
+import { RecordingQuestion } from '@/components/exam/RecordingQuestion';
 import { ItemCountdownBadge } from '@/components/exam/ItemCountdownBadge';
 import { DesktopGuard } from '@/components/shared/DesktopGuard';
 import { RichText } from '@/components/rich/RichText';
@@ -613,7 +614,7 @@ export default function ExamPage() {
               <Clock className="h-10 w-10 text-blue-600" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">{exam.title}</h1>
+              <h1 className="text-2xl font-bold text-gray-900" dir="auto">{exam.title}</h1>
               <p className="text-muted-foreground mt-1">Exam hasn&apos;t started yet</p>
             </div>
             <div className="rounded-2xl border bg-white p-6 shadow-sm space-y-2">
@@ -708,7 +709,7 @@ export default function ExamPage() {
               <div className="inline-flex h-16 w-16 rounded-full bg-blue-100 items-center justify-center mx-auto mb-3">
                 <Info className="h-8 w-8 text-blue-600" />
               </div>
-              <h1 className="text-2xl font-bold text-gray-900">{exam.title}</h1>
+              <h1 className="text-2xl font-bold text-gray-900" dir="auto">{exam.title}</h1>
               <p className="text-muted-foreground mt-1">Please read the instructions before you begin</p>
             </div>
             <div className="rounded-2xl border bg-white p-6 shadow-sm space-y-3">
@@ -724,7 +725,7 @@ export default function ExamPage() {
                 )}
               </div>
               {exam.instructions ? (
-                <p className="text-sm text-gray-800 whitespace-pre-wrap">{exam.instructions}</p>
+                <p className="text-sm text-gray-800 whitespace-pre-wrap text-start" dir="auto">{exam.instructions}</p>
               ) : (
                 <p className="text-sm text-muted-foreground italic">No special instructions provided for this exam.</p>
               )}
@@ -782,7 +783,7 @@ export default function ExamPage() {
                 )}
               </div>
               {currentSection.instructions ? (
-                <p className="text-sm text-gray-800 whitespace-pre-wrap">{currentSection.instructions}</p>
+                <p className="text-sm text-gray-800 whitespace-pre-wrap text-start" dir="auto">{currentSection.instructions}</p>
               ) : (
                 <p className="text-sm text-muted-foreground italic">No special instructions for this section.</p>
               )}
@@ -864,7 +865,7 @@ export default function ExamPage() {
       {/* Header */}
       <header className="bg-white border-b px-4 py-3 flex items-center justify-between">
         <div>
-          <h1 className="font-semibold text-gray-900">{exam.title}</h1>
+          <h1 className="font-semibold text-gray-900" dir="auto">{exam.title}</h1>
           <p className="text-xs text-muted-foreground">
             {isSectioned && currentSection
               ? `Section ${currentSectionIndex + 1} of ${sections.length}: ${currentSection.title}`
@@ -1192,6 +1193,15 @@ export default function ExamPage() {
             {/* File upload */}
             {q.type === 'file_upload' && (
               <FileUploadQuestion
+                question={q as unknown as Question}
+                value={fileAnswers[q.id] ?? null}
+                onChange={file => setFileAnswers(prev => ({ ...prev, [q.id]: file }))}
+              />
+            )}
+
+            {/* Audio/video response — same fileAnswers map/upload-at-submit flow as file_upload */}
+            {(q.type === 'audio_response' || q.type === 'video_response') && (
+              <RecordingQuestion
                 question={q as unknown as Question}
                 value={fileAnswers[q.id] ?? null}
                 onChange={file => setFileAnswers(prev => ({ ...prev, [q.id]: file }))}

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { runGradingForAttempt } from '@/lib/ai/grading';
 import { getAuthUser, unauthorized, notFound, forbidden, withErrorHandling } from '@/lib/api-auth';
-import { scoreAnswers } from '@/lib/scoring';
+import { scoreAnswers, MANUALLY_GRADED_TYPES } from '@/lib/scoring';
 import { computeTrustScore, type TrustScoreInput } from '@/lib/trust-score';
 import { computeSubmissionDeadline, isPastDeadline } from '@/lib/exam-deadline';
 import { purgeAttemptEvidence } from '@/lib/proctoring/evidence-purge';
@@ -111,7 +111,7 @@ export const POST = withErrorHandling(async (
   // question with no test cases. Their marks stay 0 until a teacher
   // confirms/overrides (decision 4).
   const needsGrading = new Set(
-    questions.filter(q => q.type === 'essay' || q.type === 'coding' || q.type === 'file_upload').map(q => q.id),
+    questions.filter(q => MANUALLY_GRADED_TYPES.includes(q.type)).map(q => q.id),
   );
 
   await prisma.$transaction([

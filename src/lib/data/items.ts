@@ -24,7 +24,7 @@ type PrismaItem = {
   order: number; required: boolean; explanation: string | null; correctAnswer: unknown;
   status: string; usageCount: number; tags: string[]; codeLanguage: string | null;
   starterCode: string | null; testCases: unknown; allowedFileTypes: string[];
-  maxFileSizeMB: number | null; timeLimitSeconds: number | null;
+  maxFileSizeMB: number | null; timeLimitSeconds: number | null; mediaSettings: unknown;
   rubric: unknown; gradingWeights: unknown; facilityIndex: number | null;
   discriminationIndex: number | null; version: number; previousVersionId: string | null;
   authorId: string; learningObjectiveId: string | null; bankId: string | null; createdAt: Date;
@@ -52,6 +52,7 @@ function mapItem(i: PrismaItem): Item {
     testCases: i.testCases as TestCase[] | undefined,
     allowedFileTypes: i.allowedFileTypes.length ? i.allowedFileTypes : undefined,
     maxFileSizeMB: i.maxFileSizeMB ?? undefined,
+    mediaSettings: (i.mediaSettings as Item['mediaSettings']) ?? undefined,
     timeLimitSeconds: i.timeLimitSeconds ?? undefined,
     rubric: (i.rubric as Item['rubric']) ?? undefined,
     gradingWeights: (i.gradingWeights as Item['gradingWeights']) ?? undefined,
@@ -154,6 +155,7 @@ export async function createItem(data: Omit<Item, 'id' | 'createdAt' | 'usageCou
         ...(rest.testCases !== undefined && { testCases: rest.testCases as object }),
         allowedFileTypes: rest.allowedFileTypes ?? [],
         maxFileSizeMB: rest.maxFileSizeMB ?? null,
+        ...(rest.mediaSettings !== undefined && { mediaSettings: rest.mediaSettings as object }),
         timeLimitSeconds: rest.timeLimitSeconds ?? null,
         // Was never written here at all — an essay item's rubric (AI grading's own required
         // input, per Question.rubric's schema comment "no rubric = no AI grading") silently
@@ -204,6 +206,7 @@ export async function updateItem(id: string, data: Partial<Item>): Promise<Item 
       ...(data.testCases !== undefined && { testCases: data.testCases as object }),
       ...(data.allowedFileTypes && { allowedFileTypes: data.allowedFileTypes }),
       ...(data.maxFileSizeMB !== undefined && { maxFileSizeMB: data.maxFileSizeMB ?? null }),
+      ...(data.mediaSettings !== undefined && { mediaSettings: data.mediaSettings as object }),
       ...(data.timeLimitSeconds !== undefined && { timeLimitSeconds: data.timeLimitSeconds ?? null }),
       ...(data.facilityIndex !== undefined && { facilityIndex: data.facilityIndex ?? null }),
       ...(data.discriminationIndex !== undefined && { discriminationIndex: data.discriminationIndex ?? null }),

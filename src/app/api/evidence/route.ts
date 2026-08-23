@@ -21,11 +21,29 @@ export async function GET(request: Request) {
   const violationId = searchParams.get('violationId');
   const directiveId = searchParams.get('directiveId');
   const attemptId = searchParams.get('attemptId');
+  const answerId = searchParams.get('answerId');
 
   let path: string | null = null;
   let examScope: { teacherId: string; institutionId: string } | null = null;
 
-  if (attemptId) {
+  if (answerId) {
+    // file_upload / audio_response / video_response answers store an /api/upload storage path
+    // as their whole `response` (same shape file_upload's has always used — this closes a
+    // pre-existing gap where that path just rendered as inert plain text with no way to open it,
+    // never actually fixed until audio/video's own playback need surfaced it).
+    const answer = await prisma.answer.findUnique({
+      where: { id: answerId },
+      select: {
+        response: true,
+        question: { select: { type: true, exam: { select: { teacherId: true, institutionId: true } } } },
+      },
+    });
+    if (!answer) return notFound('Answer not found');
+    const fileTypes = ['file_upload', 'audio_response', 'video_response'];
+    if (!fileTypes.includes(answer.question.type)) return NextResponse.json({ error: 'Not a file-based answer' }, { status: 400 });
+    path = typeof answer.response === 'string' ? answer.response : null;
+    examScope = answer.question.exam;
+  } else if (attemptId) {
     const attempt = await prisma.examAttempt.findUnique({
       where: { id: attemptId },
       select: { verificationPhotoUrl: true, exam: { select: { teacherId: true, institutionId: true } } },
@@ -50,7 +68,7 @@ export async function GET(request: Request) {
     path = directive.resultPath;
     examScope = directive.attempt.exam;
   } else {
-    return NextResponse.json({ error: 'attemptId, violationId, or directiveId is required' }, { status: 400 });
+    return NextResponse.json({ error: 'attemptId, violationId, directiveId, or answerId is required' }, { status: 400 });
   }
 
   if (!examScope || examScope.institutionId !== user.institutionId) return forbidden();

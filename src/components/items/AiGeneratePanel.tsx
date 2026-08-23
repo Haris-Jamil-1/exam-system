@@ -359,7 +359,7 @@ export function AiGeneratePanel({ bankId, onGenerated, onClose }: AiGeneratePane
 
         <div className="space-y-2">
           <Label>Target CLO <span className="text-muted-foreground font-normal">(optional)</span></Label>
-          <CurriculumPicker value={cloSelection} onChange={setCloSelection} institutionId={undefined} />
+          <CurriculumPicker value={cloSelection} onChange={setCloSelection} />
         </div>
 
         {quantityInvalid && (

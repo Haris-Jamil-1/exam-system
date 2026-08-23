@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, Check, Code2, FileUp, Eye, EyeOff, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, Check, Code2, FileUp, Eye, EyeOff, ChevronRight, Mic, Video } from 'lucide-react';
 import { MathTextarea, MathInput } from '@/components/rich/MathTextField';
 import { QuillEditor } from '@/components/rich/QuillEditor';
 import { RubricEditor } from '@/components/items/RubricEditor';
@@ -45,6 +45,8 @@ const QUESTION_TYPES: { value: QuestionType; label: string; group: string; icon?
   { value: 'ordering',     label: 'Ordering',                group: 'Matching & Ordering' },
   { value: 'coding',       label: 'Coding Challenge',        group: 'Advanced' },
   { value: 'file_upload',  label: 'File Submission',         group: 'Advanced' },
+  { value: 'audio_response', label: 'Audio Response',        group: 'Advanced' },
+  { value: 'video_response', label: 'Video Response',        group: 'Advanced' },
 ];
 
 interface TestCaseRow {
@@ -94,6 +96,13 @@ export default function NewItemPage() {
   // File upload type state
   const [allowedExts, setAllowedExts] = useState<string[]>(['.pdf', '.doc', '.docx', '.md', '.txt']);
   const [maxFileSizeMB, setMaxFileSizeMB] = useState(10);
+
+  // Audio/video response type state — see types/index.ts's MediaSettings for field meanings.
+  const [minDurationSeconds, setMinDurationSeconds] = useState(0);
+  const [maxDurationSeconds, setMaxDurationSeconds] = useState(120);
+  const [prepTimeSeconds, setPrepTimeSeconds] = useState(30);
+  const [allowScreenShare, setAllowScreenShare] = useState(false);
+  const [maxRetries, setMaxRetries] = useState(1);
 
   // Essay rubric state — hierarchical editor; only the compiled flat criteria list is ever
   // persisted (see lib/rubric.ts's compileRubric), in the shape the AI grading pipeline expects.
@@ -213,6 +222,15 @@ export default function NewItemPage() {
           allowedFileTypes: allowedExts,
           maxFileSizeMB,
         } : {}),
+        ...(qType === 'audio_response' || qType === 'video_response' ? {
+          mediaSettings: {
+            minDurationSeconds: minDurationSeconds > 0 ? minDurationSeconds : undefined,
+            maxDurationSeconds,
+            prepTimeSeconds: prepTimeSeconds > 0 ? prepTimeSeconds : undefined,
+            ...(qType === 'video_response' ? { allowScreenShare } : {}),
+            maxRetries: maxRetries > 0 ? maxRetries : undefined,
+          },
+        } : {}),
         // AI Auto-Grading off (or no dimensions entered) => no rubric saved at all, which is
         // already this app's existing "no rubric = manual grading only" rule — no new gating
         // needed in the AI grading pipeline itself.
@@ -281,6 +299,8 @@ export default function NewItemPage() {
                       <p className="font-medium flex items-center gap-1">
                         {t.value === 'coding'      && <Code2 className="h-3 w-3" />}
                         {t.value === 'file_upload' && <FileUp className="h-3 w-3" />}
+                        {t.value === 'audio_response' && <Mic className="h-3 w-3" />}
+                        {t.value === 'video_response' && <Video className="h-3 w-3" />}
                         {t.label}
                       </p>
                       <p className="text-muted-foreground text-xs mt-0.5">{t.group}</p>
@@ -588,6 +608,87 @@ export default function NewItemPage() {
               </Card>
             )}
 
+            {/* ── Audio/Video response type ── */}
+            {(qType === 'audio_response' || qType === 'video_response') && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    {qType === 'audio_response' ? <Mic className="h-4 w-4 text-purple-600" /> : <Video className="h-4 w-4 text-purple-600" />}
+                    Recording Setup
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>Prep Time (seconds)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={300}
+                        value={prepTimeSeconds}
+                        onChange={e => setPrepTimeSeconds(Number(e.target.value))}
+                      />
+                      <p className="text-xs text-muted-foreground">Countdown before recording auto-starts. 0 = no prep time.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Min Duration (seconds)</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={maxDurationSeconds}
+                        value={minDurationSeconds}
+                        onChange={e => setMinDurationSeconds(Number(e.target.value))}
+                      />
+                      <p className="text-xs text-muted-foreground">0 = no minimum.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Max Duration (seconds)</Label>
+                      <Input
+                        type="number"
+                        min={Math.max(1, minDurationSeconds)}
+                        max={1800}
+                        value={maxDurationSeconds}
+                        onChange={e => setMaxDurationSeconds(Number(e.target.value))}
+                      />
+                      <p className="text-xs text-muted-foreground">Recording auto-stops at this limit.</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 max-w-xs">
+                    <Label>Retries Allowed</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={10}
+                      value={maxRetries}
+                      onChange={e => setMaxRetries(Number(e.target.value))}
+                    />
+                    <p className="text-xs text-muted-foreground">How many times the student can delete and re-record before submitting. 0 = one take only.</p>
+                  </div>
+
+                  {qType === 'video_response' && (
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={allowScreenShare}
+                        onChange={e => setAllowScreenShare(e.target.checked)}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      <div>
+                        <span className="text-sm font-medium">Allow screen share</span>
+                        <p className="text-xs text-muted-foreground">Records screen + webcam side-by-side instead of webcam only (e.g. for a walkthrough demo).</p>
+                      </div>
+                    </label>
+                  )}
+
+                  <div className="rounded-lg bg-purple-50 border border-purple-100 p-3 text-xs text-purple-700 space-y-1">
+                    <p className="font-semibold">Manual Review Required</p>
+                    <p>{qType === 'audio_response' ? 'Audio' : 'Video'} responses are not auto-graded. After the exam ends, teachers must listen to / watch each recording and assign a score manually.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Meta */}
             <Card>
               <CardHeader><CardTitle>Metadata</CardTitle></CardHeader>
@@ -628,7 +729,6 @@ export default function NewItemPage() {
                 <CurriculumPicker
                   value={cloSelection}
                   onChange={setCloSelection}
-                  institutionId={undefined}
                 />
                 {!cloSelection?.cloId && (
                   <p className="mt-4 text-xs text-muted-foreground">

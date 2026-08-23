@@ -37,7 +37,7 @@ export const POST = withErrorHandling(async (request: Request) => {
     where: { id: examId },
     select: {
       startTime: true, endTime: true, status: true, institutionId: true, settings: true,
-      classId: true, teacherId: true, approvalStatus: true,
+      classId: true, teacherId: true, approvalStatus: true, targetTags: true, targetTagsOperator: true,
       sections: { select: { sectionWeight: true } },
     },
   });
@@ -59,14 +59,19 @@ export const POST = withErrorHandling(async (request: Request) => {
       select: {
         studentTeachers: { select: { teacherId: true } },
         classEnrollments: { select: { classId: true } },
+        tags: true,
       },
     });
     const eligible = isStudentEligibleForExam(
-      { institutionId: exam.institutionId, classId: exam.classId, teacherId: exam.teacherId },
+      {
+        institutionId: exam.institutionId, classId: exam.classId, teacherId: exam.teacherId,
+        targetTags: exam.targetTags, targetTagsOperator: exam.targetTagsOperator,
+      },
       {
         institutionId: user.institutionId,
         teacherIds: studentLinks?.studentTeachers.map(t => t.teacherId) ?? [],
         enrolledClassIds: studentLinks?.classEnrollments.map(c => c.classId) ?? [],
+        tags: studentLinks?.tags ?? [],
       },
     );
     if (!eligible) return forbidden();

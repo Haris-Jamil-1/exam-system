@@ -132,13 +132,13 @@ export function SectionsManager({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-medium text-muted-foreground">#{section.orderIndex}</span>
-                      <p className="font-medium text-sm">{section.title}</p>
+                      <p className="font-medium text-sm" dir="auto">{section.title}</p>
                       <Badge variant="outline" className="text-xs">{section.sectionWeight}% weight</Badge>
                       {section.durationMinutes && <Badge variant="outline" className="text-xs">{section.durationMinutes} min</Badge>}
                       {section.passingThreshold !== undefined && <Badge variant="outline" className="text-xs">pass ≥ {section.passingThreshold}%</Badge>}
                       <span className="text-xs text-muted-foreground">{section.questionCount ?? 0} question{section.questionCount === 1 ? '' : 's'}</span>
                     </div>
-                    {section.instructions && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{section.instructions}</p>}
+                    {section.instructions && <p className="text-xs text-muted-foreground mt-1 line-clamp-2" dir="auto">{section.instructions}</p>}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <button onClick={() => startEdit(section)} className="p-1.5 text-muted-foreground hover:text-gray-900" title="Edit section">
@@ -191,7 +191,7 @@ function SectionForm({ form, setForm, onSave, onCancel, saving }: {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-1">
           <Label className="text-xs">Title</Label>
-          <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. Reading Comprehension" className="h-8 text-sm" />
+          <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. Reading Comprehension" className="h-8 text-sm" dir="auto" />
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Order</Label>
@@ -200,7 +200,7 @@ function SectionForm({ form, setForm, onSave, onCancel, saving }: {
       </div>
       <div className="space-y-1">
         <Label className="text-xs">Instructions <span className="text-muted-foreground font-normal">(shown before this section starts)</span></Label>
-        <Textarea value={form.instructions} onChange={e => setForm({ ...form, instructions: e.target.value })} rows={2} className="text-sm" />
+        <Textarea value={form.instructions} onChange={e => setForm({ ...form, instructions: e.target.value })} rows={2} className="text-sm" dir="auto" />
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="space-y-1">

@@ -2,7 +2,7 @@
 import { Fragment } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Plus, Trash2, CornerDownRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, CornerDownRight, CheckCircle2, AlertCircle, ShieldAlert } from 'lucide-react';
 import {
   type RubricRow, type RubricLevelColumn,
   topLevelWeightSum, isTopLevelWeightValid, subRowWeightSum, isSubRowWeightValid,
@@ -109,6 +109,11 @@ export function RubricEditor({ enabled, onEnabledChange, levels, onLevelsChange,
                 onChange={e => patchRow(row.id, { name: e.target.value })}
                 className="h-7 text-xs"
               />
+              {row.isVeto && (
+                <span className="shrink-0 inline-flex items-center gap-0.5 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-600" title="Veto criterion">
+                  <ShieldAlert className="h-2.5 w-2.5" /> Veto
+                </span>
+              )}
             </div>
           </td>
           {levels.map(level => (
@@ -133,6 +138,21 @@ export function RubricEditor({ enabled, onEnabledChange, levels, onLevelsChange,
           </td>
           <td className="px-3 py-2 align-top">
             <div className="flex items-center gap-1">
+              {row.subRows.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => patchRow(row.id, { isVeto: !row.isVeto })}
+                  title={row.isVeto
+                    ? 'Veto criterion: a zero AI score here nullifies the whole item. Click to unset.'
+                    : 'Mark as a veto criterion (e.g. Academic Integrity) — a zero AI score here nullifies the whole item\'s suggested score.'}
+                  className={cn(
+                    'p-1 rounded transition-colors',
+                    row.isVeto ? 'text-red-600 bg-red-50' : 'text-muted-foreground hover:text-red-600 hover:bg-red-50',
+                  )}
+                >
+                  <ShieldAlert className="h-3.5 w-3.5" />
+                </button>
+              )}
               <Button type="button" variant="ghost" size="sm" className="h-7 px-1.5 text-xs" onClick={() => addSubRow(row.id)} title="Add sub-dimension">
                 <Plus className="h-3 w-3" />
               </Button>

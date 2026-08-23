@@ -57,6 +57,8 @@ function examRow(over: Partial<Record<string, unknown>> = {}) {
     settings: null,
     resultsPublishedAt: null,
     _count: { questions: 10 },
+    targetTags: [],
+    targetTagsOperator: 'OR',
     ...over,
   };
 }
@@ -71,6 +73,7 @@ function mockStudent(opts: { teacherIds: string[]; classIds: string[] }) {
       institutionId: 'inst-a',
       studentTeachers: opts.teacherIds.map(teacherId => ({ teacherId })),
       classEnrollments: opts.classIds.map(classId => ({ classId })),
+      tags: [],
     });
 }
 

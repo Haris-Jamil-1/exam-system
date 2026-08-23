@@ -410,6 +410,7 @@ export default function EditExamPage() {
             <Textarea
               placeholder="e.g. Calculators are prohibited. Ensure your camera is active."
               rows={4}
+              dir="auto"
               value={instructions}
               onChange={e => setInstructions(e.target.value)}
               onBlur={saveInstructions}

@@ -1,64 +1,106 @@
 import { describe, it, expect } from 'vitest';
 import {
-  canManageClass, canRemoveEnrollment, canDeactivateUser,
-  type CallerContext, type PrismaClassForPermission, type UserForDeactivation,
+  resolveClassPermission, canReadClass, canEditClassRoster, canManageClassAccess, canDeactivateUser,
+  type CallerContext, type PrismaClassForTenancy, type UserForDeactivation,
 } from '@/lib/class-permissions';
 
-// Class management and account deactivation are the two new authority boundaries this session —
+// Class management and account deactivation are two of the authority boundaries in this file —
 // cross-tenant and self-protection cases get an explicit test each, matching the standard set by
-// item-bank-permissions.test.ts.
+// item-bank-permissions.test.ts. resolveClassPermission mirrors resolveBankPermission's own test
+// shape (cross-tenant deny, admin-owns-everything, personal-owner, institutional-needs-a-grant).
 
 const INSTITUTION_A = 'inst-a';
 const INSTITUTION_B = 'inst-b';
 
-function cls(overrides: Partial<PrismaClassForPermission> = {}): PrismaClassForPermission {
-  return { teacherId: 'teacher-1', institutionId: INSTITUTION_A, ...overrides };
+function cls(overrides: Partial<PrismaClassForTenancy> = {}): PrismaClassForTenancy {
+  return { id: 'class-1', teacherId: 'teacher-1', institutionId: INSTITUTION_A, classLevel: 'personal', ownerId: 'teacher-1', ...overrides };
 }
 
 function caller(overrides: Partial<CallerContext> = {}): CallerContext {
   return { id: 'teacher-1', institutionId: INSTITUTION_A, role: 'teacher', ...overrides };
 }
 
-describe('canManageClass — cross-tenant boundary', () => {
+describe('resolveClassPermission — cross-tenant boundary', () => {
   it('denies an admin from another institution outright', () => {
     const c = cls();
     const admin = caller({ id: 'admin-b', institutionId: INSTITUTION_B, role: 'admin' });
-    expect(canManageClass(c, admin)).toBe(false);
+    expect(resolveClassPermission(c, admin, null)).toBeNull();
   });
 
-  it('denies a teacher from another institution even if the teacherId happens to match', () => {
-    const c = cls({ teacherId: 'shared-id', institutionId: INSTITUTION_A });
+  it('denies a teacher from another institution even if the ownerId happens to match', () => {
+    const c = cls({ ownerId: 'shared-id', institutionId: INSTITUTION_A });
     const attacker = caller({ id: 'shared-id', institutionId: INSTITUTION_B, role: 'teacher' });
-    expect(canManageClass(c, attacker)).toBe(false);
+    expect(resolveClassPermission(c, attacker, null)).toBeNull();
   });
 });
 
-describe('canManageClass — admin authority within their own institution', () => {
-  it('grants admin management of a class they do not teach', () => {
-    const c = cls({ teacherId: 'some-teacher' });
+describe('resolveClassPermission — admin authority within their own institution', () => {
+  it('grants admin owner-level access to a personal class they do not own', () => {
+    const c = cls({ ownerId: 'some-teacher' });
     const admin = caller({ id: 'admin-a', role: 'admin' });
-    expect(canManageClass(c, admin)).toBe(true);
+    expect(resolveClassPermission(c, admin, null)).toBe('owner');
+  });
+
+  it('grants admin owner-level access to an institutional class with no explicit grant', () => {
+    const c = cls({ classLevel: 'institutional', ownerId: INSTITUTION_A });
+    const admin = caller({ id: 'admin-a', role: 'admin' });
+    expect(resolveClassPermission(c, admin, null)).toBe('owner');
   });
 });
 
-describe('canManageClass — teacher ownership', () => {
-  it('grants the owning teacher management', () => {
-    const c = cls({ teacherId: 'teacher-1' });
-    expect(canManageClass(c, caller({ id: 'teacher-1' }))).toBe(true);
+describe('resolveClassPermission — personal class ownership', () => {
+  it('grants the owning teacher owner-level access', () => {
+    const c = cls({ ownerId: 'teacher-1' });
+    expect(resolveClassPermission(c, caller({ id: 'teacher-1' }), null)).toBe('owner');
   });
 
-  it('denies a different teacher in the same institution with no ownership', () => {
-    const c = cls({ teacherId: 'teacher-1' });
-    expect(canManageClass(c, caller({ id: 'teacher-2' }))).toBe(false);
+  it('denies a different teacher in the same institution with no grant', () => {
+    const c = cls({ ownerId: 'teacher-1' });
+    expect(resolveClassPermission(c, caller({ id: 'teacher-2' }), null)).toBeNull();
+  });
+
+  it('grants exactly the explicitly-shared role to a non-owning teacher', () => {
+    const c = cls({ ownerId: 'teacher-1' });
+    expect(resolveClassPermission(c, caller({ id: 'teacher-2' }), 'editor')).toBe('editor');
+    expect(resolveClassPermission(c, caller({ id: 'teacher-2' }), 'viewer')).toBe('viewer');
   });
 });
 
-describe('canRemoveEnrollment', () => {
-  it('follows the exact same rule as canManageClass', () => {
-    const c = cls({ teacherId: 'teacher-1' });
-    expect(canRemoveEnrollment(c, caller({ id: 'teacher-1' }))).toBe(true);
-    expect(canRemoveEnrollment(c, caller({ id: 'teacher-2' }))).toBe(false);
-    expect(canRemoveEnrollment(c, caller({ id: 'admin-a', role: 'admin' }))).toBe(true);
+describe('resolveClassPermission — institutional class needs an explicit grant', () => {
+  it('denies a teacher with no ClassAccess row, even in their own institution', () => {
+    const c = cls({ classLevel: 'institutional', ownerId: INSTITUTION_A });
+    expect(resolveClassPermission(c, caller({ id: 'teacher-2' }), null)).toBeNull();
+  });
+
+  it('grants exactly the explicitly-shared role once granted', () => {
+    const c = cls({ classLevel: 'institutional', ownerId: INSTITUTION_A });
+    expect(resolveClassPermission(c, caller({ id: 'teacher-2' }), 'editor')).toBe('editor');
+  });
+});
+
+describe('canReadClass / canEditClassRoster / canManageClassAccess', () => {
+  it('null role can neither read nor edit nor manage', () => {
+    expect(canReadClass(null)).toBe(false);
+    expect(canEditClassRoster(null)).toBe(false);
+    expect(canManageClassAccess(null)).toBe(false);
+  });
+
+  it('viewer can read but not edit the roster or manage access', () => {
+    expect(canReadClass('viewer')).toBe(true);
+    expect(canEditClassRoster('viewer')).toBe(false);
+    expect(canManageClassAccess('viewer')).toBe(false);
+  });
+
+  it('editor can read and edit the roster but not manage access (rename/archive/share)', () => {
+    expect(canReadClass('editor')).toBe(true);
+    expect(canEditClassRoster('editor')).toBe(true);
+    expect(canManageClassAccess('editor')).toBe(false);
+  });
+
+  it('owner can do everything', () => {
+    expect(canReadClass('owner')).toBe(true);
+    expect(canEditClassRoster('owner')).toBe(true);
+    expect(canManageClassAccess('owner')).toBe(true);
   });
 });
 
