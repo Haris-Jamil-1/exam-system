@@ -7,6 +7,12 @@ import { stripHtml } from '@/lib/rich-text';
 // deterministic score.
 export const MANUALLY_GRADED_TYPES: QuestionType[] = ['essay', 'coding', 'file_upload', 'audio_response', 'video_response'];
 
+// Subset of MANUALLY_GRADED_TYPES that the AI grading pipeline (src/lib/ai/grading.ts's
+// runGradingForAttempt) actually has a case for — file_upload/audio_response/video_response enter
+// pending_ai for a human to grade directly but are never run through the AI suggester at all.
+// Single source of truth for "does 'Regrade with AI' do anything for this type" (GradingPanel).
+export const AI_GRADABLE_TYPES: QuestionType[] = ['essay', 'coding'];
+
 export type PerQuestion = {
   questionId: string;
   stem: string;

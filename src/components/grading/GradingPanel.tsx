@@ -6,9 +6,10 @@
 import { useState } from 'react';
 import type { GradingSuggestion } from '@/lib/data/students';
 import { isGradingFinalized } from '@/lib/grading-status';
+import { AI_GRADABLE_TYPES } from '@/lib/scoring';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Sparkles, Check, Pencil, RefreshCw } from 'lucide-react';
+import { Sparkles, Check, Pencil, RefreshCw, ShieldAlert } from 'lucide-react';
 
 interface ExecutionSummary {
   available?: boolean;
@@ -58,6 +59,13 @@ export function GradingPanel({ answerId, maxMarks, gradingStatus, suggestion, qu
   }
 
   const execution = suggestion?.executionResult as ExecutionSummary | null;
+  // essay-scoring.ts's Zero-Anchor/Veto override and grading.ts's off-topic/gibberish/injection
+  // flags are both written into AnswerGrading.rationale but were previously never read back out
+  // anywhere — a teacher had no way to tell "0/N because a veto criterion fired" apart from a
+  // genuinely weak answer, defeating the point of an auditable override.
+  const rationale = suggestion?.rationale as { vetoTriggered?: boolean; flags?: string[] } | null | undefined;
+  const vetoTriggered = rationale?.vetoTriggered === true;
+  const flags = rationale?.flags ?? [];
   // `resolved` still means confirmed-or-overridden for badge styling — but only `confirmed` is
   // truly finalized (matches the backend's 409 on further mutation). An `overridden` answer is a
   // teacher's own explicit decision, not yet locked in, so the action block below stays reachable
@@ -113,6 +121,21 @@ export function GradingPanel({ answerId, maxMarks, gradingStatus, suggestion, qu
             <span className="font-semibold">{suggestion.totalScore}/{maxMarks}</span>
             {suggestion.model && <span className="text-muted-foreground"> · {suggestion.model}</span>}
           </p>
+          {vetoTriggered && (
+            <p className="flex items-center gap-1.5 rounded bg-red-50 border border-red-200 text-red-700 px-2 py-1.5 font-medium">
+              <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+              Zeroed by rubric veto — a required criterion scored 0, overriding every other
+              criterion regardless of the rest of the answer. Review before confirming.
+            </p>
+          )}
+          {flags.length > 0 && (
+            <div className="flex items-center gap-1 flex-wrap">
+              <span className="font-medium text-muted-foreground">Flags:</span>
+              {flags.map(f => (
+                <Badge key={f} variant="warning" className="text-[10px] capitalize">{f.replace('_', ' ')}</Badge>
+              ))}
+            </div>
+          )}
           {suggestion.criterionScores && suggestion.criterionScores.length > 0 && (
             <div className="space-y-1">
               {suggestion.criterionScores.map(c => (
@@ -140,7 +163,7 @@ export function GradingPanel({ answerId, maxMarks, gradingStatus, suggestion, qu
             <Button size="sm" variant="outline" disabled={busy} onClick={() => setOverriding(o => !o)}>
               <Pencil className="h-3.5 w-3.5 me-1" /> {gradingStatus === 'pending_ai' ? 'Grade manually' : gradingStatus === 'overridden' ? 'Change override' : 'Override'}
             </Button>
-            {questionType !== 'file_upload' && (
+            {AI_GRADABLE_TYPES.includes(questionType as (typeof AI_GRADABLE_TYPES)[number]) && (
               <Button size="sm" variant="outline" disabled={busy} onClick={() => void act({ action: 'regrade' }, 'Regrade queued — refresh shortly.')}>
                 <RefreshCw className="h-3.5 w-3.5 me-1" /> Regrade with AI
               </Button>

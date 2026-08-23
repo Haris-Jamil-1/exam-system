@@ -2,6 +2,7 @@
 import { prisma } from '@/lib/prisma';
 import { getSessionContext as getSessionContextShared } from '@/lib/session';
 import type { CurrentUser, MonitorStudent } from '@/types';
+import type { Prisma } from '@/generated/prisma/client';
 
 function mapUser(u: {
   id: string; name: string; email: string; role: string;
@@ -45,16 +46,21 @@ export async function getStudents(_institutionId?: string): Promise<StudentRoste
   // TeacherStudent-only filter silently dropped every student who joined through a class invite,
   // since that flow (api/class-invites/accept) only ever writes a ClassEnrollment row, never a
   // TeacherStudent row.
-  const where = role === 'teacher' && prismaUserId
+  const where: Prisma.UserWhereInput = role === 'teacher' && prismaUserId
     ? {
-        role: 'student' as const,
+        role: 'student',
         institutionId,
         OR: [
           { studentTeachers: { some: { teacherId: prismaUserId } } },
           { classEnrollments: { some: { class: { teacherId: prismaUserId } } } },
+          // A student reachable only through a class shared with this teacher via ClassAccess
+          // (editor tier — matches classes.ts's canEditClassRoster gate for roster management)
+          // must show up here too, or the roster is silently incomplete for any teacher who was
+          // granted access rather than owning the class outright.
+          { classEnrollments: { some: { class: { access: { some: { userId: prismaUserId, permissionRole: 'editor' } } } } } },
         ],
       }
-    : { role: 'student' as const, institutionId };
+    : { role: 'student', institutionId };
 
   // The three aggregates used to wait on the roster query purely to reuse its
   // `studentIds`, which made this two sequential waves of round trips. Filtering
@@ -64,11 +70,14 @@ export async function getStudents(_institutionId?: string): Promise<StudentRoste
   // 0.19ms (it is round trips, not query cost).
   const [rows, classRows, trustAgg, violationCounts] = await Promise.all([
     prisma.user.findMany({ where, orderBy: { name: 'asc' } }),
-    // Only this teacher's own classes — a student in another teacher's class shouldn't show
-    // that class's name on this teacher's roster view.
+    // Only classes this teacher owns or has editor access to — a student in some other,
+    // unrelated teacher's class shouldn't show that class's name on this teacher's roster view.
     role === 'teacher' && prismaUserId
       ? prisma.classEnrollment.findMany({
-          where: { student: where, class: { teacherId: prismaUserId } },
+          where: {
+            student: where,
+            class: { OR: [{ teacherId: prismaUserId }, { access: { some: { userId: prismaUserId, permissionRole: 'editor' } } }] },
+          },
           include: { class: { select: { name: true } } },
         })
       : Promise.resolve([]),
@@ -110,18 +119,26 @@ export async function getStudents(_institutionId?: string): Promise<StudentRoste
 export async function setStudentTags(studentIds: string[], tag: string, action: 'add' | 'remove'): Promise<number> {
   const { institutionId, role, prismaUserId } = await getSessionContext();
   if (!institutionId || studentIds.length === 0) return 0;
+  // This is an exported Server Action, directly callable by any authenticated user regardless of
+  // which page's UI happens to wire it up — the role check below (not just the `else` branch's
+  // narrower `where`) is the only thing standing between a logged-in student and self-tagging (or
+  // tagging classmates) with a tag a teacher later uses for exam targetTags targeting.
+  if (role !== 'teacher' && role !== 'admin') return 0;
 
-  const rosterWhere = role === 'teacher' && prismaUserId
+  const rosterWhere: Prisma.UserWhereInput = role === 'teacher' && prismaUserId
     ? {
-        role: 'student' as const,
+        role: 'student',
         institutionId,
         id: { in: studentIds },
         OR: [
           { studentTeachers: { some: { teacherId: prismaUserId } } },
           { classEnrollments: { some: { class: { teacherId: prismaUserId } } } },
+          // Same ClassAccess-editor extension as getStudents — otherwise this silently matches 0
+          // rows (no error) for any student reachable only through a shared/institutional class.
+          { classEnrollments: { some: { class: { access: { some: { userId: prismaUserId, permissionRole: 'editor' } } } } } },
         ],
       }
-    : { role: 'student' as const, institutionId, id: { in: studentIds } };
+    : { role: 'student', institutionId, id: { in: studentIds } };
 
   const targets = await prisma.user.findMany({ where: rosterWhere, select: { id: true, tags: true } });
   if (targets.length === 0) return 0;

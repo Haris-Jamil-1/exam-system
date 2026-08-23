@@ -12,6 +12,7 @@ import { useProctoringStore } from '@/store/proctoringStore';
 import { DesktopGuard } from '@/components/shared/DesktopGuard';
 import { RichText } from '@/components/rich/RichText';
 import { trustScoreTextClass, trustScoreProgressClass } from '@/lib/trust-score';
+import { MANUALLY_GRADED_TYPES } from '@/lib/scoring';
 
 type PerQuestionResult = {
   questionId: string;
@@ -66,7 +67,7 @@ export default function ExamCompletePage() {
   // (see Section Breakdown below) — that override takes priority over the raw percentage cutoff.
   const sectionsFailed = sectionResults.some(s => s.passed === false);
   const scoreColor = sectionsFailed ? 'text-red-600' : pct >= 70 ? 'text-green-600' : pct >= 50 ? 'text-yellow-600' : 'text-red-600';
-  const needsGrading = perQuestion.some(q => q.type === 'essay' || q.type === 'coding' || q.type === 'file_upload');
+  const needsGrading = perQuestion.some(q => MANUALLY_GRADED_TYPES.includes(q.type as (typeof MANUALLY_GRADED_TYPES)[number]));
 
   return (
     <DesktopGuard>
@@ -182,7 +183,7 @@ export default function ExamCompletePage() {
                 {perQuestion.map((q, i) => {
                   const earned = q.marksAwarded;
                   const full = q.marks;
-                  const isPending = (q.type === 'essay' || q.type === 'coding' || q.type === 'file_upload');
+                  const isPending = MANUALLY_GRADED_TYPES.includes(q.type as (typeof MANUALLY_GRADED_TYPES)[number]);
                   const pctQ = full > 0 ? Math.round((earned / full) * 100) : 0;
                   return (
                     <div key={q.questionId} className="flex items-start gap-3 py-2 border-b last:border-0">

@@ -86,18 +86,19 @@ export async function getCourses(): Promise<Course[]> {
   const grantedRows = accessRows.length
     ? await prisma.course.findMany({ where: { id: { in: accessRows.map(a => a.courseId) }, institutionId: caller.institutionId } })
     : [];
-  // Institutional courses need no explicit grant for a teacher to at least read them — same as
-  // Item Bank institutional banks require an explicit grant, but here every teacher already saw
-  // every institutional course pre-migration (getCourses had zero access control at all), so
-  // dropping that would be a real regression, not a tightening. Institutional courses stay
-  // visible to everyone in the institution; only personal ones need the grant.
+  // Institutional courses are readable by every teacher via resolveCoursePermission's own
+  // implicit-viewer rule for courseLevel === 'institutional' — the single source of truth every
+  // other course read (getCourseById, getTopics, getCLOs, ...) also goes through, so this stays
+  // in sync with them rather than re-deciding the same thing locally.
   const institutionalRows = await prisma.course.findMany({ where: { institutionId: caller.institutionId, courseLevel: 'institutional' } });
 
   const seen = new Set(ownedRows.map(r => r.id));
   const combined = [
     ...ownedRows.map(r => mapCourse(r, 'owner')),
     ...grantedRows.filter(r => !seen.has(r.id)).map(r => mapCourse(r, roleByCourse.get(r.id) ?? null)),
-    ...institutionalRows.filter(r => !seen.has(r.id) && !accessRows.some(a => a.courseId === r.id)).map(r => mapCourse(r, 'viewer')),
+    ...institutionalRows
+      .filter(r => !seen.has(r.id) && !accessRows.some(a => a.courseId === r.id))
+      .map(r => mapCourse(r, resolveCoursePermission(r, caller, null))),
   ];
   return combined.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
@@ -115,9 +116,9 @@ export async function getInstitutionCourses(): Promise<Course[]> {
     select: { courseId: true, permissionRole: true },
   });
   const roleByCourse = new Map(accessRows.map(a => [a.courseId, a.permissionRole as CoursePermissionRole]));
-  // Every institutional course is at least viewer-readable by anyone in the institution (see
-  // getCourses' comment); an explicit grant upgrades that to editor/owner-equivalent.
-  return rows.map(r => mapCourse(r, roleByCourse.get(r.id) ?? (caller.role === 'admin' ? 'owner' : 'viewer')));
+  // Routed through resolveCoursePermission (admin -> owner, institutional -> at least viewer,
+  // upgraded by an explicit grant) so this stays in sync with every other course read.
+  return rows.map(r => mapCourse(r, resolveCoursePermission(r, caller, roleByCourse.get(r.id) ?? null)));
 }
 
 /** Personal course trees the caller owns. */

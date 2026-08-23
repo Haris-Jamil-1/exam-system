@@ -181,6 +181,10 @@ export async function materializePooledQuestions(
           allowedFileTypes: item.allowedFileTypes,
           maxFileSizeMB: item.maxFileSizeMB,
           timeLimitSeconds: item.timeLimitSeconds,
+          // Recording constraints for audio_response/video_response items — without this, a
+          // pooled/materialized item silently reverts to RecordingQuestion.tsx's hardcoded
+          // defaults instead of the teacher's configured min/max duration and prep time.
+          mediaSettings: item.mediaSettings ?? undefined,
           options: item.options.length
             ? { create: item.options.map(o => ({ text: o.text, isCorrect: o.isCorrect, order: o.order })) }
             : undefined,

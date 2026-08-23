@@ -31,7 +31,14 @@ export function resolveCoursePermission(
   if (caller.role === 'admin') return 'owner';
 
   if (course.courseLevel === 'institutional') {
-    return accessRole; // teachers only get whatever role was explicitly granted — no implicit access
+    // Every teacher in the institution can at least read an institutional course — matches
+    // pre-migration behavior (courses had zero access control at all before this RBAC model
+    // shipped; see getCourses()'s history). An explicit CourseAccess grant upgrades this to
+    // editor/owner-equivalent. This must be the single place that decision is made — every
+    // consumer (getCourseById, getTopics, getCLOs, collaborators, ...) routes through this
+    // function via getCoursePermission, so a local fallback in just the listing queries would
+    // leave those other reads out of sync (as it previously did).
+    return accessRole ?? 'viewer';
   }
 
   // Personal course: the creator is always owner (falls back to institutionId matching nothing

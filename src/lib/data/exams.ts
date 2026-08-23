@@ -239,6 +239,11 @@ export async function duplicateExam(
         settings: source.settings as object,
         instructions: source.instructions,
         isProctoringEnabled: source.isProctoringEnabled,
+        // Without copying these, a tag-restricted exam (e.g. accommodation-only) silently
+        // reverts to the fail-open default (empty targetTags = visible to everyone eligible)
+        // on the clone, widening visibility instead of preserving the teacher's restriction.
+        targetTags: source.targetTags,
+        targetTagsOperator: source.targetTagsOperator,
         institutionId,
         teacherId: prismaUserId,
         classId: targetClassId,

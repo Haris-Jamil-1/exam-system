@@ -93,6 +93,17 @@ export function RecordingQuestion({ question, value, onChange }: Props) {
   const compositeStopRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cancelledRef = useRef(false);
+  // Recording-in-progress elapsed seconds, mirrored from the `recordedSeconds` state on every
+  // tick — read by recorder.onstop (a closure created once per recording attempt) to decide
+  // whether the take met minDurationSeconds. Reading the `recordedSeconds` *state* there would
+  // risk a stale value depending on exactly when onstop fires relative to the last render.
+  const recordedSecondsRef = useRef(0);
+  // Always mirrors the latest previewUrl — the unmount cleanup below reads this instead of the
+  // `previewUrl` state directly. That effect has an empty dependency array (deliberately
+  // mount/unmount-scoped, not re-created on every recording), so its own closure would otherwise
+  // permanently see previewUrl's initial value (null) and never actually revoke anything.
+  const previewUrlRef = useRef<string | null>(null);
+  useEffect(() => { previewUrlRef.current = previewUrl; }, [previewUrl]);
 
   useEffect(() => {
     cancelledRef.current = false;
@@ -101,9 +112,8 @@ export function RecordingQuestion({ question, value, onChange }: Props) {
       if (timerRef.current) clearInterval(timerRef.current);
       compositeStopRef.current?.();
       streamsRef.current.forEach(s => s.getTracks().forEach(t => t.stop()));
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- teardown-only, deliberately mount/unmount scoped
   }, []);
 
   function teardownStreams() {
@@ -150,7 +160,15 @@ export function RecordingQuestion({ question, value, onChange }: Props) {
         const blob = new Blob(chunksRef.current, { type: mimeType });
         const ext = mimeType.split('/')[1].split(';')[0];
         const file = new File([blob], `${question.id}-response.${ext}`, { type: mimeType });
-        onChange(file);
+        // Enforcement, not just a warning label: a take shorter than minDurationSeconds is
+        // reported to the parent as "no answer" (same as never having recorded) as long as a
+        // retake is still available, so the exam page's existing required-question gate blocks
+        // advancing until either a long-enough take is recorded or retries run out. Once retries
+        // are exhausted this accepts whatever was recorded rather than trapping the student on a
+        // required question they can no longer satisfy.
+        const meetsMinimum = minDurationSeconds === 0 || recordedSecondsRef.current >= minDurationSeconds;
+        const retriesRemaining = retriesUsed < maxRetries;
+        onChange(meetsMinimum || !retriesRemaining ? file : null);
         setPreviewUrl(URL.createObjectURL(blob));
         setPhase('recorded');
       };
@@ -183,10 +201,12 @@ export function RecordingQuestion({ question, value, onChange }: Props) {
     if (!recorder) return;
     setPhase('recording');
     setRecordedSeconds(0);
+    recordedSecondsRef.current = 0;
     recorder.start();
     timerRef.current = setInterval(() => {
       setRecordedSeconds(s => {
         const next = s + 1;
+        recordedSecondsRef.current = next;
         if (next >= maxDurationSeconds) stopRecording();
         return next;
       });
@@ -267,7 +287,7 @@ export function RecordingQuestion({ question, value, onChange }: Props) {
         </div>
       )}
 
-      {phase === 'recorded' && value && (
+      {phase === 'recorded' && (
         <div className="space-y-2">
           <div className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-4">
             {isVideo && previewUrl ? (
@@ -278,7 +298,9 @@ export function RecordingQuestion({ question, value, onChange }: Props) {
           </div>
           {belowMinimum && (
             <p className="text-xs text-red-600 flex items-center gap-1">
-              <AlertTriangle className="h-3 w-3" /> This recording is shorter than the required minimum of {minDurationSeconds}s.
+              <AlertTriangle className="h-3 w-3" />
+              {' '}This recording is shorter than the required minimum of {minDurationSeconds}s
+              {canRetry ? ' and will not be saved as your answer — re-record to continue.' : ' — it will be submitted as-is since you have no retakes left.'}
             </p>
           )}
           {canRetry && (
