@@ -395,72 +395,76 @@ export default function NewExamPage() {
           <CardHeader><CardTitle>Basic Information</CardTitle></CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit(onStep1)} className="space-y-4">
-              <div className="space-y-2">
-                <Label>Exam Title</Label>
-                <Input placeholder="Midterm: Data Structures" {...register('title')} />
-                {errors.title && <p className="text-sm text-red-500">{errors.title.message}</p>}
-              </div>
-              <div className="space-y-2">
-                <Label>Class <span className="text-muted-foreground font-normal">(optional — leave unset to assign to all your students)</span></Label>
-                <Select value={classId || '__none__'} onValueChange={v => setClassId(v === '__none__' ? '' : v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">No specific class (all my students)</SelectItem>
-                    {classes.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {classId
-                    ? 'Only students enrolled in this class will be able to see and take this exam.'
-                    : 'Visible to every student linked to you — for tighter scoping, assign this exam to a specific class.'}
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label>Target Tags <span className="text-muted-foreground font-normal">(optional — narrow or widen by student profile tag)</span></Label>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {targetTags.map(tag => (
-                    <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
-                      {tag}
-                      <button type="button" onClick={() => setTargetTags(prev => prev.filter(t => t !== tag))} className="text-blue-400 hover:text-blue-700">
-                        <X className="h-3 w-3" />
-                      </button>
-                    </span>
-                  ))}
-                  <Input
-                    value={tagDraft}
-                    onChange={e => setTagDraft(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key !== 'Enter') return;
-                      e.preventDefault();
-                      const trimmed = tagDraft.trim();
-                      if (trimmed && !targetTags.includes(trimmed)) setTargetTags(prev => [...prev, trimmed]);
-                      setTagDraft('');
-                    }}
-                    placeholder="Type a tag and press Enter…"
-                    className="h-7 w-48 text-xs"
-                  />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Exam Title</Label>
+                  <Input placeholder="Midterm: Data Structures" {...register('title')} />
+                  {errors.title && <p className="text-sm text-red-500">{errors.title.message}</p>}
                 </div>
-                {targetTags.length > 0 && (
-                  <div className="flex items-center gap-3 text-xs">
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input type="radio" checked={targetTagsOperator === 'OR'} onChange={() => setTargetTagsOperator('OR')} />
-                      Any (OR) — class OR tag qualifies
-                    </label>
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input type="radio" checked={targetTagsOperator === 'AND'} onChange={() => setTargetTagsOperator('AND')} />
-                      Must match (AND) — class AND tag required
-                    </label>
+                <div className="space-y-2">
+                  <Label>Subject</Label>
+                  <Input placeholder="Computer Science" {...register('subject')} />
+                  {errors.subject && <p className="text-sm text-red-500">{errors.subject.message}</p>}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Class <span className="text-muted-foreground font-normal">(optional — leave unset to assign to all your students)</span></Label>
+                  <Select value={classId || '__none__'} onValueChange={v => setClassId(v === '__none__' ? '' : v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No specific class (all my students)</SelectItem>
+                      {classes.map(c => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {classId
+                      ? 'Only students enrolled in this class will be able to see and take this exam.'
+                      : 'Visible to every student linked to you — for tighter scoping, assign this exam to a specific class.'}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Target Tags <span className="text-muted-foreground font-normal">(optional — narrow or widen by student profile tag)</span></Label>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {targetTags.map(tag => (
+                      <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                        {tag}
+                        <button type="button" onClick={() => setTargetTags(prev => prev.filter(t => t !== tag))} className="text-blue-400 hover:text-blue-700">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                    <Input
+                      value={tagDraft}
+                      onChange={e => setTagDraft(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key !== 'Enter') return;
+                        e.preventDefault();
+                        const trimmed = tagDraft.trim();
+                        if (trimmed && !targetTags.includes(trimmed)) setTargetTags(prev => [...prev, trimmed]);
+                        setTagDraft('');
+                      }}
+                      placeholder="Type a tag and press Enter…"
+                      className="h-7 w-48 text-xs"
+                    />
                   </div>
-                )}
+                  {targetTags.length > 0 && (
+                    <div className="flex items-center gap-3 text-xs">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" checked={targetTagsOperator === 'OR'} onChange={() => setTargetTagsOperator('OR')} />
+                        Any (OR) — class OR tag qualifies
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input type="radio" checked={targetTagsOperator === 'AND'} onChange={() => setTargetTagsOperator('AND')} />
+                        Must match (AND) — class AND tag required
+                      </label>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>Subject</Label>
-                <Input placeholder="Computer Science" {...register('subject')} />
-                {errors.subject && <p className="text-sm text-red-500">{errors.subject.message}</p>}
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="space-y-2">
                   <Label>Total Marks</Label>
                   <Input type="number" defaultValue={100} {...register('totalMarks', { valueAsNumber: true })} />
@@ -469,7 +473,18 @@ export default function NewExamPage() {
                   <Label>Passing Marks</Label>
                   <Input type="number" defaultValue={60} {...register('passingMarks', { valueAsNumber: true })} />
                 </div>
+                <div className="space-y-2 sm:col-span-2 lg:col-span-1">
+                  <Label>Exam Duration (Minutes)</Label>
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <Input type="number" min={MIN_EXAM_DURATION_MINUTES} placeholder="e.g. 90" {...register('duration', { valueAsNumber: true })} />
+                  </div>
+                  {errors.duration && <p className="text-sm text-red-500">{errors.duration.message}</p>}
+                </div>
               </div>
+              <p className="text-xs text-muted-foreground -mt-2">
+                Duration is independent of the availability window below — a student who starts late is still force-submitted at End Time even if this timer hasn&apos;t run out.
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Start Time <span className="text-muted-foreground font-normal">(availability opens)</span></Label>
@@ -487,17 +502,6 @@ export default function NewExamPage() {
                   />
                   {errors.endTime && <p className="text-sm text-red-500">{errors.endTime.message}</p>}
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Exam Duration (Minutes) <span className="text-muted-foreground font-normal">(the student&apos;s own countdown once they start)</span></Label>
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <Input type="number" min={MIN_EXAM_DURATION_MINUTES} placeholder="e.g. 90" {...register('duration', { valueAsNumber: true })} />
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Independent of the availability window above — a student who starts late is still force-submitted at End Time even if this timer hasn&apos;t run out.
-                </p>
-                {errors.duration && <p className="text-sm text-red-500">{errors.duration.message}</p>}
               </div>
               <div className="space-y-2">
                 <Label>Instructions <span className="text-muted-foreground font-normal">(shown to students before they start)</span></Label>
