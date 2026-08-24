@@ -360,7 +360,7 @@ export default function NewExamPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="space-y-6">
       {/* Breadcrumb */}
       <div className="flex items-center gap-1.5 text-[13px] text-[#6B7280]">
         <Link href="/teacher/exams" className="hover:text-[#1A1D23] transition-colors">Exams</Link>

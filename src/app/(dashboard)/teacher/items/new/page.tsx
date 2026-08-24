@@ -260,7 +260,7 @@ export default function NewItemPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="space-y-6">
       {/* Breadcrumb — ChevronRight (not a raw "›" character) so it can flip for RTL below;
           a literal ">" glyph doesn't rotate and points the wrong way once the trail reads
           right-to-left. */}
