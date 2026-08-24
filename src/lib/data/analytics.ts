@@ -468,6 +468,88 @@ export async function getTeachersList() {
   }));
 }
 
+// Institution-wide admin analytics — replaces the two hardcoded MONTHLY/DEPT_STATS arrays that
+// previously lived directly in the admin analytics page component.
+
+export interface MonthlyExamStat {
+  month: string;
+  total: number;
+  passed: number;
+}
+
+/** Attempts submitted per month (last 6 months, oldest first) — "Total" is every finalized
+ *  attempt, "Passed" is the subset scoring >= that exam's own passingMarks. */
+export async function getMonthlyExamStats(): Promise<MonthlyExamStat[]> {
+  const { institutionId } = await getSession();
+  if (!institutionId) return [];
+
+  const since = new Date();
+  since.setDate(1);
+  since.setHours(0, 0, 0, 0);
+  since.setMonth(since.getMonth() - 5);
+
+  const attempts = await prisma.examAttempt.findMany({
+    where: { exam: { institutionId }, status: { not: 'in_progress' }, submittedAt: { gte: since } },
+    select: { submittedAt: true, score: true, exam: { select: { passingMarks: true } } },
+  });
+
+  const months: { key: string; label: string }[] = [];
+  const cursor = new Date(since);
+  for (let i = 0; i < 6; i++) {
+    months.push({ key: `${cursor.getFullYear()}-${cursor.getMonth()}`, label: cursor.toLocaleString('en-US', { month: 'short' }) });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+
+  const buckets = new Map(months.map(m => [m.key, { total: 0, passed: 0 }]));
+  for (const a of attempts) {
+    if (!a.submittedAt) continue;
+    const bucket = buckets.get(`${a.submittedAt.getFullYear()}-${a.submittedAt.getMonth()}`);
+    if (!bucket) continue;
+    bucket.total += 1;
+    if ((a.score ?? 0) >= a.exam.passingMarks) bucket.passed += 1;
+  }
+
+  return months.map(m => ({ month: m.label, ...buckets.get(m.key)! }));
+}
+
+export interface DepartmentTrustStat {
+  department: string;
+  avgTrust: number;
+  avgScore: number;
+  attemptCount: number;
+}
+
+/** Trust score + avg score grouped by the exam-owning teacher's `User.department` — teachers with
+ *  no department set are pooled into "Unassigned" rather than dropped. */
+export async function getTrustScoreByDepartment(): Promise<DepartmentTrustStat[]> {
+  const { institutionId } = await getSession();
+  if (!institutionId) return [];
+
+  const attempts = await prisma.examAttempt.findMany({
+    where: { exam: { institutionId }, status: { not: 'in_progress' } },
+    select: { trustScore: true, scorePercentage: true, exam: { select: { teacher: { select: { department: true } } } } },
+  });
+
+  const byDept = new Map<string, { trustSum: number; scoreSum: number; scoreCount: number; count: number }>();
+  for (const a of attempts) {
+    const dept = a.exam.teacher.department ?? 'Unassigned';
+    const bucket = byDept.get(dept) ?? { trustSum: 0, scoreSum: 0, scoreCount: 0, count: 0 };
+    bucket.trustSum += a.trustScore;
+    bucket.count += 1;
+    if (a.scorePercentage !== null) { bucket.scoreSum += a.scorePercentage; bucket.scoreCount += 1; }
+    byDept.set(dept, bucket);
+  }
+
+  return Array.from(byDept.entries())
+    .map(([department, b]) => ({
+      department,
+      avgTrust: Math.round(b.trustSum / b.count),
+      avgScore: b.scoreCount ? Math.round(b.scoreSum / b.scoreCount) : 0,
+      attemptCount: b.count,
+    }))
+    .sort((a, b) => b.avgTrust - a.avgTrust);
+}
+
 export async function getPendingExams(): Promise<PendingExam[]> {
   const { institutionId } = await getSession();
   if (!institutionId) return [];

@@ -27,6 +27,7 @@
 import {
   getAnalyticsKpis, getScoreDistribution, getTrustTrend, getQuestionDifficulty,
   getAdminStats, getTeachersList, getPendingExams, getApprovedExams, getScoreByTag,
+  getMonthlyExamStats, getTrustScoreByDepartment,
 } from './analytics';
 import { getAllUsers, getMyInstitution } from './users';
 import { getExams, getExamById } from './exams';
@@ -37,7 +38,10 @@ import { getSections } from './sections';
 import { getStudentResults, getMonitorStudents } from './students';
 import { getMonitorFeed } from './violations';
 import { getClassById, getEnrollments, getClassInvites, getInstitutionClasses, getMyPrivateClasses, getSharedWithMeClasses } from './classes';
-import { getInstitutionCourses, getMyPrivateCourses, getSharedWithMeCourses, getCourseById, getTopics, getCloPerformanceReport } from './curriculum';
+import {
+  getInstitutionCourses, getMyPrivateCourses, getSharedWithMeCourses, getCourseById, getTopics,
+  getCloPerformanceReport, getInstitutionCurriculumAnalytics,
+} from './curriculum';
 
 // ── Teacher ───────────────────────────────────────────────────────────────────
 
@@ -149,8 +153,11 @@ export async function getAdminNavCounts() {
 }
 
 export async function getAdminAnalyticsData() {
-  const [stats, teachers] = await Promise.all([getAdminStats(), getTeachersList()]);
-  return { stats, teachers };
+  const [stats, teachers, monthlyExams, trustByDepartment, curriculum] = await Promise.all([
+    getAdminStats(), getTeachersList(), getMonthlyExamStats(), getTrustScoreByDepartment(),
+    getInstitutionCurriculumAnalytics(),
+  ]);
+  return { stats, teachers, monthlyExams, trustByDepartment, curriculum };
 }
 
 export async function getAdminExamsPageData() {

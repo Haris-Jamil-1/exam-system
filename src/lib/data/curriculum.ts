@@ -1,10 +1,13 @@
 'use server';
 import { prisma } from '@/lib/prisma';
-import { getSessionUser } from '@/lib/session';
+import { getSessionUser, getSessionContext } from '@/lib/session';
 import {
   resolveCoursePermission, canReadCourse, canEditCourse, canManageCourse, type CallerContext,
 } from '@/lib/curriculum-permissions';
-import type { Course, Topic, LearningObjective, CourseLevel, CoursePermissionRole, CourseCollaborator } from '@/types';
+import type {
+  Course, Topic, LearningObjective, CourseLevel, CoursePermissionRole, CourseCollaborator,
+  BloomsLevel, LearningDomain,
+} from '@/types';
 
 async function getCaller(): Promise<CallerContext | null> {
   const row = await getSessionUser();
@@ -355,6 +358,85 @@ export async function getCloPerformanceReport(courseId: string): Promise<CloPerf
       averageScorePercent: count >= MIN_N_FOR_AVERAGE ? Number(((bucket!.sum) / count).toFixed(1)) : undefined,
     };
   });
+}
+
+// ── Institution-wide curriculum analytics (admin analytics page) ──────────────
+// Same marksAwarded/marks percentage math as getCloPerformanceReport above, but rolled up across
+// every course in the institution and bucketed by learningDomain / bloomsLevel instead of by CLO.
+
+export interface DomainPerformance {
+  domain: LearningDomain;
+  questionCount: number;
+  averageScorePercent?: number;
+}
+
+export interface BloomsPerformance {
+  level: BloomsLevel;
+  questionCount: number;
+  averageScorePercent?: number;
+}
+
+const DOMAIN_ORDER: LearningDomain[] = ['Knowledge', 'Skill', 'Values'];
+const BLOOMS_ORDER: BloomsLevel[] = ['Remember', 'Understand', 'Apply', 'Analyze', 'Evaluate', 'Create'];
+
+export async function getInstitutionCurriculumAnalytics(): Promise<{
+  domainBreakdown: DomainPerformance[];
+  bloomsPerformance: BloomsPerformance[];
+}> {
+  const { institutionId } = await getSessionContext();
+  if (!institutionId) return { domainBreakdown: [], bloomsPerformance: [] };
+
+  const questions = await prisma.question.findMany({
+    where: { learningObjectiveId: { not: null }, exam: { institutionId } },
+    select: {
+      marks: true,
+      learningObjective: { select: { bloomsLevel: true, learningDomain: true } },
+      answers: { where: { marksAwarded: { not: null } }, select: { marksAwarded: true } },
+    },
+  });
+
+  type Bucket = { sum: number; gradedCount: number; questionCount: number };
+  const byDomain = new Map<LearningDomain, Bucket>();
+  const byBlooms = new Map<BloomsLevel, Bucket>();
+
+  for (const q of questions) {
+    if (!q.learningObjective || q.marks <= 0) continue;
+    const domain = q.learningObjective.learningDomain as LearningDomain;
+    const level = q.learningObjective.bloomsLevel as BloomsLevel;
+
+    const dBucket = byDomain.get(domain) ?? { sum: 0, gradedCount: 0, questionCount: 0 };
+    const bBucket = byBlooms.get(level) ?? { sum: 0, gradedCount: 0, questionCount: 0 };
+    dBucket.questionCount += 1;
+    bBucket.questionCount += 1;
+
+    for (const a of q.answers) {
+      if (a.marksAwarded === null) continue;
+      const pct = (a.marksAwarded / q.marks) * 100;
+      dBucket.sum += pct; dBucket.gradedCount += 1;
+      bBucket.sum += pct; bBucket.gradedCount += 1;
+    }
+
+    byDomain.set(domain, dBucket);
+    byBlooms.set(level, bBucket);
+  }
+
+  const withAverage = (b: Bucket) => (b.gradedCount >= MIN_N_FOR_AVERAGE ? { averageScorePercent: Number((b.sum / b.gradedCount).toFixed(1)) } : {});
+
+  const domainBreakdown: DomainPerformance[] = DOMAIN_ORDER
+    .map(domain => {
+      const b = byDomain.get(domain);
+      return b ? { domain, questionCount: b.questionCount, ...withAverage(b) } : null;
+    })
+    .filter((x): x is DomainPerformance => x !== null);
+
+  const bloomsPerformance: BloomsPerformance[] = BLOOMS_ORDER
+    .map(level => {
+      const b = byBlooms.get(level);
+      return b ? { level, questionCount: b.questionCount, ...withAverage(b) } : null;
+    })
+    .filter((x): x is BloomsPerformance => x !== null);
+
+  return { domainBreakdown, bloomsPerformance };
 }
 
 // ── Collaborators (owner-only to manage) ──────────────────────────────────────
